@@ -15,10 +15,10 @@
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
-    "build:release:linux": "electron-builder --linux --x64",
-    "build:release:deb": "electron-builder --linux deb --x64",
-    "build:release:win": "electron-builder --win --x64",
-    "build:release:mac": "electron-builder --mac"
+    "build:release:linux": "electron-builder --linux --x64 --publish never",
+    "build:release:deb": "electron-builder --linux deb --x64 --publish never",
+    "build:release:win": "electron-builder --win --x64 --publish never",
+    "build:release:mac": "electron-builder --mac --publish never"
   },
   "dependencies": {
     "@traptitech/markdown-it-katex": "^3.6.0",
