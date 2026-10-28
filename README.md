@@ -11,7 +11,8 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Drag files and folders into other folders to reorganize them.
 - Changes are saved as you type. Notes can also be edited with any text editor.
 - Add images using paths relative to the vault. Images appear in the preview and can be opened full-screen.
-- Add comments to selected passages, revisit them from the comments panel, and edit or remove them.
+- Add comments to selected passages, revisit them from the comments panel, and edit or remove them. The comment box opens toward the left when the selection is near the right edge.
+- Hover a file or folder in the sidebar to see its full path. Selecting text also offers a Copy action.
 
 ### Edit and preview Markdown
 
@@ -21,14 +22,16 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Highlight fenced code blocks and render inline and display LaTeX math with KaTeX.
 - Choose automatic, left-to-right, or right-to-left text direction. Automatic direction supports mixed Persian and English paragraphs; code, tables, and math remain left-to-right.
 - Zoom the document from 50% to 250%.
+- In Settings → Appearance, scale the whole app's font size from 80% to 150% and pick a color theme: Dark, Light, Nord, Dracula, Solarized Dark, Solarized Light, Sepia, or Rose.
 - Export a self-contained HTML copy of a document. The export includes local images and is suitable for sharing or printing.
 
 ### Ask AI
 
-- Open the Ask AI panel to ask a question, or use document actions to summarize, explain, translate, or extract notes from the current document.
+- Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, ask about code) are in the AI tools menu in the header.
 - Ask AI about selected text, or explain a piece of code. AI prompts can include the selected text or document content needed for the chosen action.
 - Ask AI to edit a selected passage or insert text at the cursor. Review the full Markdown preview with removed text marked red and proposed text highlighted green in place, then accept or reject the change. Accepted changes are saved to the open note; if the note changes while AI is working, Inkwell asks you to generate a fresh proposal.
 - Choose Claude, Codex, or OpenCode, set a model, and manage reusable quick prompts in Settings.
+- Add custom CLI providers in Settings with a command, type, model flag, and an optional base URL and API key. These are passed to the command as environment variables (`ANTHROPIC_*` for Claude-type providers, `OPENAI_*` otherwise; the names can be changed). They are stored in Inkwell's local settings.
 - Save a useful AI answer as a new Markdown note.
 
 Inkwell does not provide an AI model or AI account. It starts the selected command-line client installed on your computer (`claude`, `codex`, or `opencode`) and uses that client's local setup and authentication. For Claude, Inkwell runs the `claude` CLI. It also reads `claudeCode.environmentVariables` from the local VS Code user `settings.json`, when present, and passes those environment variables to the CLI process. Inkwell does not put these credentials in the project or send them to GitHub. When you submit an AI request, the prompt and any included note text are sent by the selected CLI to the AI service configured for that CLI; review that service's privacy terms before sending sensitive content.
