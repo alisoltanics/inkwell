@@ -144,8 +144,7 @@ const els = {
   aiReplaceBtn: $('aiReplaceBtn'),
   aiReviewChangeBtn: $('aiReviewChangeBtn'),
   aiEditReviewLocation: $('aiEditReviewLocation'),
-  aiEditReviewBefore: $('aiEditReviewBefore'),
-  aiEditReviewAfter: $('aiEditReviewAfter'),
+  aiEditReviewPreview: $('aiEditReviewPreview'),
   aiEditAcceptBtn: $('aiEditAcceptBtn'),
   aiEditRejectBtn: $('aiEditRejectBtn'),
   aiAnswerBadge: $('aiAnswerBadge'),
@@ -4127,30 +4126,72 @@ function openAIEditReview() {
   const startLine = edit.originalContent.slice(0, edit.start).split('\n').length;
   const endLine = edit.originalContent.slice(0, edit.end).split('\n').length;
   els.aiEditReviewLocation.textContent = `${edit.filePath} · ${edit.insertion ? `Insert at line ${startLine}` : startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}–${endLine}`}`;
-  const lineStart = edit.originalContent.lastIndexOf('\n', edit.start - 1) + 1;
-  const lineBreak = edit.originalContent.indexOf('\n', edit.start);
-  const lineEnd = lineBreak < 0 ? edit.originalContent.length : lineBreak;
-  const currentText = edit.insertion ? edit.originalContent.slice(lineStart, lineEnd) : edit.target;
-  renderAIEditReviewPane(els.aiEditReviewBefore, currentText, edit.insertion ? '(Blank line at insertion point)' : '(Empty selection)');
-  renderAIEditReviewPane(
-    els.aiEditReviewAfter,
-    edit.replacement,
-    edit.target ? 'This passage will be removed.' : 'No text to insert.',
-    !!edit.target && !edit.replacement,
-  );
+  renderAIEditPreview(edit);
   openModal('aiEditReview');
 }
 
-function renderAIEditReviewPane(element, markdown, emptyLabel, isRemoval = false) {
-  element.classList.remove('ai-edit-removal');
-  if (markdown) {
-    element.innerHTML = md.render(markdown);
-    element.setAttribute('dir', detectDirectionMajority(markdown));
-  } else {
-    element.textContent = emptyLabel;
-    element.removeAttribute('dir');
-    if (isRemoval) element.classList.add('ai-edit-removal');
+function renderAIEditPreview(edit) {
+  const preview = els.aiEditReviewPreview;
+  const marker = `INKWELLREVIEW${Date.now()}${Math.random().toString(36).slice(2)}END`;
+  const textBeforeChange = edit.originalContent.slice(0, edit.start);
+  const priorFences = textBeforeChange.match(/^[ \t]{0,3}(?:`{3,}|~{3,})/gm) || [];
+  const insideFence = priorFences.length % 2 === 1;
+  const changeText = edit.target + edit.replacement;
+  const blockChange = !insideFence && (
+    /[\r\n]/.test(changeText) ||
+    /^[ \t]{0,3}(?:#{1,6}\s|[-*+]\s|>\s|`{3,}|~{3,}|\d+[.)]\s)/.test(changeText)
+  );
+  const markerText = blockChange ? `\n\n${marker}\n\n` : marker;
+  const source = textBeforeChange + markerText + edit.originalContent.slice(edit.end);
+
+  preview.innerHTML = md.render(source);
+  preview.setAttribute('dir', detectDirectionMajority(source));
+  preview.querySelectorAll(BIDI_BLOCK_SEL).forEach((el) => {
+    el.setAttribute('dir', hasRtlChar(el.textContent) ? 'rtl' : 'ltr');
+  });
+
+  const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    const markerAt = node.nodeValue.indexOf(marker);
+    if (markerAt < 0) continue;
+    const inCode = !!node.parentElement.closest('code, pre');
+    const asBlock = blockChange && !inCode && node.parentElement.tagName === 'P' && node.parentElement.textContent === marker;
+    const wrapper = document.createElement(asBlock ? 'div' : 'span');
+    wrapper.className = 'ai-edit-diff-group';
+
+    if (edit.target) appendAIEditDiffPart(wrapper, 'ai-edit-diff-removed', edit.target, asBlock, inCode);
+    if (edit.replacement) appendAIEditDiffPart(wrapper, 'ai-edit-diff-added', edit.replacement, asBlock, inCode);
+    if (!edit.target && !edit.replacement) {
+      wrapper.classList.add('ai-edit-diff-empty');
+      wrapper.textContent = 'No text change proposed';
+    }
+
+    if (asBlock) {
+      node.parentElement.replaceWith(wrapper);
+    } else {
+      const range = document.createRange();
+      range.setStart(node, markerAt);
+      range.setEnd(node, markerAt + marker.length);
+      range.deleteContents();
+      range.insertNode(wrapper);
+    }
+    return;
   }
+
+  const fallback = document.createElement('div');
+  fallback.className = 'ai-edit-diff-group ai-edit-diff-block';
+  if (edit.target) appendAIEditDiffPart(fallback, 'ai-edit-diff-removed', edit.target, true, false);
+  if (edit.replacement) appendAIEditDiffPart(fallback, 'ai-edit-diff-added', edit.replacement, true, false);
+  preview.appendChild(fallback);
+}
+
+function appendAIEditDiffPart(parent, className, markdown, asBlock, inCode) {
+  const part = document.createElement(asBlock ? 'div' : 'span');
+  part.className = `ai-edit-diff-part ${className}${asBlock ? ' ai-edit-diff-block' : ' ai-edit-diff-inline'}`;
+  if (inCode) part.textContent = markdown;
+  else part.innerHTML = asBlock ? md.render(markdown) : md.renderInline(markdown);
+  parent.appendChild(part);
 }
 
 async function acceptAIEdit() {

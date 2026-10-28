@@ -734,15 +734,12 @@
                 <button class="modal-close" type="button" data-close="aiEditReview" aria-label="Close">&times;</button>
             </div>
             <div class="ai-edit-review-location" id="aiEditReviewLocation"></div>
-            <div class="ai-edit-review-columns">
-                <section class="ai-edit-review-pane ai-edit-before">
-                    <h4>Current text</h4>
-                    <div class="markdown-body ai-edit-review-render" id="aiEditReviewBefore"></div>
-                </section>
-                <section class="ai-edit-review-pane ai-edit-after">
-                    <h4><span class="ai-edit-added-dot" aria-hidden="true"></span> Proposed text</h4>
-                    <div class="markdown-body ai-edit-review-render" id="aiEditReviewAfter"></div>
-                </section>
+            <section class="ai-edit-review-document">
+                <div class="ai-edit-review-legend">
+                    <span><i class="ai-edit-added-dot" aria-hidden="true"></i> Proposed addition</span>
+                    <span><i class="ai-edit-removed-dot" aria-hidden="true"></i> Text to remove</span>
+                </div>
+                <div class="markdown-body ai-edit-review-preview" id="aiEditReviewPreview"></div>
             </div>
             <p class="ai-edit-review-note">The note will only change if you accept this proposal.</p>
             <div class="modal-footer">
