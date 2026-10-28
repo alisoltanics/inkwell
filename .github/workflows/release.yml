@@ -31,7 +31,7 @@ jobs:
             script: build:release:win
             args: ''
             artifacts: dist/*.exe
-          - os: macos-latest
+          - os: macos-15-intel
             platform: macos
             arch: x64
             script: build:release:mac
@@ -39,7 +39,7 @@ jobs:
             artifacts: |
               dist/*.dmg
               dist/*.zip
-          - os: macos-latest
+          - os: macos-15-intel
             platform: macos
             arch: arm64
             script: build:release:mac
