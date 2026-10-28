@@ -141,6 +141,7 @@ const els = {
   aiFloatBtn: $('aiFloatBtn'),
   aiExplainFloatBtn: $('aiExplainFloatBtn'),
   aiChangeFloatBtn: $('aiChangeFloatBtn'),
+  copyFloatBtn: $('copyFloatBtn'),
   selectionEditQuote: $('selectionEditQuote'),
   selectionEditPrompt: $('selectionEditPrompt'),
   selectionEditSubmit: $('selectionEditSubmit'),
@@ -285,7 +286,8 @@ function renderThemeGrid() {
 
 function applyFontSize() {
   state.fontSize = Math.max(80, Math.min(150, Math.round(Number(state.fontSize) || 100)));
-  document.documentElement.style.zoom = state.fontSize === 100 ? '' : String(state.fontSize / 100);
+  try { window.inkwell.setUIScale(state.fontSize / 100); } catch (_) {}
+  requestAnimationFrame(() => { try { positionAIPanel(); positionCommentsPanel(); } catch (_) {} });
   const range = $('settingsFontSize');
   if (range) range.value = state.fontSize;
   const val = $('settingsFontSizeValue');
@@ -398,6 +400,15 @@ async function updateVaultDisplay(dir) {
     els.vaultPath.title = location;
   }
   if (els.vaultLocation) els.vaultLocation.textContent = location;
+  vaultRoot = dir || '';
+  document.querySelectorAll('#fileList [data-path], #fileList [data-name]').forEach((el) => {
+    el.title = fullItemPath(el.dataset.path || el.dataset.name);
+  });
+}
+
+var vaultRoot = '';
+function fullItemPath(rel) {
+  return vaultRoot ? vaultRoot.replace(/[\\/]+$/, '') + '/' + rel : rel;
 }
 
 async function ensureVaultForCreation() {
@@ -679,6 +690,7 @@ function buildFolderNode(folder, childrenOf, fileItems, forcedOpen, depth) {
   const row = document.createElement('div');
   row.className = 'folder-item' + (isActiveFolder ? ' active' : '');
   row.dataset.path = folder.path;
+  row.title = fullItemPath(folder.path);
   row.style.paddingLeft = (10 + depth * 14) + 'px';
   row.innerHTML = `
     ${iconChevron(open)}
@@ -839,6 +851,7 @@ function buildFileItem(file, depth = 0) {
   const item = document.createElement('div');
   item.className = 'file-item' + (file.path === state.currentFile ? ' active' : '') + (pinned ? ' has-pin' : '') + (isHtmlDocument ? ' file-item-html' : '');
   item.dataset.name = file.path;
+  item.title = fullItemPath(file.path);
   item.style.paddingLeft = (10 + depth * 14) + 'px';
 
   item.innerHTML = `
@@ -2920,9 +2933,12 @@ function openCommentComposer(anchor, x, y) {
   els.cmtComposerQuote.setAttribute('dir', detectDirection(anchor.quote));
   els.cmtComposerBody.value = '';
   els.commentComposer.classList.remove('hidden');
-  const w = 362;
+  const w = els.commentComposer.offsetWidth || 362;
   const h = els.commentComposer.offsetHeight || 230;
-  const px = Math.max(8, Math.min(x, window.innerWidth - w - 8));
+  // near the right edge, open toward the left so the whole box stays visible
+  const floatW = els.selFloat && !els.selFloat.classList.contains('hidden') ? els.selFloat.offsetWidth : 0;
+  const openLeft = x + w > window.innerWidth - 8;
+  const px = Math.max(8, Math.min(openLeft ? x + floatW - w : x, window.innerWidth - w - 8));
   const py = Math.max(8, Math.min(y + 8, window.innerHeight - h - 8));
   els.commentComposer.style.left = px + 'px';
   els.commentComposer.style.top = py + 'px';
@@ -5256,6 +5272,14 @@ function setupAI() {
   [els.aiExplainFloatBtn, els.aiChangeFloatBtn].forEach((button) => {
     button.addEventListener('mousedown', (e) => e.preventDefault());
   });
+  if (els.copyFloatBtn) {
+    els.copyFloatBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    els.copyFloatBtn.addEventListener('click', async () => {
+      const ok = await copyText(aiContext.text || '');
+      toast(ok ? 'Copied' : 'Could not copy', ok ? 'success' : 'error');
+      hideAIFloat();
+    });
+  }
   els.aiExplainFloatBtn.addEventListener('click', explainSelectedPassage);
   els.aiChangeFloatBtn.addEventListener('click', openSelectedPassageEditDialog);
   els.selectionEditSubmit.addEventListener('click', submitSelectedPassageEdit);

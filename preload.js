@@ -1,6 +1,7 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('inkwell', {
+  setUIScale: (factor) => webFrame.setZoomFactor(factor),
   listFiles: () => ipcRenderer.invoke('fs:list'),
   readFile: (filename) => ipcRenderer.invoke('fs:read', filename),
   writeFile: (filename, content) => ipcRenderer.invoke('fs:write', filename, content),

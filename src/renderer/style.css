@@ -2797,6 +2797,8 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 
 .sel-btn-ai { color: var(--accent); }
 .sel-btn-ai:hover { background: var(--accent-glow); }
+.sel-btn-copy { color: var(--text-secondary); }
+.sel-btn-copy:hover { color: var(--accent); background: var(--accent-glow); }
 .sel-btn-explain { color: var(--text-secondary); }
 .sel-btn-explain:hover { color: var(--accent); background: var(--accent-glow); }
 .sel-btn-edit { color: var(--text-secondary); }
