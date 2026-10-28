@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inkwell</title>
+    <link rel="stylesheet" href="hljs.css">
+    <link rel="stylesheet" href="katex.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Frameless window controls -->
+    <div class="window-controls">
+        <button type="button" class="wc-btn" id="wcMin" title="Minimize">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2.5 6h7"/></svg>
+        </button>
+        <button type="button" class="wc-btn" id="wcMax" title="Maximize / Restore">
+            <svg class="icon-max" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>
+            <svg class="icon-restore" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="3.5" width="6.5" height="6.5" rx="1"/><path d="M4 3.5v-1A1 1 0 0 1 5 1.5h4.5A1 1 0 0 1 10.5 2.5V7a1 1 0 0 1-1 1h-1"/></svg>
+        </button>
+        <button type="button" class="wc-btn wc-close" id="wcClose" title="Close">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>
+        </button>
+    </div>
+
+    <!-- App Screen -->
+    <div id="appScreen">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-top">
+                <div class="sidebar-brand">
+                    <img class="brand-logo" src="../../assets/icon.png" alt="">
+                    <span>Inkwell</span>
+                </div>
+                <div class="sidebar-actions">
+                    <button id="newFileBtn" class="btn-new" title="New file (Ctrl+N)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                        New
+                    </button>
+                    <button id="newFolderBtn" class="btn-new btn-new-ghost" title="New folder">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 11v6M9 14h6"/>
+                        </svg>
+                        Folder
+                    </button>
+                </div>
+            </div>
+
+            <div class="sidebar-search">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+                <input type="text" id="searchInput" placeholder="Search files...">
+            </div>
+
+            <div class="file-list" id="fileList"></div>
+
+            <div class="sidebar-footer">
+                <div class="vault-info" id="vaultPath" title="Notes folder"></div>
+            </div>
+            <div class="sidebar-resizer" id="sidebarResizer" title="Drag to resize sidebar"></div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main">
+            <!-- Top bar -->
+            <div class="topbar">
+                <div class="topbar-left">
+                    <button id="toggleSidebarBtn" class="btn-icon" title="Toggle sidebar">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>
+                        </svg>
+                    </button>
+                    <div class="breadcrumb">
+                        <span class="breadcrumb-vault">Library</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+                        <span class="breadcrumb-file" id="currentFileName">Welcome</span>
+                    </div>
+                    <div class="doc-actions hidden" id="docActions">
+                        <button class="doc-act" data-doc="summary" type="button" title="Summarize this document">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                            <span>Summary</span>
+                        </button>
+                        <button class="doc-act" data-doc="explain" type="button" title="Explain this document">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                            <span>Explain</span>
+                        </button>
+                        <button class="doc-act" data-doc="translate" type="button" title="Translate this document">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h10M9 3v2c0 4-2 7-5 9"/><path d="M6 12c1.5 2.5 3.5 4 6 4.5"/><path d="m12.5 21 4.5-11 4.5 11M14 17h6"/></svg>
+                            <span>Translate</span>
+                        </button>
+                        <button class="doc-act" data-doc="notes" type="button" title="Extract the important notes of this document">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
+                            <span>Notes</span>
+                        </button>
+                        <button class="doc-act" id="aiHeaderSelectionBtn" type="button" title="Open Ask AI">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+                            <span>Ask AI</span>
+                        </button>
+                        <button class="doc-act" id="askCodeHeaderBtn" type="button" title="Open Ask AI for the selected code">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg>
+                            <span>Ask AI about code</span>
+                        </button>
+                    </div>
+                    <button class="doc-act doc-cmt hidden" id="commentsToolbarBtn" type="button" title="Comments (show/hide comments for this document)">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
+                        <span>Comments</span>
+                        <span class="tb-badge hidden" id="commentsBadge">0</span>
+                    </button>
+                </div>
+                <div class="topbar-center">
+                    <div class="view-toggle" id="viewToggle">
+                        <button class="view-btn active" data-view="edit" title="Edit mode">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            <span class="vb-label">Edit</span>
+                        </button>
+                        <button class="view-btn" data-view="preview" title="Preview mode (Ctrl+P)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                            </svg>
+                            <span class="vb-label">Preview</span>
+                        </button>
+                        <button class="view-btn" data-view="split" title="Split view">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>
+                            </svg>
+                            <span class="vb-label">Split</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <span class="save-status" id="saveStatus"></span>
+                    <span class="word-count" id="wordCount">0 words</span>
+                    <button id="settingsBtn" class="btn-icon" title="Settings">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </button>
+                    <button id="themeToggle" class="btn-icon" title="Toggle theme">
+                        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1.5 12h3M19.5 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+                    </button>
+                    <button id="exportBtn" class="btn-icon" title="Export document as HTML (Ctrl+Shift+E)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                    </button>
+                    <button id="telegramBtn" class="btn-icon" title="Send document to Telegram">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 3.5 2.5 10.7l5.4 1.9M21.5 3.5l-3.1 16.4-6-4.6M21.5 3.5 7.9 12.6m0 0v4.9l3-3.1"/></svg>
+                    </button>
+                    <div class="zoom-controls">
+                        <button class="btn-icon" id="zoomOut" title="Zoom out (Ctrl+-)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+                        </button>
+                        <button class="zoom-level" id="zoomLevel" title="Reset zoom (Ctrl+0)">100%</button>
+                        <button class="btn-icon" id="zoomIn" title="Zoom in (Ctrl+=)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                        </button>
+                    </div>
+                    <button id="deleteFileBtn" class="btn-icon btn-icon-danger" title="Delete file">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                    <button id="saveBtn" class="btn-save" title="Save (Ctrl+S)">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>
+                        </svg>
+                        Save
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pinned file tabs -->
+            <div class="tabbar hidden" id="tabBar"></div>
+
+            <!-- Formatting toolbar -->
+            <div class="editor-toolbar" id="editorToolbar">
+                <div class="toolbar-group">
+                    <button class="tb-btn" data-action="undo" title="Undo (Ctrl+Z)">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="redo" title="Redo (Ctrl+Shift+Z)">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+                    </button>
+                </div>
+                <div class="toolbar-sep"></div>
+                <div class="toolbar-group">
+                    <button class="tb-btn tb-text" data-action="bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
+                    <button class="tb-btn tb-text" data-action="italic" title="Italic (Ctrl+I)"><em>I</em></button>
+                    <button class="tb-btn tb-text" data-action="strike" title="Strikethrough (Ctrl+Shift+X)"><span style="text-decoration:line-through">S</span></button>
+                    <button class="tb-btn tb-text" data-action="code" title="Inline code (Ctrl+`)">&lt;/&gt;</button>
+                </div>
+                <div class="toolbar-sep"></div>
+                <div class="toolbar-group">
+                    <button class="tb-btn tb-text" data-action="h1" title="Heading 1 (Ctrl+1)">H1</button>
+                    <button class="tb-btn tb-text" data-action="h2" title="Heading 2 (Ctrl+2)">H2</button>
+                    <button class="tb-btn tb-text" data-action="h3" title="Heading 3 (Ctrl+3)">H3</button>
+                </div>
+                <div class="toolbar-sep"></div>
+                <div class="toolbar-group">
+                    <button class="tb-btn" data-action="ul" title="Bullet list">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="3.5" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="3.5" cy="18" r="1.2" fill="currentColor" stroke="none"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="ol" title="Numbered list">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 6h11M10 12h11M10 18h11"/><path d="M3 5v3M3 11h2v1H3v1h2M3 16h2l-2 3h2" stroke-width="1.6"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="task" title="Task list">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m4.5 8 1.2 1.2L8 6.5"/><path d="M13 8h8M4 17h16"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="quote" title="Quote">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3-1 5-3 5-6V8H3v6h3"/><path d="M13 21c3-1 5-3 5-6V8h-5v6h3"/></svg>
+                    </button>
+                </div>
+                <div class="toolbar-sep"></div>
+                <div class="toolbar-group">
+                    <button class="tb-btn" data-action="link" title="Link (Ctrl+K)">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="image" title="Image">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="codeblock" title="Code block">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m9 10-2 2 2 2M15 10l2 2-2 2"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="table" title="Table">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/></svg>
+                    </button>
+                    <button class="tb-btn" data-action="hr" title="Horizontal rule">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16"/></svg>
+                    </button>
+                </div>
+                <div class="toolbar-spacer"></div>
+                <button class="tb-btn" id="explainCodeToolbarBtn" title="Explain a piece of code (Ctrl+Shift+K)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 4 12l4 5M16 7l4 5-4 5M13 5l-2 14"/></svg>
+                </button>
+                <button class="tb-btn tb-ai" id="aiToolbarBtn" title="Ask AI about selection (Ctrl+J)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+                </button>
+                <div class="direction-control" id="directionControl" title="Text direction">
+                    <button class="dir-btn active" data-dir="auto">Auto</button>
+                    <button class="dir-btn" data-dir="ltr">LTR</button>
+                    <button class="dir-btn" data-dir="rtl">RTL</button>
+                </div>
+            </div>
+
+            <!-- Editor area -->
+            <div class="editor-area" id="editorArea">
+                <div class="editor-wrap" id="editorWrap">
+                    <div class="editor-highlight" id="editorHighlight" aria-hidden="true"></div>
+                    <textarea id="editor" class="editor-pane" spellcheck="false" placeholder="Start writing..."></textarea>
+                </div>
+                <div class="split-divider" id="splitDivider" title="Drag to resize">
+                    <div class="split-divider-handle"></div>
+                </div>
+                    <div class="preview-pane" id="preview">
+                        <div class="markdown-body" id="previewContent"></div>
+                    </div>
+
+                    <div class="answer-doc-view hidden" id="answerDocView">
+                        <div class="answer-doc-bar">
+                            <div class="answer-doc-title">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+                                <span>AI answer</span>
+                                <span class="answer-doc-sub" id="answerDocSub"></span>
+                                <span class="answer-doc-temp">temporary view</span>
+                            </div>
+                            <div class="answer-doc-actions">
+                                <button class="answer-doc-btn" id="answerDocCopy" type="button" title="Copy answer">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                    Copy
+                                </button>
+                                <button class="answer-doc-btn" id="answerDocInsert" type="button" title="Insert at cursor">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                                    Insert
+                                </button>
+                                <button class="answer-doc-btn primary" id="answerDocSave" type="button" title="Save as a Markdown file">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                                    Save as .md
+                                </button>
+                                <button class="answer-doc-btn" id="answerDocBack" type="button" title="Back to AI panel (Esc)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                                    Back to AI
+                                </button>
+                            </div>
+                        </div>
+                        <div class="answer-doc-scroll">
+                            <div class="markdown-body" id="answerDocContent"></div>
+                        </div>
+                    </div>
+                </div>
+
+            <!-- Find in file bar -->
+            <div class="findbar hidden" id="findBar">
+                <svg class="findbar-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                <input type="text" id="findInput" placeholder="Find in file" autocomplete="off" spellcheck="false">
+                <span class="find-count" id="findCount"></span>
+                <button class="find-btn" id="findPrev" title="Previous match (Shift+Enter)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                </button>
+                <button class="find-btn" id="findNext" title="Next match (Enter)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <button class="find-btn" id="findClose" title="Close (Esc)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- Status bar -->
+            <div class="statusbar">
+                <span id="statusMessage">Ready</span>
+                <span id="vaultLocation"></span>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal: New File -->
+    <div class="modal-overlay hidden" id="modalNewFile">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>New File</h3>
+                <button class="modal-close" data-close="modalNewFile">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label for="newFileName">File name</label>
+                <div class="input-with-ext">
+                    <input type="text" id="newFileName" placeholder="my-notes" autocomplete="off">
+                    <span class="input-ext">.md</span>
+                </div>
+                <p class="modal-hint">Creating in: <strong id="newFileLocation">Library</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalNewFile">Cancel</button>
+                <button class="btn-primary" id="createFileConfirm">Create File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Save AI answer -->
+    <div class="modal-overlay hidden" id="modalSaveAnswer">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Save AI answer</h3>
+                <button class="modal-close" data-close="modalSaveAnswer">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label for="saveAnswerName">File name</label>
+                <div class="input-with-ext">
+                    <input type="text" id="saveAnswerName" placeholder="ai-answer" autocomplete="off">
+                    <span class="input-ext">.md</span>
+                </div>
+                <p class="modal-hint">Saving in: <strong id="saveAnswerLocation">Library</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalSaveAnswer">Cancel</button>
+                <button class="btn-primary" id="saveAnswerConfirm">Save File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: View comment -->
+    <div class="modal-overlay hidden" id="modalComment">
+        <div class="modal cmt-modal">
+            <div class="modal-header">
+                <h3>Comment</h3>
+                <button class="modal-close" data-close="modalComment">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="cmt-modal-quote" id="cmtModalQuote"></div>
+                <div class="cmt-modal-body markdown-body" id="cmtModalBody"></div>
+                <div class="cmt-modal-edit hidden" id="cmtModalEditWrap">
+                    <div class="cmt-composer-toolbar" id="cmtModalToolbar">
+                        <button type="button" data-cmd="bold" title="Bold (Ctrl+B)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 0 8H6z"/><path d="M6 12h9a4 4 0 0 1 0 8H6z"/></svg></button>
+                        <button type="button" data-cmd="italic" title="Italic (Ctrl+I)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4h-9M14 20H5M15 4 9 20"/></svg></button>
+                        <button type="button" data-cmd="strike" title="Strikethrough"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7"/><path d="M4 12h16"/></svg></button>
+                        <button type="button" data-cmd="code" title="Inline code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg></button>
+                        <button type="button" data-cmd="link" title="Link"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></button>
+                        <span class="cmt-toolbar-sep"></span>
+                        <button type="button" data-cmd="ul" title="Bullet list"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></button>
+                        <button type="button" data-cmd="ol" title="Numbered list"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 6h1v4M4 10h2M4 15h2l-2 3h2"/></svg></button>
+                        <button type="button" data-cmd="quote" title="Quote"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3-1 3-4 3-6H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5c0 4-2 6-6 7zM13 21c3-1 3-4 3-6h-2a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5c0 4-2 6-6 7z"/></svg></button>
+                    </div>
+                    <textarea class="cmt-composer-body" id="cmtModalEditInput" dir="auto" placeholder="Edit comment…  Markdown supported  (Ctrl+Enter to save)" rows="6"></textarea>
+                </div>
+                <div class="cmt-modal-meta" id="cmtModalMeta"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cmtModalJump" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="2.5"/></svg>
+                    Jump to text
+                </button>
+                <button class="btn-secondary" id="cmtModalEditBtn" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                    Edit
+                </button>
+                <button class="btn-danger" id="cmtModalDelete" type="button">Delete</button>
+                <button class="btn-primary cmt-modal-close-btn" data-close="modalComment" type="button">Close</button>
+                <button class="btn-secondary cmt-modal-edit-only hidden" id="cmtModalCancelBtn" type="button">Cancel</button>
+                <button class="btn-primary cmt-modal-edit-only hidden" id="cmtModalSaveBtn" type="button">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Explain code -->
+    <div class="modal-overlay hidden" id="modalExplainCode">
+        <div class="modal explain-modal">
+            <div class="modal-header">
+                <h3>Explain code</h3>
+                <button class="modal-close" data-close="modalExplainCode">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="explain-lang-row">
+                    <label for="explainLang">Language <span class="explain-opt">optional</span></label>
+                    <input type="text" id="explainLang" placeholder="e.g. JavaScript, Python" autocomplete="off" spellcheck="false">
+                </div>
+                <textarea id="explainCodeInput" class="explain-code-input" dir="ltr" placeholder="Paste your code here…" spellcheck="false" rows="14"></textarea>
+                <p class="modal-hint">The AI explains what the code does as a whole, then goes through it line by line.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalExplainCode" type="button">Cancel</button>
+                <button class="btn-primary" id="explainCodeSubmit" type="button">Explain</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Delete File -->
+    <div class="modal-overlay hidden" id="modalDeleteFile">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Delete File</h3>
+                <button class="modal-close" data-close="modalDeleteFile">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <strong id="deleteFileName"></strong>?</p>
+                <p class="modal-hint">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalDeleteFile">Cancel</button>
+                <button class="btn-danger" id="deleteFileConfirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Rename File -->
+    <div class="modal-overlay hidden" id="modalRename">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Rename File</h3>
+                <button class="modal-close" data-close="modalRename">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label for="renameInput">New name</label>
+                <div class="input-with-ext">
+                    <input type="text" id="renameInput" placeholder="filename" autocomplete="off">
+                    <span class="input-ext">.md</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalRename">Cancel</button>
+                <button class="btn-primary" id="renameConfirm">Rename</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: New Folder -->
+    <div class="modal-overlay hidden" id="modalNewFolder">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>New Folder</h3>
+                <button class="modal-close" data-close="modalNewFolder">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label for="newFolderName">Folder name</label>
+                <div class="input-with-ext">
+                    <input type="text" id="newFolderName" placeholder="my-folder" autocomplete="off">
+                </div>
+                <p class="modal-hint">Creating in: <strong id="newFolderLocation">Library</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalNewFolder">Cancel</button>
+                <button class="btn-primary" id="createFolderConfirm">Create Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Delete Folder -->
+    <div class="modal-overlay hidden" id="modalDeleteFolder">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Delete Folder</h3>
+                <button class="modal-close" data-close="modalDeleteFolder">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <strong id="deleteFolderName"></strong> and <em>everything inside it</em>?</p>
+                <p class="modal-hint">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalDeleteFolder">Cancel</button>
+                <button class="btn-danger" id="deleteFolderConfirm">Delete Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Rename Folder -->
+    <div class="modal-overlay hidden" id="modalRenameFolder">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Rename Folder</h3>
+                <button class="modal-close" data-close="modalRenameFolder">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label for="renameFolderInput">New folder name</label>
+                <div class="input-with-ext">
+                    <input type="text" id="renameFolderInput" placeholder="folder-name" autocomplete="off">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalRenameFolder">Cancel</button>
+                <button class="btn-primary" id="renameFolderConfirm">Rename</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Settings -->
+    <div class="modal-overlay hidden" id="modalSettings">
+        <div class="modal settings-modal">
+            <div class="modal-header">
+                <h3>Settings</h3>
+                <button class="modal-close" data-close="modalSettings">&times;</button>
+            </div>
+            <div class="settings-layout">
+                <nav class="settings-nav">
+                    <button class="settings-tab active" data-settings-tab="ai" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+                        AI Assistant
+                    </button>
+                    <button class="settings-tab" data-settings-tab="vault" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                        Vault
+                    </button>
+                    <button class="settings-tab" data-settings-tab="telegram" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 3.5 2.5 10.7l5.4 1.9M21.5 3.5l-3.1 16.4-6-4.6M21.5 3.5 7.9 12.6m0 0v4.9l3-3.1"/></svg>
+                        Telegram
+                    </button>
+                </nav>
+                <div class="settings-content">
+                    <section class="settings-pane" data-settings-pane="ai">
+                        <h4>AI Assistant</h4>
+                        <p class="settings-desc">Choose which CLI to use for Ask AI. The command must be installed and available on your PATH.</p>
+                        <div class="settings-row">
+                            <div class="settings-field">
+                                <label for="settingsAiProvider">Provider</label>
+                                <select id="settingsAiProvider"></select>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settingsAiModel">Model <span class="settings-opt">optional</span></label>
+                                <input type="text" id="settingsAiModel" placeholder="e.g. claude/claude-haiku-5-5" autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label for="settingsAiPrompts">Quick prompts <span class="settings-opt">one per line</span></label>
+                            <textarea id="settingsAiPrompts" rows="6" placeholder="Explain this&#10;Translate to Persian&#10;Summarize this" spellcheck="false"></textarea>
+                        </div>
+                        <div class="settings-field">
+                            <label>Custom providers</label>
+                            <div class="ai-providers-list" id="aiProvidersList"></div>
+                            <button class="btn-secondary" id="aiProviderAdd" type="button" style="margin-top:6px;">Add custom provider</button>
+                        </div>
+                        <p class="modal-hint">The provider CLI must be installed and signed in. Models are passed with each provider's native flag.</p>
+                        <div class="settings-actions">
+                            <button class="btn-primary" id="settingsAiSave" type="button">Save AI settings</button>
+                        </div>
+                    </section>
+                    <section class="settings-pane hidden" data-settings-pane="vault">
+                        <h4>Vault</h4>
+                        <p class="settings-desc">Choose the folder where your Markdown notes are stored.</p>
+                        <div class="settings-field">
+                            <label>Vault location</label>
+                            <div class="input-with-ext">
+                                <input type="text" id="settingsVaultPath" readonly autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                        <p class="settings-status" id="settingsVaultStatus"></p>
+                        <div class="settings-actions">
+                            <button class="btn-secondary" id="settingsVaultChoose" type="button">Choose folder…</button>
+                            <button class="btn-primary" id="settingsVaultSave" type="button">Use selected folder</button>
+                        </div>
+                    </section>
+                    <section class="settings-pane hidden" data-settings-pane="telegram">
+                        <h4>Telegram</h4>
+                        <p class="settings-desc">Send the current document to a Telegram chat as a self-contained HTML file. Create a bot with @BotFather to get a token, then use your chat ID (or a channel ID) as the destination.</p>
+                        <div class="settings-field">
+                            <label for="settingsTelegramToken">Bot token</label>
+                            <div class="input-with-ext">
+                                <input type="password" id="settingsTelegramToken" placeholder="123456789:AAH..." autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label for="settingsTelegramChat">Chat ID</label>
+                            <input type="text" id="settingsTelegramChat" placeholder="e.g. 123456789" autocomplete="off" spellcheck="false">
+                        </div>
+                        <p class="settings-status" id="settingsTelegramStatus"></p>
+                        <p class="modal-hint">Credentials are stored locally in app settings. You can also use the <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code> environment variables.</p>
+                        <div class="settings-actions">
+                            <button class="btn-secondary" id="settingsTelegramTest" type="button">Send test message</button>
+                            <button class="btn-primary" id="settingsTelegramSave" type="button">Save Telegram settings</button>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div class="modal-footer settings-footer">
+                <span class="settings-version">Inkwell 1.0.0</span>
+                <button class="btn-secondary" data-close="modalSettings" type="button">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Selection actions: floating trigger -->
+    <div class="sel-float hidden" id="selFloat">
+        <button class="sel-btn sel-btn-ai" id="aiFloatBtn" type="button" title="Ask AI about this selection">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+            Ask AI
+        </button>
+        <button class="sel-btn sel-btn-cmt" id="cmtFloatBtn" type="button" title="Add a comment on this selection">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
+            Comment
+        </button>
+    </div>
+
+    <!-- Comment composer popover -->
+    <div class="cmt-composer hidden" id="commentComposer">
+        <div class="cmt-composer-head">
+            <span class="cmt-composer-title">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
+                New comment
+            </span>
+            <button class="cmt-composer-close" id="cmtComposerClose" type="button" title="Close">&times;</button>
+        </div>
+        <div class="cmt-composer-quote" id="cmtComposerQuote"></div>
+        <div class="cmt-composer-toolbar" id="cmtComposerToolbar">
+            <button type="button" data-cmd="bold" title="Bold (Ctrl+B)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h8a4 4 0 0 1 0 8H6z"/><path d="M6 12h9a4 4 0 0 1 0 8H6z"/></svg></button>
+            <button type="button" data-cmd="italic" title="Italic (Ctrl+I)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4h-9M14 20H5M15 4 9 20"/></svg></button>
+            <button type="button" data-cmd="strike" title="Strikethrough"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H7"/><path d="M4 12h16"/></svg></button>
+            <button type="button" data-cmd="code" title="Inline code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg></button>
+            <button type="button" data-cmd="link" title="Link"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></button>
+            <span class="cmt-toolbar-sep"></span>
+            <button type="button" data-cmd="ul" title="Bullet list"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></button>
+            <button type="button" data-cmd="ol" title="Numbered list"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 6h1v4M4 10h2M4 15h2l-2 3h2"/></svg></button>
+            <button type="button" data-cmd="quote" title="Quote"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3-1 3-4 3-6H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5c0 4-2 6-6 7zM13 21c3-1 3-4 3-6h-2a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5c0 4-2 6-6 7z"/></svg></button>
+        </div>
+        <textarea class="cmt-composer-body" id="cmtComposerBody" dir="auto" placeholder="Write a comment…  Markdown supported  (Ctrl+Enter to save)" rows="4"></textarea>
+        <div class="cmt-composer-actions">
+            <button class="cmt-btn ghost" id="cmtComposerCancel" type="button">Cancel</button>
+            <button class="cmt-btn primary" id="cmtComposerSave" type="button">Comment</button>
+        </div>
+    </div>
+
+    <aside class="ai-panel hidden" id="aiPanel">
+        <div class="ai-resizer" id="aiResizer" title="Drag to resize"></div>
+        <div class="ai-head">
+            <div class="ai-head-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+                <span id="aiPanelTitle">Ask AI</span>
+            </div>
+            <div class="ai-head-actions">
+                <div class="ai-dock" id="aiDock">
+                    <button class="ai-dock-btn" data-dock="left" type="button" title="Dock left">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+                    </button>
+                    <button class="ai-dock-btn" data-dock="bottom" type="button" title="Dock bottom">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15h18"/></svg>
+                    </button>
+                    <button class="ai-dock-btn" data-dock="right" type="button" title="Dock right">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+                    </button>
+                </div>
+                <button class="ai-close" id="aiClose" type="button" title="Close (Esc)">&times;</button>
+            </div>
+        </div>
+
+        <div class="ai-context">
+            <button class="ai-context-head" id="aiContextToggle" type="button">
+                <span id="aiContextLabel">Selected text</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="ai-context-body" id="aiContextBody"></div>
+        </div>
+
+        <div class="ai-controls">
+            <select id="aiProvider" title="AI provider"></select>
+            <input type="text" id="aiModel" placeholder="model (optional)" autocomplete="off" spellcheck="false">
+        </div>
+
+        <textarea id="aiQuestion" class="ai-question" placeholder="Ask something about the selected text…" rows="3"></textarea>
+
+        <div class="ai-prompts" id="aiPrompts"></div>
+
+        <div class="ai-actions">
+            <button class="ai-ask" id="aiAskBtn" type="button">Ask</button>
+            <button class="ai-stop hidden" id="aiStopBtn" type="button">Stop</button>
+        </div>
+
+        <div class="ai-answer-wrap">
+            <div class="ai-answer-card">
+                <div class="ai-answer-head">
+                    <span class="ai-answer-badge" id="aiAnswerBadge">AI</span>
+                    <span class="ai-answer-meta" id="aiAnswerMeta">Ready</span>
+                </div>
+                <div class="ai-answer empty" id="aiAnswer">Select some text, then ask a question.</div>
+                <div class="ai-answer-actions hidden" id="aiAnswerActions">
+                    <button type="button" data-ai="page" title="View the answer as a full page">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                        View as page
+                    </button>
+                    <button type="button" data-ai="save" title="Save the answer as a Markdown file">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                        Save .md
+                    </button>
+                    <button type="button" data-ai="insert" title="Insert at cursor">Insert</button>
+                    <button type="button" data-ai="replace" id="aiReplaceBtn" title="Replace the selection">Replace</button>
+                    <button type="button" data-ai="copy" title="Copy to clipboard">Copy</button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Comments panel -->
+    <aside class="comments-panel hidden" id="commentsPanel">
+        <div class="comments-head">
+            <div class="comments-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
+                Comments
+                <span class="comments-count" id="commentsCount">0</span>
+            </div>
+            <button class="comments-close" id="commentsClose" type="button" title="Close (Esc)">&times;</button>
+        </div>
+        <div class="comments-list" id="commentsList"></div>
+    </aside>
+
+    <!-- Context menu -->
+    <div class="context-menu hidden" id="contextMenu">
+        <button class="context-item" id="ctxNewFileHere">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            New file here
+        </button>
+        <button class="context-item" id="ctxNewFolderHere">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 11v6M9 14h6"/></svg>
+            New folder here
+        </button>
+        <div class="context-divider" id="ctxFolderDivider"></div>
+        <button class="context-item" id="ctxPin">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+            <span id="ctxPinLabel">Pin to tabs</span>
+        </button>
+        <button class="context-item" id="ctxRename">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Rename
+        </button>
+        <div class="context-divider"></div>
+        <button class="context-item context-item-danger" id="ctxDelete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            Delete
+        </button>
+    </div>
+
+    <!-- Toast notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Image lightbox -->
+    <div class="lightbox hidden" id="imageLightbox">
+        <button class="lightbox-close" id="lightboxClose" title="Close (Esc)">&times;</button>
+        <img id="lightboxImg" alt="">
+        <div class="lightbox-caption" id="lightboxCaption"></div>
+    </div>
+
+    <script src="markdown-bundle.js"></script>
+    <script src="renderer.js"></script>
+</body>
+</html>

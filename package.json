@@ -1,0 +1,89 @@
+{
+  "name": "inkwell",
+  "version": "1.0.0",
+  "description": "A clean Markdown editor with live preview, AI assistance, and Telegram sharing",
+  "main": "main.js",
+  "homepage": "https://github.com/alisoltanics/inkwell",
+  "author": {
+    "name": "Inkwell",
+    "email": "noreply@github.com"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "build:release:linux": "electron-builder --linux --x64",
+    "build:release:win": "electron-builder --win --x64",
+    "build:release:mac": "electron-builder --mac"
+  },
+  "dependencies": {
+    "@traptitech/markdown-it-katex": "^3.6.0",
+    "electron-store": "^8.2.0",
+    "highlight.js": "^11.10.0",
+    "katex": "^0.16.47",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^10.0.0",
+    "markdown-it-emoji": "^3.0.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-highlightjs": "^4.1.0",
+    "markdown-it-ins": "^4.0.0",
+    "markdown-it-katex": "^2.0.3",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0",
+    "markdown-it-task-lists": "^2.1.1"
+  },
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.28.2"
+  },
+  "build": {
+    "appId": "com.inkwell.app",
+    "productName": "Inkwell",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "html.js",
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Inkwell"
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Utility",
+      "maintainer": "Inkwell <noreply@github.com>",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}
