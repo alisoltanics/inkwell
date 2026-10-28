@@ -4,6 +4,10 @@ out/
 build/
 release/
 
+# Common local note folders (keep custom vaults outside the repository too)
+/vault/
+/notes/
+
 # Local credentials and configuration
 .env
 .env.*
