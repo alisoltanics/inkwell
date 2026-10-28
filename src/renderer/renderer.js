@@ -143,10 +143,6 @@ const els = {
   aiAnswerActions: $('aiAnswerActions'),
   aiReplaceBtn: $('aiReplaceBtn'),
   aiReviewChangeBtn: $('aiReviewChangeBtn'),
-  aiEditReviewLocation: $('aiEditReviewLocation'),
-  aiEditReviewPreview: $('aiEditReviewPreview'),
-  aiEditAcceptBtn: $('aiEditAcceptBtn'),
-  aiEditRejectBtn: $('aiEditRejectBtn'),
   aiAnswerBadge: $('aiAnswerBadge'),
   aiAnswerMeta: $('aiAnswerMeta'),
   aiResizer: $('aiResizer'),
@@ -155,12 +151,16 @@ const els = {
   aiContextLabel: $('aiContextLabel'),
   docActions: $('docActions'),
   answerDocView: $('answerDocView'),
+  answerDocHeading: $('answerDocHeading'),
   answerDocContent: $('answerDocContent'),
   answerDocSub: $('answerDocSub'),
+  answerDocDiffLegend: $('answerDocDiffLegend'),
   answerDocBack: $('answerDocBack'),
   answerDocCopy: $('answerDocCopy'),
   answerDocInsert: $('answerDocInsert'),
   answerDocSave: $('answerDocSave'),
+  answerDocAcceptChange: $('answerDocAcceptChange'),
+  answerDocRejectChange: $('answerDocRejectChange'),
   saveAnswerName: $('saveAnswerName'),
   saveAnswerLocation: $('saveAnswerLocation'),
   selFloat: $('selFloat'),
@@ -202,7 +202,6 @@ const modals = {
   saveAnswer: $('modalSaveAnswer'),
   comment: $('modalComment'),
   explainCode: $('modalExplainCode'),
-  aiEditReview: $('modalAIEditReview'),
   settings: $('modalSettings'),
 };
 
@@ -4125,13 +4124,18 @@ function openAIEditReview() {
   const edit = pendingAIEdit;
   const startLine = edit.originalContent.slice(0, edit.start).split('\n').length;
   const endLine = edit.originalContent.slice(0, edit.end).split('\n').length;
-  els.aiEditReviewLocation.textContent = `${edit.filePath} · ${edit.insertion ? `Insert at line ${startLine}` : startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}–${endLine}`}`;
+  answerDocReopenPanel = els.aiPanel && !els.aiPanel.classList.contains('hidden');
+  setAnswerDocReviewMode(true);
+  els.answerDocSub.textContent = `${edit.filePath} · ${edit.insertion ? `Insert at line ${startLine}` : startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}–${endLine}`}`;
   renderAIEditPreview(edit);
-  openModal('aiEditReview');
+  els.answerDocView.classList.remove('hidden');
+  els.answerDocView.scrollTop = 0;
+  els.answerDocContent.parentElement.scrollTop = 0;
+  closeAIPanel();
 }
 
 function renderAIEditPreview(edit) {
-  const preview = els.aiEditReviewPreview;
+  const preview = els.answerDocContent;
   const marker = `INKWELLREVIEW${Date.now()}${Math.random().toString(36).slice(2)}END`;
   const textBeforeChange = edit.originalContent.slice(0, edit.start);
   const priorFences = textBeforeChange.match(/^[ \t]{0,3}(?:`{3,}|~{3,})/gm) || [];
@@ -4194,28 +4198,33 @@ function appendAIEditDiffPart(parent, className, markdown, asBlock, inCode) {
   parent.appendChild(part);
 }
 
+function setAnswerDocReviewMode(review) {
+  els.answerDocHeading.textContent = review ? 'Review document change' : 'AI answer';
+  els.answerDocView.querySelectorAll('.answer-doc-normal-action').forEach((button) => button.classList.toggle('hidden', review));
+  els.answerDocView.querySelectorAll('.answer-doc-review-action').forEach((button) => button.classList.toggle('hidden', !review));
+  els.answerDocDiffLegend.classList.toggle('hidden', !review);
+  els.answerDocView.querySelector('.answer-doc-temp').classList.toggle('hidden', review);
+}
+
 async function acceptAIEdit() {
   const edit = pendingAIEdit;
   if (!edit) return;
   if (state.currentFile !== edit.filePath || els.editor.value !== edit.originalContent) {
     toast('The document changed after this suggestion. Generate a fresh suggestion before accepting.', 'error', 4500);
-    closeModal('aiEditReview');
+    backFromAnswerDoc();
     pendingAIEdit = null;
     els.aiAnswerActions.classList.add('hidden');
     return;
   }
 
   clearTimeout(autosaveTimer);
-  if (edit.replacement) {
-    replaceRange(edit.start, edit.end, edit.replacement, edit.start + edit.replacement.length, edit.start + edit.replacement.length);
-  } else {
-    els.editor.focus();
-    els.editor.setRangeText('', edit.start, edit.end, 'start');
-    els.editor.setSelectionRange(edit.start, edit.start);
-    onEditorChanged();
-  }
+  els.editor.focus();
+  els.editor.setRangeText(edit.replacement, edit.start, edit.end, 'end');
+  const cursor = edit.start + edit.replacement.length;
+  els.editor.setSelectionRange(cursor, cursor);
+  onEditorChanged();
   clearTimeout(autosaveTimer);
-  closeModal('aiEditReview');
+  closeAnswerDoc();
   pendingAIEdit = null;
   els.aiAnswerActions.classList.add('hidden');
   const saved = await saveFile(true);
@@ -4223,7 +4232,7 @@ async function acceptAIEdit() {
 }
 
 function rejectAIEdit() {
-  closeModal('aiEditReview');
+  backFromAnswerDoc();
   pendingAIEdit = null;
   els.aiAnswerActions.classList.add('hidden');
   toast('Document change rejected', 'info');
@@ -4279,6 +4288,7 @@ function aiAnswerTitle() {
 function openAnswerDoc() {
   if (!aiAnswer || !aiAnswer.trim()) { toast('No answer to show yet', 'info'); return; }
   answerDocReopenPanel = els.aiPanel && !els.aiPanel.classList.contains('hidden');
+  setAnswerDocReviewMode(false);
   els.answerDocContent.innerHTML = md.render(aiAnswer);
   els.answerDocContent.setAttribute('dir', detectDirectionMajority(aiAnswer));
   els.answerDocContent.querySelectorAll(BIDI_BLOCK_SEL).forEach((el) => {
@@ -4293,6 +4303,7 @@ function openAnswerDoc() {
 
 function closeAnswerDoc() {
   els.answerDocView.classList.add('hidden');
+  setAnswerDocReviewMode(false);
 }
 
 function backFromAnswerDoc() {
@@ -4381,8 +4392,8 @@ function setupAI() {
   els.aiAskBtn.addEventListener('click', () => askAI());
   if (els.aiSuggestChangeBtn) els.aiSuggestChangeBtn.addEventListener('click', suggestDocumentChange);
   if (els.aiReviewChangeBtn) els.aiReviewChangeBtn.addEventListener('click', openAIEditReview);
-  if (els.aiEditAcceptBtn) els.aiEditAcceptBtn.addEventListener('click', acceptAIEdit);
-  if (els.aiEditRejectBtn) els.aiEditRejectBtn.addEventListener('click', rejectAIEdit);
+  if (els.answerDocAcceptChange) els.answerDocAcceptChange.addEventListener('click', acceptAIEdit);
+  if (els.answerDocRejectChange) els.answerDocRejectChange.addEventListener('click', rejectAIEdit);
   els.aiStopBtn.addEventListener('click', () => { window.inkwell.cancelAI(); setAIBusy(false); });
   if (els.aiProvider) {
   els.aiProvider.addEventListener('change', () => {

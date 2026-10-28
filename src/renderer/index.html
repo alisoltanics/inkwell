@@ -261,23 +261,25 @@
                         <div class="answer-doc-bar">
                             <div class="answer-doc-title">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
-                                <span>AI answer</span>
+                                <span id="answerDocHeading">AI answer</span>
                                 <span class="answer-doc-sub" id="answerDocSub"></span>
                                 <span class="answer-doc-temp">temporary view</span>
                             </div>
                             <div class="answer-doc-actions">
-                                <button class="answer-doc-btn" id="answerDocCopy" type="button" title="Copy answer">
+                                <button class="answer-doc-btn answer-doc-normal-action" id="answerDocCopy" type="button" title="Copy answer">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                                     Copy
                                 </button>
-                                <button class="answer-doc-btn" id="answerDocInsert" type="button" title="Insert at cursor">
+                                <button class="answer-doc-btn answer-doc-normal-action" id="answerDocInsert" type="button" title="Insert at cursor">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                                     Insert
                                 </button>
-                                <button class="answer-doc-btn primary" id="answerDocSave" type="button" title="Save as a Markdown file">
+                                <button class="answer-doc-btn primary answer-doc-normal-action" id="answerDocSave" type="button" title="Save as a Markdown file">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
                                     Save as .md
                                 </button>
+                                <button class="answer-doc-btn answer-doc-review-action hidden" id="answerDocRejectChange" type="button">Reject</button>
+                                <button class="answer-doc-btn primary answer-doc-review-action hidden" id="answerDocAcceptChange" type="button">Accept change</button>
                                 <button class="answer-doc-btn" id="answerDocBack" type="button" title="Back to AI panel (Esc)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
                                     Back to AI
@@ -285,6 +287,10 @@
                             </div>
                         </div>
                         <div class="answer-doc-scroll">
+                            <div class="answer-doc-diff-legend hidden" id="answerDocDiffLegend">
+                                <span><i class="ai-edit-added-dot" aria-hidden="true"></i> Proposed addition</span>
+                                <span><i class="ai-edit-removed-dot" aria-hidden="true"></i> Text to remove</span>
+                            </div>
                             <div class="markdown-body" id="answerDocContent"></div>
                         </div>
                     </div>
@@ -725,29 +731,6 @@
             </div>
         </div>
     </aside>
-
-    <!-- Review an AI-proposed edit before applying it to the note. -->
-    <div class="modal-overlay hidden" id="modalAIEditReview">
-        <div class="modal ai-edit-review-modal">
-            <div class="modal-header">
-                <h3>Review document change</h3>
-                <button class="modal-close" type="button" data-close="aiEditReview" aria-label="Close">&times;</button>
-            </div>
-            <div class="ai-edit-review-location" id="aiEditReviewLocation"></div>
-            <section class="ai-edit-review-document">
-                <div class="ai-edit-review-legend">
-                    <span><i class="ai-edit-added-dot" aria-hidden="true"></i> Proposed addition</span>
-                    <span><i class="ai-edit-removed-dot" aria-hidden="true"></i> Text to remove</span>
-                </div>
-                <div class="markdown-body ai-edit-review-preview" id="aiEditReviewPreview"></div>
-            </div>
-            <p class="ai-edit-review-note">The note will only change if you accept this proposal.</p>
-            <div class="modal-footer">
-                <button class="btn-secondary" type="button" id="aiEditRejectBtn">Reject</button>
-                <button class="btn-primary" type="button" id="aiEditAcceptBtn">Accept change</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Comments panel -->
     <aside class="comments-panel hidden" id="commentsPanel">
