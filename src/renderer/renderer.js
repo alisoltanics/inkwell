@@ -4127,9 +4127,30 @@ function openAIEditReview() {
   const startLine = edit.originalContent.slice(0, edit.start).split('\n').length;
   const endLine = edit.originalContent.slice(0, edit.end).split('\n').length;
   els.aiEditReviewLocation.textContent = `${edit.filePath} · ${edit.insertion ? `Insert at line ${startLine}` : startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}–${endLine}`}`;
-  els.aiEditReviewBefore.textContent = edit.insertion ? '(Insertion point — no text will be removed.)' : (edit.target || '(Empty selection)');
-  els.aiEditReviewAfter.textContent = edit.replacement || (edit.target ? '(Remove the selected text)' : '(No text to insert)');
+  const lineStart = edit.originalContent.lastIndexOf('\n', edit.start - 1) + 1;
+  const lineBreak = edit.originalContent.indexOf('\n', edit.start);
+  const lineEnd = lineBreak < 0 ? edit.originalContent.length : lineBreak;
+  const currentText = edit.insertion ? edit.originalContent.slice(lineStart, lineEnd) : edit.target;
+  renderAIEditReviewPane(els.aiEditReviewBefore, currentText, edit.insertion ? '(Blank line at insertion point)' : '(Empty selection)');
+  renderAIEditReviewPane(
+    els.aiEditReviewAfter,
+    edit.replacement,
+    edit.target ? 'This passage will be removed.' : 'No text to insert.',
+    !!edit.target && !edit.replacement,
+  );
   openModal('aiEditReview');
+}
+
+function renderAIEditReviewPane(element, markdown, emptyLabel, isRemoval = false) {
+  element.classList.remove('ai-edit-removal');
+  if (markdown) {
+    element.innerHTML = md.render(markdown);
+    element.setAttribute('dir', detectDirectionMajority(markdown));
+  } else {
+    element.textContent = emptyLabel;
+    element.removeAttribute('dir');
+    if (isRemoval) element.classList.add('ai-edit-removal');
+  }
 }
 
 async function acceptAIEdit() {

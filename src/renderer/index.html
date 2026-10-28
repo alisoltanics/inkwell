@@ -609,7 +609,7 @@
                 </div>
             </div>
             <div class="modal-footer settings-footer">
-                <span class="settings-version">Inkwell 1.0.1</span>
+                <span class="settings-version">Inkwell 1.0.2</span>
                 <button class="btn-secondary" data-close="modalSettings" type="button">Done</button>
             </div>
         </div>
@@ -737,11 +737,11 @@
             <div class="ai-edit-review-columns">
                 <section class="ai-edit-review-pane ai-edit-before">
                     <h4>Current text</h4>
-                    <pre id="aiEditReviewBefore"></pre>
+                    <div class="markdown-body ai-edit-review-render" id="aiEditReviewBefore"></div>
                 </section>
                 <section class="ai-edit-review-pane ai-edit-after">
-                    <h4>Proposed text</h4>
-                    <pre id="aiEditReviewAfter"></pre>
+                    <h4><span class="ai-edit-added-dot" aria-hidden="true"></span> Proposed text</h4>
+                    <div class="markdown-body ai-edit-review-render" id="aiEditReviewAfter"></div>
                 </section>
             </div>
             <p class="ai-edit-review-note">The note will only change if you accept this proposal.</p>
