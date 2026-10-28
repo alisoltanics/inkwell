@@ -22,21 +22,31 @@ jobs:
             arch: x64
             script: build:release:linux
             args: ''
+            artifacts: |
+              dist/*.AppImage
+              dist/*.deb
           - os: windows-latest
             platform: windows
             arch: x64
             script: build:release:win
             args: ''
+            artifacts: dist/*.exe
           - os: macos-latest
             platform: macos
             arch: x64
             script: build:release:mac
             args: '-- --x64'
+            artifacts: |
+              dist/*.dmg
+              dist/*.zip
           - os: macos-latest
             platform: macos
             arch: arm64
             script: build:release:mac
             args: '-- --arm64'
+            artifacts: |
+              dist/*.dmg
+              dist/*.zip
 
     steps:
       - name: Check out source
@@ -58,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: inkwell-${{ matrix.platform }}-${{ matrix.arch }}
-          path: dist/*
+          path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
   release:
