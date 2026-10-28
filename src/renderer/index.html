@@ -78,7 +78,17 @@
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
                         <span class="breadcrumb-file" id="currentFileName">Welcome</span>
                     </div>
-                    <div class="doc-actions hidden" id="docActions">
+                    <button class="doc-act ai-header-ask" id="aiHeaderSelectionBtn" type="button" title="Open Ask AI">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+                        <span>Ask AI</span>
+                    </button>
+                    <div class="ai-tools-menu-wrap" id="aiToolsMenuWrap">
+                        <button class="btn-icon ai-tools-menu-trigger hidden" id="aiToolsMenuBtn" type="button" title="Document AI tools" aria-label="Document AI tools" aria-haspopup="true" aria-expanded="false">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.64 5.64l2.83 2.83M15.53 15.53l2.83 2.83M18.36 5.64l-2.83 2.83M8.47 15.53l-2.83 2.83"/><path d="M12 8.5 13.1 11l2.4 1-2.4 1L12 15.5 11 13l-2.5-1 2.5-1z"/></svg>
+                        </button>
+                        <div class="ai-tools-menu hidden" id="aiToolsMenu" role="menu" aria-label="Document AI tools">
+                            <div class="ai-tools-menu-heading">Document AI tools</div>
+                            <div class="doc-actions" id="docActions">
                         <button class="doc-act" data-doc="summary" type="button" title="Summarize this document">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
                             <span>Summary</span>
@@ -95,14 +105,12 @@
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
                             <span>Notes</span>
                         </button>
-                        <button class="doc-act ai-header-ask" id="aiHeaderSelectionBtn" type="button" title="Open Ask AI">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
-                            <span>Ask AI</span>
-                        </button>
                         <button class="doc-act" id="askCodeHeaderBtn" type="button" title="Open Ask AI for the selected code">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg>
                             <span>Ask AI about code</span>
                         </button>
+                            </div>
+                        </div>
                     </div>
                     <button class="doc-act doc-cmt hidden" id="commentsToolbarBtn" type="button" title="Comments (show/hide comments for this document)">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
@@ -278,8 +286,6 @@
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
                                     Save as .md
                                 </button>
-                                <button class="answer-doc-btn answer-doc-review-action hidden" id="answerDocRejectChange" type="button">Reject</button>
-                                <button class="answer-doc-btn primary answer-doc-review-action hidden" id="answerDocAcceptChange" type="button">Accept change</button>
                                 <button class="answer-doc-btn" id="answerDocBack" type="button" title="Back to AI panel (Esc)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
                                     Back to AI
@@ -429,6 +435,25 @@
         </div>
     </div>
 
+    <!-- Modal: Edit selected passage -->
+    <div class="modal-overlay hidden" id="modalSelectionEdit">
+        <div class="modal selection-edit-modal">
+            <div class="modal-header">
+                <h3>Change selected text</h3>
+                <button class="modal-close" data-close="modalSelectionEdit" type="button" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="selection-edit-quote" id="selectionEditQuote"></div>
+                <label for="selectionEditPrompt">What would you like to change?</label>
+                <textarea id="selectionEditPrompt" class="selection-edit-input" placeholder="For example: Make this clearer and shorter…" rows="3"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalSelectionEdit" type="button">Cancel</button>
+                <button class="btn-primary" id="selectionEditSubmit" type="button">Review change</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Delete File -->
     <div class="modal-overlay hidden" id="modalDeleteFile">
         <div class="modal">
@@ -536,6 +561,10 @@
             </div>
             <div class="settings-layout">
                 <nav class="settings-nav">
+                    <button class="settings-tab" data-settings-tab="appearance" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z"/></svg>
+                        Appearance
+                    </button>
                     <button class="settings-tab active" data-settings-tab="ai" type="button">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
                         AI Assistant
@@ -550,6 +579,21 @@
                     </button>
                 </nav>
                 <div class="settings-content">
+                    <section class="settings-pane hidden" data-settings-pane="appearance">
+                        <h4>Appearance</h4>
+                        <div class="settings-field">
+                            <label for="settingsFontSize">App font size</label>
+                            <div class="font-size-row">
+                                <input type="range" id="settingsFontSize" min="80" max="150" step="5">
+                                <span class="font-size-value" id="settingsFontSizeValue">100%</span>
+                                <button class="btn-secondary" id="settingsFontSizeReset" type="button">Reset</button>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label>Theme</label>
+                            <div class="theme-grid" id="themeGrid"></div>
+                        </div>
+                    </section>
                     <section class="settings-pane" data-settings-pane="ai">
                         <h4>AI Assistant</h4>
                         <p class="settings-desc">Choose which CLI to use for Ask AI. The command must be installed and available on your PATH.</p>
@@ -560,8 +604,30 @@
                             </div>
                             <div class="settings-field">
                                 <label for="settingsAiModel">Model <span class="settings-opt">optional</span></label>
-                                <input type="text" id="settingsAiModel" placeholder="e.g. claude/claude-haiku-5-5" autocomplete="off" spellcheck="false">
+                                <select id="settingsAiModel"><option value="">Provider default</option></select>
+                                <input type="text" id="settingsAiModelCustom" class="hidden" placeholder="Enter model ID" autocomplete="off" spellcheck="false">
                             </div>
+                        </div>
+                        <div class="settings-field">
+                            <label for="settingsAiResponseLanguage">Response language</label>
+                            <select id="settingsAiResponseLanguage">
+                                <option value="auto">Auto (match the request)</option>
+                                <option value="English">English</option>
+                                <option value="Persian">Persian (فارسی)</option>
+                                <option value="Arabic">Arabic</option>
+                                <option value="Turkish">Turkish</option>
+                                <option value="Spanish">Spanish</option>
+                                <option value="French">French</option>
+                                <option value="German">German</option>
+                                <option value="Portuguese">Portuguese</option>
+                                <option value="Russian">Russian</option>
+                                <option value="Chinese">Chinese</option>
+                                <option value="Japanese">Japanese</option>
+                                <option value="Hindi">Hindi</option>
+                                <option value="custom">Other…</option>
+                            </select>
+                            <input type="text" id="settingsAiResponseLanguageCustom" class="hidden" placeholder="Enter a language name" autocomplete="off" spellcheck="false">
+                            <p class="settings-desc settings-language-hint">Used for responses from all AI actions. Exact source text and code stay unchanged in document edits.</p>
                         </div>
                         <div class="settings-field">
                             <label for="settingsAiPrompts">Quick prompts <span class="settings-opt">one per line</span></label>
@@ -621,11 +687,19 @@
         </div>
     </div>
 
-    <!-- Selection actions: floating trigger -->
+    <!-- Selection actions -->
     <div class="sel-float hidden" id="selFloat">
         <button class="sel-btn sel-btn-ai" id="aiFloatBtn" type="button" title="Ask AI about this selection">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
             Ask AI
+        </button>
+        <button class="sel-btn sel-btn-explain" id="aiExplainFloatBtn" type="button" title="Explain this selected passage clearly">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9a2.5 2.5 0 1 1 4.7 1.2c-.6 1-2.3 1.3-2.3 3M12 17.5h.01"/></svg>
+            Explain
+        </button>
+        <button class="sel-btn sel-btn-edit" id="aiChangeFloatBtn" type="button" title="Ask AI to change this selection">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+            Change
         </button>
         <button class="sel-btn sel-btn-cmt" id="cmtFloatBtn" type="button" title="Add a comment on this selection">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
@@ -694,7 +768,8 @@
 
         <div class="ai-controls">
             <select id="aiProvider" title="AI provider"></select>
-            <input type="text" id="aiModel" placeholder="model (optional)" autocomplete="off" spellcheck="false">
+            <select id="aiModel" title="AI model"><option value="">Provider default</option></select>
+            <input type="text" id="aiModelCustom" class="hidden" placeholder="Model ID" autocomplete="off" spellcheck="false">
         </div>
 
         <textarea id="aiQuestion" class="ai-question" placeholder="Ask something about the selected text…" rows="3"></textarea>

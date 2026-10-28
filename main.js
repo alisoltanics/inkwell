@@ -103,7 +103,7 @@ function walkNotes(dirAbs, prefix, files, folders) {
         walkNotes(abs, logical, files, folders);
         continue;
       }
-      if (!ent.isFile() || !ent.name.toLowerCase().endsWith('.md')) continue;
+      if (!ent.isFile() || !/\.(?:md|html?)$/i.test(ent.name)) continue;
       const st = fs.statSync(abs);
       files.push({ name: ent.name, path: logical, modified: st.mtimeMs, size: st.size });
     } catch (_) {}
@@ -405,28 +405,19 @@ function docBaseName(suggestedName) {
     .trim() || 'note';
 }
 
-ipcMain.handle('dialog:exportHTML', async (event, suggestedName, payload) => {
+ipcMain.handle('dialog:exportHTML', async (event, sourcePath, payload) => {
   const win = windowFrom(event);
   if (!win) return { success: false, error: 'No window available' };
 
-  const base = docBaseName(suggestedName);
-
-  let filePath;
   try {
-    const res = await dialog.showSaveDialog(win, {
-      title: 'Export document',
-      defaultPath: base + '.html',
-      filters: [{ name: 'HTML Document', extensions: ['html'] }],
-    });
-    if (res.canceled || !res.filePath) return { success: false, canceled: true };
-    filePath = res.filePath;
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-
-  try {
-    fs.writeFileSync(filePath, buildStandaloneHtml(payload), 'utf8');
-    return { success: true, path: filePath };
+    const source = resolveLogical(sourcePath);
+    if (!source.abs.toLowerCase().endsWith('.md')) throw new Error('Only Markdown documents can be exported');
+    if (!fs.existsSync(source.abs)) throw new Error('Markdown document not found');
+    const outputSegments = [...source.segments];
+    outputSegments[outputSegments.length - 1] = outputSegments[outputSegments.length - 1].replace(/\.md$/i, '.html');
+    const output = resolveLogical(outputSegments.join('/'), { createDirs: true });
+    fs.writeFileSync(output.abs, buildStandaloneHtml(payload), 'utf8');
+    return { success: true, path: output.abs };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -580,6 +571,141 @@ function resolveExecutable(cmd) {
   return null;
 }
 
+function captureAICommand(cmd, args, options = {}) {
+  const executable = resolveExecutable(cmd);
+  if (!executable) return Promise.resolve({ ok: false, error: `Could not find "${cmd}" on PATH.` });
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn(executable, args, {
+        cwd: NOTES_DIR || app.getPath('home'),
+        env: { ...process.env, ...(options.env || {}), PATH: aiSearchDirs().join(path.delimiter) },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      resolve({ ok: false, error: error.message });
+      return;
+    }
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch (_) {}
+      resolve({ ok: false, error: `${cmd} model discovery timed out.` });
+    }, options.timeout || 20000);
+    proc.stdout.on('data', (chunk) => { if (stdout.length < 2_000_000) stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk) => { if (stderr.length < 30000) stderr += chunk.toString(); });
+    proc.on('error', (error) => { clearTimeout(timer); resolve({ ok: false, error: error.message }); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0
+        ? { ok: true, stdout: stripAnsi(stdout), stderr: stripAnsi(stderr) }
+        : { ok: false, error: stripAnsi(stderr || stdout).trim() || `${cmd} exited with code ${code}` });
+    });
+    proc.stdin.end();
+  });
+}
+
+function listCodexModels() {
+  const executable = resolveExecutable('codex');
+  if (!executable) return Promise.resolve({ ok: false, error: 'Codex CLI was not found.' });
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn(executable, ['app-server'], {
+        cwd: NOTES_DIR || app.getPath('home'),
+        env: { ...process.env, PATH: aiSearchDirs().join(path.delimiter) },
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+    } catch (error) {
+      resolve({ ok: false, error: error.message });
+      return;
+    }
+    let buffer = '';
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { proc.kill('SIGTERM'); } catch (_) {}
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ ok: false, error: 'Codex model discovery timed out.' }), 20000);
+    const send = (message) => proc.stdin.write(JSON.stringify(message) + '\n');
+    proc.stdout.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        let message;
+        try { message = JSON.parse(line); } catch (_) { continue; }
+        if (message.id === 1) {
+          if (message.error) return finish({ ok: false, error: message.error.message || 'Codex initialization failed.' });
+          send({ method: 'initialized', params: {} });
+          send({ method: 'model/list', id: 2, params: { limit: 200, includeHidden: false } });
+        } else if (message.id === 2) {
+          if (message.error) return finish({ ok: false, error: message.error.message || 'Could not list Codex models.' });
+          const entries = message.result && Array.isArray(message.result.data) ? message.result.data : [];
+          const models = entries.filter((model) => model && model.id && !model.hidden).map((model) => ({
+            id: String(model.model || model.id),
+            name: String(model.displayName || model.name || model.id),
+          }));
+          finish({ ok: true, models });
+        }
+      }
+    });
+    proc.on('error', (error) => finish({ ok: false, error: error.message }));
+    proc.on('close', (code) => {
+      if (!finished) finish({ ok: false, error: `Codex app-server exited with code ${code}.` });
+    });
+    proc.stdin.on('error', () => {});
+    send({ method: 'initialize', id: 1, params: { clientInfo: { name: 'inkwell', title: 'Inkwell', version: app.getVersion() } } });
+  });
+}
+
+function listClaudeModels(providerConfig = {}) {
+  const env = { ...readClaudeEnv(), ...(providerConfig.env || {}) };
+  const models = [
+    { id: 'sonnet', name: 'Claude Sonnet (latest)' },
+    { id: 'opus', name: 'Claude Opus (latest)' },
+    { id: 'haiku', name: 'Claude Haiku (latest)' },
+  ];
+  const configured = [env.ANTHROPIC_MODEL, env.ANTHROPIC_DEFAULT_OPUS_MODEL, env.ANTHROPIC_DEFAULT_SONNET_MODEL, env.ANTHROPIC_DEFAULT_HAIKU_MODEL];
+  try {
+    const file = path.join(app.getPath('home'), '.claude', 'settings.json');
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+    configured.push(settings.model);
+    if (settings.env && typeof settings.env === 'object') {
+      configured.push(settings.env.ANTHROPIC_MODEL, settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL, settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL, settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL);
+    }
+  } catch (_) {}
+  for (const value of configured) {
+    const id = String(value || '').trim();
+    if (id && !models.some((model) => model.id === id)) models.push({ id, name: id });
+  }
+  return Promise.resolve({ ok: true, models });
+}
+
+async function discoverAIModels(providerId, providerConfig = {}) {
+  const type = providerConfig.type || providerId;
+  if (Array.isArray(providerConfig.models) && providerConfig.models.length) {
+    return { ok: true, models: providerConfig.models.map((model) => typeof model === 'string' ? ({ id: model, name: model }) : model).filter((model) => model && model.id) };
+  }
+  if (type === 'claude' || providerId === 'claude') return listClaudeModels(providerConfig);
+  if (type === 'codex' || providerId === 'codex') return listCodexModels();
+  if (type === 'opencode' || providerId === 'opencode') {
+    const result = await captureAICommand(providerConfig.command || 'opencode', ['models'], { timeout: 20000 });
+    if (!result.ok) return { ok: false, models: [], error: result.error };
+    const ids = new Set();
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const match = line.trim().match(/^([\w.-]+\/[\w.:+-]+)$/);
+      if (match) ids.add(match[1]);
+    }
+    return { ok: true, models: Array.from(ids, (id) => ({ id, name: id })) };
+  }
+  const modelNames = Array.isArray(providerConfig.models) ? providerConfig.models : [];
+  return { ok: true, models: modelNames.map((model) => typeof model === 'string' ? ({ id: model, name: model }) : model).filter((model) => model && model.id) };
+}
+
 // VS Code stores the user's Claude Code credentials (API key + gateway base
 // URL) as JSONC under claudeCode.environmentVariables. We read them so the
 // claude CLI talks to the same endpoint the editor uses.
@@ -678,7 +804,8 @@ function buildAICommand(provider, prompt, model, providerConfig) {
       if (!args.includes('-o')) {
         args.push('-o', AI_OUTPUT_TOKEN, '-');
       }
-      return { cmd, args, stdin: providerConfig.stdin !== false ? '-' : null, parse: providerConfig.parse || 'file' };
+      if (!args.includes('-')) args.push('-');
+      return { cmd, args, stdin: prompt, parse: providerConfig.parse || 'file' };
     }
     if (type === 'opencode' || cmd === 'opencode') {
       const args = providerConfig.args ? providerConfig.args.map((a) => String(a)) : ['run', '--format', 'json'];
@@ -736,6 +863,17 @@ function buildAICommand(provider, prompt, model, providerConfig) {
 }
 
 const aiProcs = new Map();
+
+ipcMain.handle('ai:listModels', async (_event, payload) => {
+  try {
+    const providerId = String(payload && payload.provider || '');
+    const providerConfig = payload && payload.providerConfig && typeof payload.providerConfig === 'object' ? payload.providerConfig : {};
+    if (!providerId) return { ok: false, models: [], error: 'No AI provider selected.' };
+    return await discoverAIModels(providerId, providerConfig);
+  } catch (error) {
+    return { ok: false, models: [], error: error.message || String(error) };
+  }
+});
 
 function killAIFor(id) {
   const rec = aiProcs.get(id);

@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('inkwell', {
   },
 
   // export / share (self-contained HTML)
-  exportHTML: (suggestedName, payload) => ipcRenderer.invoke('dialog:exportHTML', suggestedName, payload),
+  exportHTML: (sourcePath, payload) => ipcRenderer.invoke('dialog:exportHTML', sourcePath, payload),
   sendDocToTelegram: (suggestedName, payload) => ipcRenderer.invoke('telegram:sendHTML', suggestedName, payload),
 
   // settings
@@ -39,5 +39,6 @@ contextBridge.exposeInMainWorld('inkwell', {
 
   // ask an AI CLI about a selection
   askAI: (payload) => ipcRenderer.invoke('ai:ask', payload),
+  listAIModels: (payload) => ipcRenderer.invoke('ai:listModels', payload),
   cancelAI: () => ipcRenderer.invoke('ai:cancel'),
 });
