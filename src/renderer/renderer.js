@@ -4132,6 +4132,10 @@ function openAIEditReview() {
   els.answerDocView.scrollTop = 0;
   els.answerDocContent.parentElement.scrollTop = 0;
   closeAIPanel();
+  requestAnimationFrame(() => {
+    const firstChange = els.answerDocContent.querySelector('#ai-edit-first-change');
+    if (firstChange) firstChange.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  });
 }
 
 function renderAIEditPreview(edit) {
@@ -4163,6 +4167,7 @@ function renderAIEditPreview(edit) {
     const asBlock = blockChange && !inCode && node.parentElement.tagName === 'P' && node.parentElement.textContent === marker;
     const wrapper = document.createElement(asBlock ? 'div' : 'span');
     wrapper.className = 'ai-edit-diff-group';
+    wrapper.id = 'ai-edit-first-change';
 
     if (edit.target) appendAIEditDiffPart(wrapper, 'ai-edit-diff-removed', edit.target, asBlock, inCode);
     if (edit.replacement) appendAIEditDiffPart(wrapper, 'ai-edit-diff-added', edit.replacement, asBlock, inCode);
@@ -4185,6 +4190,7 @@ function renderAIEditPreview(edit) {
 
   const fallback = document.createElement('div');
   fallback.className = 'ai-edit-diff-group ai-edit-diff-block';
+  fallback.id = 'ai-edit-first-change';
   if (edit.target) appendAIEditDiffPart(fallback, 'ai-edit-diff-removed', edit.target, true, false);
   if (edit.replacement) appendAIEditDiffPart(fallback, 'ai-edit-diff-added', edit.replacement, true, false);
   preview.appendChild(fallback);
@@ -4219,16 +4225,55 @@ async function acceptAIEdit() {
 
   clearTimeout(autosaveTimer);
   els.editor.focus();
-  els.editor.setRangeText(edit.replacement, edit.start, edit.end, 'end');
-  const cursor = edit.start + edit.replacement.length;
-  els.editor.setSelectionRange(cursor, cursor);
+  const appliedEnd = edit.start + edit.replacement.length;
+  els.editor.setRangeText(edit.replacement, edit.start, edit.end, edit.replacement ? 'select' : 'start');
+  els.editor.setSelectionRange(edit.start, appliedEnd);
   onEditorChanged();
   clearTimeout(autosaveTimer);
   closeAnswerDoc();
   pendingAIEdit = null;
   els.aiAnswerActions.classList.add('hidden');
   const saved = await saveFile(true);
+  if (state.viewMode === 'preview') scrollPreviewToAcceptedAIEdit(edit);
+  else {
+    els.editor.focus();
+    els.editor.setSelectionRange(edit.start, appliedEnd);
+  }
   toast(saved ? 'Document change accepted' : 'Change applied in the editor, but saving failed', saved ? 'success' : 'error', 3500);
+}
+
+function scrollPreviewToAcceptedAIEdit(edit) {
+  const preview = els.previewContent;
+  const context = edit.replacement || edit.originalContent.slice(edit.end) || edit.originalContent.slice(0, edit.start);
+  const scratch = document.createElement('div');
+  scratch.innerHTML = md.render(context);
+  const words = (scratch.textContent || '').replace(/\s+/g, ' ').trim().split(' ').filter((word) => word.length > 1);
+  if (!words.length) return;
+
+  for (let count = Math.min(6, words.length); count >= 1; count--) {
+    const phrase = words.slice(0, count).join(' ');
+    const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const at = node.nodeValue.indexOf(phrase);
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + phrase.length);
+      const highlight = document.createElement('span');
+      highlight.className = 'ai-applied-change-highlight';
+      range.surroundContents(highlight);
+      highlight.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      setTimeout(() => {
+        if (!highlight.isConnected) return;
+        const parent = highlight.parentNode;
+        while (highlight.firstChild) parent.insertBefore(highlight.firstChild, highlight);
+        highlight.remove();
+        parent.normalize();
+      }, 1800);
+      return;
+    }
+  }
 }
 
 function rejectAIEdit() {
