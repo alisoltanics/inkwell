@@ -609,7 +609,7 @@
                 </div>
             </div>
             <div class="modal-footer settings-footer">
-                <span class="settings-version">Inkwell 1.0.0</span>
+                <span class="settings-version">Inkwell 1.0.1</span>
                 <button class="btn-secondary" data-close="modalSettings" type="button">Done</button>
             </div>
         </div>
@@ -697,6 +697,7 @@
 
         <div class="ai-actions">
             <button class="ai-ask" id="aiAskBtn" type="button">Ask</button>
+            <button class="ai-suggest" id="aiSuggestChangeBtn" type="button" title="Generate a proposed edit for this document. You can review it before applying it.">Suggest document change</button>
             <button class="ai-stop hidden" id="aiStopBtn" type="button">Stop</button>
         </div>
 
@@ -708,21 +709,48 @@
                 </div>
                 <div class="ai-answer empty" id="aiAnswer">Select some text, then ask a question.</div>
                 <div class="ai-answer-actions hidden" id="aiAnswerActions">
-                    <button type="button" data-ai="page" title="View the answer as a full page">
+                    <button class="ai-answer-standard-action" type="button" data-ai="page" title="View the answer as a full page">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
                         View as page
                     </button>
-                    <button type="button" data-ai="save" title="Save the answer as a Markdown file">
+                    <button class="ai-answer-standard-action" type="button" data-ai="save" title="Save the answer as a Markdown file">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
                         Save .md
                     </button>
-                    <button type="button" data-ai="insert" title="Insert at cursor">Insert</button>
-                    <button type="button" data-ai="replace" id="aiReplaceBtn" title="Replace the selection">Replace</button>
-                    <button type="button" data-ai="copy" title="Copy to clipboard">Copy</button>
+                    <button class="ai-answer-standard-action" type="button" data-ai="insert" title="Insert at cursor">Insert</button>
+                    <button class="ai-answer-standard-action" type="button" data-ai="replace" id="aiReplaceBtn" title="Replace the selection">Replace</button>
+                    <button class="ai-answer-standard-action" type="button" data-ai="copy" title="Copy to clipboard">Copy</button>
+                    <button class="ai-review-change hidden" id="aiReviewChangeBtn" type="button" data-ai="review-change" title="Review the proposed document change">Review change</button>
                 </div>
             </div>
         </div>
     </aside>
+
+    <!-- Review an AI-proposed edit before applying it to the note. -->
+    <div class="modal-overlay hidden" id="modalAIEditReview">
+        <div class="modal ai-edit-review-modal">
+            <div class="modal-header">
+                <h3>Review document change</h3>
+                <button class="modal-close" type="button" data-close="aiEditReview" aria-label="Close">&times;</button>
+            </div>
+            <div class="ai-edit-review-location" id="aiEditReviewLocation"></div>
+            <div class="ai-edit-review-columns">
+                <section class="ai-edit-review-pane ai-edit-before">
+                    <h4>Current text</h4>
+                    <pre id="aiEditReviewBefore"></pre>
+                </section>
+                <section class="ai-edit-review-pane ai-edit-after">
+                    <h4>Proposed text</h4>
+                    <pre id="aiEditReviewAfter"></pre>
+                </section>
+            </div>
+            <p class="ai-edit-review-note">The note will only change if you accept this proposal.</p>
+            <div class="modal-footer">
+                <button class="btn-secondary" type="button" id="aiEditRejectBtn">Reject</button>
+                <button class="btn-primary" type="button" id="aiEditAcceptBtn">Accept change</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Comments panel -->
     <aside class="comments-panel hidden" id="commentsPanel">

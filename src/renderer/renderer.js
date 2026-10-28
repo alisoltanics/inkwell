@@ -137,10 +137,17 @@ const els = {
   aiModel: $('aiModel'),
   aiQuestion: $('aiQuestion'),
   aiAskBtn: $('aiAskBtn'),
+  aiSuggestChangeBtn: $('aiSuggestChangeBtn'),
   aiStopBtn: $('aiStopBtn'),
   aiAnswer: $('aiAnswer'),
   aiAnswerActions: $('aiAnswerActions'),
   aiReplaceBtn: $('aiReplaceBtn'),
+  aiReviewChangeBtn: $('aiReviewChangeBtn'),
+  aiEditReviewLocation: $('aiEditReviewLocation'),
+  aiEditReviewBefore: $('aiEditReviewBefore'),
+  aiEditReviewAfter: $('aiEditReviewAfter'),
+  aiEditAcceptBtn: $('aiEditAcceptBtn'),
+  aiEditRejectBtn: $('aiEditRejectBtn'),
   aiAnswerBadge: $('aiAnswerBadge'),
   aiAnswerMeta: $('aiAnswerMeta'),
   aiResizer: $('aiResizer'),
@@ -196,6 +203,7 @@ const modals = {
   saveAnswer: $('modalSaveAnswer'),
   comment: $('modalComment'),
   explainCode: $('modalExplainCode'),
+  aiEditReview: $('modalAIEditReview'),
   settings: $('modalSettings'),
 };
 
@@ -3576,6 +3584,8 @@ let aiContext = { text: '', start: null, end: null };
 let aiAnswer = '';
 let aiBusy = false;
 let aiAnswerKind = 'answer';
+let pendingAIEdit = null;
+const AI_EDIT_DELETE_TOKEN = '__INKWELL_DELETE_SELECTED_TEXT__';
 let answerDocReopenPanel = false;
 let aiOpenAnswerWhenDone = false;
 
@@ -3753,10 +3763,13 @@ function applyAIDirection() {
 
 function resetAIAnswer(clearQuestion = false) {
   aiAnswer = '';
+  pendingAIEdit = null;
   els.aiAnswer.className = 'ai-answer empty';
   els.aiAnswer.removeAttribute('dir');
   els.aiAnswer.textContent = 'Select some text, then ask a question.';
   els.aiAnswerActions.classList.add('hidden');
+  if (els.aiReviewChangeBtn) els.aiReviewChangeBtn.classList.add('hidden');
+  els.aiAnswerActions.querySelectorAll('.ai-answer-standard-action').forEach((button) => button.classList.remove('hidden'));
   if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Ready';
   if (els.aiAnswerBadge) els.aiAnswerBadge.textContent = providerLabel(els.aiProvider.value);
   if (clearQuestion) els.aiQuestion.value = '';
@@ -3852,6 +3865,7 @@ function syncAIProvider() {
 function setAIBusy(busy) {
   aiBusy = busy;
   els.aiAskBtn.classList.toggle('hidden', busy);
+  if (els.aiSuggestChangeBtn) els.aiSuggestChangeBtn.classList.toggle('hidden', busy);
   els.aiStopBtn.classList.toggle('hidden', !busy);
 }
 
@@ -3984,8 +3998,61 @@ function buildAIPrompt(question, selection) {
   return lines.join('\n');
 }
 
-async function askAI(overridePrompt) {
+function buildAIEditPrompt(request, instruction) {
+  const maxContext = 24000;
+  const margin = Math.floor((maxContext - request.target.length) / 2);
+  const contextStart = Math.max(0, request.start - margin);
+  const contextEnd = Math.min(request.originalContent.length, request.end + margin);
+  const prefix = contextStart > 0 ? '...[earlier document text omitted]...\n' : '';
+  const suffix = contextEnd < request.originalContent.length ? '\n...[later document text omitted]...' : '';
+  const markedContext = request.insertion
+    ? request.originalContent.slice(contextStart, request.start) + '[[INSERT HERE]]' + request.originalContent.slice(request.start, contextEnd)
+    : request.originalContent.slice(contextStart, request.start) + '[[TARGET START]]' + request.target + '[[TARGET END]]' + request.originalContent.slice(request.end, contextEnd);
+
+  return [
+    'You are editing a Markdown document. Follow the user instruction and return ONLY the exact Markdown text that should replace the marked target. Do not explain the change, add a preamble, or wrap the result in a code fence.',
+    'Text outside the marked target must remain unchanged.',
+    request.insertion
+      ? `The marker [[INSERT HERE]] is a cursor position. Return only text to insert at that point. If no text should be inserted, return exactly ${AI_EDIT_DELETE_TOKEN}.`
+      : `The text between [[TARGET START]] and [[TARGET END]] is the selected passage. Return its replacement. If the passage should be removed, return exactly ${AI_EDIT_DELETE_TOKEN}.`,
+    '',
+    'User instruction:',
+    instruction.trim(),
+    '',
+    'Document context (may be partial):',
+    prefix + markedContext + suffix,
+  ].join('\n');
+}
+
+function suggestDocumentChange() {
+  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  const instruction = els.aiQuestion.value.trim();
+  if (!instruction) { toast('Describe the change you want first', 'info'); els.aiQuestion.focus(); return; }
+
+  const originalContent = els.editor.value;
+  const start = Math.min(els.editor.selectionStart, els.editor.selectionEnd);
+  const end = Math.max(els.editor.selectionStart, els.editor.selectionEnd);
+  const target = originalContent.slice(start, end);
+  if (target.length > AI_MAX_SELECTION) {
+    toast('Select a smaller passage (up to 12,000 characters)', 'info');
+    return;
+  }
+  const editRequest = {
+    filePath: state.currentFile,
+    originalContent,
+    start,
+    end,
+    target,
+    insertion: start === end,
+  };
+  askAI(buildAIEditPrompt(editRequest, instruction), { editRequest });
+}
+
+async function askAI(overridePrompt, options = {}) {
   if (aiBusy) return;
+  pendingAIEdit = null;
+  if (els.aiReviewChangeBtn) els.aiReviewChangeBtn.classList.add('hidden');
+  els.aiAnswerActions.querySelectorAll('.ai-answer-standard-action').forEach((button) => button.classList.remove('hidden'));
   const question = els.aiQuestion.value;
   const provider = els.aiProvider ? els.aiProvider.value : state.aiProvider;
   if (!getAIProviderById(provider)) {
@@ -4022,10 +4089,20 @@ async function askAI(overridePrompt) {
   }
 
   if (res && res.ok) {
-    aiAnswer = res.text || '';
+    const responseText = String(res.text || '');
+    aiAnswer = options.editRequest && responseText.trim() === AI_EDIT_DELETE_TOKEN ? '' : responseText;
+    pendingAIEdit = options.editRequest ? { ...options.editRequest, replacement: aiAnswer } : null;
     els.aiAnswer.className = aiAnswer ? 'ai-answer markdown-body' : 'ai-answer empty';
-    els.aiAnswer.innerHTML = aiAnswer ? md.render(aiAnswer) : '(empty response)';
+    els.aiAnswer.innerHTML = aiAnswer
+      ? md.render(aiAnswer)
+      : pendingAIEdit && pendingAIEdit.target
+        ? 'The AI proposed removing the selected text.'
+        : pendingAIEdit ? 'The AI proposed an empty insertion.' : '(empty response)';
     els.aiAnswerActions.classList.remove('hidden');
+    if (pendingAIEdit) {
+      els.aiAnswerActions.querySelectorAll('.ai-answer-standard-action').forEach((button) => button.classList.add('hidden'));
+      els.aiReviewChangeBtn.classList.remove('hidden');
+    }
     if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Done';
     applyAIDirection();
     if (aiOpenAnswerWhenDone && aiAnswer && aiAnswer.trim()) {
@@ -4034,6 +4111,7 @@ async function askAI(overridePrompt) {
     }
   } else {
     aiAnswer = '';
+    pendingAIEdit = null;
     aiOpenAnswerWhenDone = false;
     els.aiAnswer.className = 'ai-answer error';
     els.aiAnswer.removeAttribute('dir');
@@ -4041,6 +4119,52 @@ async function askAI(overridePrompt) {
     if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Error';
   }
   setAIBusy(false);
+}
+
+function openAIEditReview() {
+  if (!pendingAIEdit) return;
+  const edit = pendingAIEdit;
+  const startLine = edit.originalContent.slice(0, edit.start).split('\n').length;
+  const endLine = edit.originalContent.slice(0, edit.end).split('\n').length;
+  els.aiEditReviewLocation.textContent = `${edit.filePath} · ${edit.insertion ? `Insert at line ${startLine}` : startLine === endLine ? `Line ${startLine}` : `Lines ${startLine}–${endLine}`}`;
+  els.aiEditReviewBefore.textContent = edit.insertion ? '(Insertion point — no text will be removed.)' : (edit.target || '(Empty selection)');
+  els.aiEditReviewAfter.textContent = edit.replacement || (edit.target ? '(Remove the selected text)' : '(No text to insert)');
+  openModal('aiEditReview');
+}
+
+async function acceptAIEdit() {
+  const edit = pendingAIEdit;
+  if (!edit) return;
+  if (state.currentFile !== edit.filePath || els.editor.value !== edit.originalContent) {
+    toast('The document changed after this suggestion. Generate a fresh suggestion before accepting.', 'error', 4500);
+    closeModal('aiEditReview');
+    pendingAIEdit = null;
+    els.aiAnswerActions.classList.add('hidden');
+    return;
+  }
+
+  clearTimeout(autosaveTimer);
+  if (edit.replacement) {
+    replaceRange(edit.start, edit.end, edit.replacement, edit.start + edit.replacement.length, edit.start + edit.replacement.length);
+  } else {
+    els.editor.focus();
+    els.editor.setRangeText('', edit.start, edit.end, 'start');
+    els.editor.setSelectionRange(edit.start, edit.start);
+    onEditorChanged();
+  }
+  clearTimeout(autosaveTimer);
+  closeModal('aiEditReview');
+  pendingAIEdit = null;
+  els.aiAnswerActions.classList.add('hidden');
+  const saved = await saveFile(true);
+  toast(saved ? 'Document change accepted' : 'Change applied in the editor, but saving failed', saved ? 'success' : 'error', 3500);
+}
+
+function rejectAIEdit() {
+  closeModal('aiEditReview');
+  pendingAIEdit = null;
+  els.aiAnswerActions.classList.add('hidden');
+  toast('Document change rejected', 'info');
 }
 
 function insertAIAnswer() {
@@ -4193,6 +4317,10 @@ function setupAI() {
   });
   els.aiClose.addEventListener('click', closeAIPanel);
   els.aiAskBtn.addEventListener('click', () => askAI());
+  if (els.aiSuggestChangeBtn) els.aiSuggestChangeBtn.addEventListener('click', suggestDocumentChange);
+  if (els.aiReviewChangeBtn) els.aiReviewChangeBtn.addEventListener('click', openAIEditReview);
+  if (els.aiEditAcceptBtn) els.aiEditAcceptBtn.addEventListener('click', acceptAIEdit);
+  if (els.aiEditRejectBtn) els.aiEditRejectBtn.addEventListener('click', rejectAIEdit);
   els.aiStopBtn.addEventListener('click', () => { window.inkwell.cancelAI(); setAIBusy(false); });
   if (els.aiProvider) {
   els.aiProvider.addEventListener('change', () => {

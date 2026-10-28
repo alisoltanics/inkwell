@@ -27,6 +27,7 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 
 - Open the Ask AI panel to ask a question, or use document actions to summarize, explain, translate, or extract notes from the current document.
 - Ask AI about selected text, or explain a piece of code. AI prompts can include the selected text or document content needed for the chosen action.
+- Ask AI to edit a selected passage or insert text at the cursor. Review the current and proposed text side by side, then accept or reject the change. Accepted changes are saved to the open note; if the note changes while AI is working, Inkwell asks you to generate a fresh proposal.
 - Choose Claude, Codex, or OpenCode, set a model, and manage reusable quick prompts in Settings.
 - Save a useful AI answer as a new Markdown note.
 
