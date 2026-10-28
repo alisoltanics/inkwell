@@ -663,7 +663,7 @@ function listCodexModels() {
 }
 
 function listClaudeModels(providerConfig = {}) {
-  const env = { ...readClaudeEnv(), ...(providerConfig.env || {}) };
+  const env = { ...readClaudeEnv(), ...(providerConfig.env || {}), ...providerCredentialEnv(providerConfig) };
   const models = [
     { id: 'sonnet', name: 'Claude Sonnet (latest)' },
     { id: 'opus', name: 'Claude Opus (latest)' },
@@ -693,7 +693,7 @@ async function discoverAIModels(providerId, providerConfig = {}) {
   if (type === 'claude' || providerId === 'claude') return listClaudeModels(providerConfig);
   if (type === 'codex' || providerId === 'codex') return listCodexModels();
   if (type === 'opencode' || providerId === 'opencode') {
-    const result = await captureAICommand(providerConfig.command || 'opencode', ['models'], { timeout: 20000 });
+    const result = await captureAICommand(providerConfig.command || 'opencode', ['models'], { timeout: 20000, env: providerCredentialEnv(providerConfig) });
     if (!result.ok) return { ok: false, models: [], error: result.error };
     const ids = new Set();
     for (const line of result.stdout.split(/\r?\n/)) {
@@ -780,6 +780,24 @@ function parseOpencodeJson(out) {
 }
 
 const AI_OUTPUT_TOKEN = '__INKWELL_OUT__';
+
+const DEFAULT_CREDENTIAL_ENV = {
+  claude: { apiKey: 'ANTHROPIC_API_KEY', baseUrl: 'ANTHROPIC_BASE_URL' },
+  default: { apiKey: 'OPENAI_API_KEY', baseUrl: 'OPENAI_BASE_URL' },
+};
+
+// Environment variables carrying a custom provider's API key / base URL.
+function providerCredentialEnv(cfg) {
+  const env = {};
+  if (!cfg || typeof cfg !== 'object') return env;
+  const names = DEFAULT_CREDENTIAL_ENV[cfg.type] || DEFAULT_CREDENTIAL_ENV.default;
+  const valid = (n) => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(n.trim());
+  const keyName = valid(cfg.apiKeyEnv) ? cfg.apiKeyEnv.trim() : names.apiKey;
+  const urlName = valid(cfg.baseUrlEnv) ? cfg.baseUrlEnv.trim() : names.baseUrl;
+  if (typeof cfg.apiKey === 'string' && cfg.apiKey.trim()) env[keyName] = cfg.apiKey.trim();
+  if (typeof cfg.baseUrl === 'string' && cfg.baseUrl.trim()) env[urlName] = cfg.baseUrl.trim();
+  return env;
+}
 
 function buildAICommand(provider, prompt, model, providerConfig) {
   if (providerConfig && providerConfig.command && providerConfig.type) {
@@ -921,7 +939,7 @@ ipcMain.handle('ai:ask', (event, payload) => {
     try {
       proc = spawn(cmdPath, spec.args, {
         cwd: NOTES_DIR,
-        env: { ...process.env, ...(spec.env || {}), PATH: aiSearchDirs().join(path.delimiter) },
+        env: { ...process.env, ...(spec.env || {}), ...providerCredentialEnv(providerConfig), PATH: aiSearchDirs().join(path.delimiter) },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (e) {

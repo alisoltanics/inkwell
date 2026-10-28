@@ -637,6 +637,29 @@
                             <label>Custom providers</label>
                             <div class="ai-providers-list" id="aiProvidersList"></div>
                             <button class="btn-secondary" id="aiProviderAdd" type="button" style="margin-top:6px;">Add custom provider</button>
+                            <form class="ai-provider-form hidden" id="aiProviderForm" autocomplete="off">
+                                <input type="text" id="aiProviderFormId" placeholder="ID (short, no spaces)" spellcheck="false" required>
+                                <input type="text" id="aiProviderFormName" placeholder="Display name" spellcheck="false">
+                                <input type="text" id="aiProviderFormCommand" placeholder="Command (e.g. gemini, aichat)" spellcheck="false" required>
+                                <select id="aiProviderFormType" title="Type">
+                                    <option value="generic">generic</option>
+                                    <option value="claude">claude</option>
+                                    <option value="codex">codex</option>
+                                    <option value="opencode">opencode</option>
+                                </select>
+                                <input type="text" id="aiProviderFormBaseUrl" placeholder="Base URL (optional, e.g. https://api.example.com/v1)" spellcheck="false">
+                                <input type="password" id="aiProviderFormApiKey" placeholder="API key (optional)" spellcheck="false" autocomplete="new-password">
+                                <div class="ai-provider-form-row">
+                                    <input type="text" id="aiProviderFormBaseUrlEnv" placeholder="Base URL env var" spellcheck="false">
+                                    <input type="text" id="aiProviderFormApiKeyEnv" placeholder="API key env var" spellcheck="false">
+                                </div>
+                                <p class="settings-desc">Passed to the command as environment variables. Names are filled in from the type; change them if your CLI reads different ones.</p>
+                                <input type="text" id="aiProviderFormModelFlag" placeholder="Model flag (e.g. --model; blank if unsupported)" value="--model" spellcheck="false">
+                                <div class="ai-provider-form-actions">
+                                    <button class="btn-primary" type="submit">Add provider</button>
+                                    <button class="btn-secondary" id="aiProviderFormCancel" type="button">Cancel</button>
+                                </div>
+                            </form>
                         </div>
                         <p class="modal-hint">The provider CLI must be installed and signed in. Models are passed with each provider's native flag.</p>
                         <div class="settings-actions">

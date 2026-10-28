@@ -3537,7 +3537,7 @@ function renderAIProvidersList() {
     const info = document.createElement('div');
     info.style.flex = '1';
     const typeText = p.type ? ' / ' + p.type : '';
-    const modelFlagText = p.modelFlag ? ' / ' + p.modelFlag : '';
+    const modelFlagText = (p.modelFlag ? ' / ' + p.modelFlag : '') + (p.baseUrl ? ' / ' + p.baseUrl : '') + (p.apiKey ? ' / key set' : '');
     info.innerHTML = '<div style="font-size:12px;">' + escapeHtml(p.name || p.id) + ' <span style="opacity:.6;">(' + escapeHtml(p.command + typeText + modelFlagText) + ')</span></div>';
     const del = document.createElement('button');
     del.className = 'btn-secondary';
@@ -3730,23 +3730,41 @@ function setupSettings() {
     });
   }
   if (els.aiProviderAdd) {
+    const form = $('aiProviderForm');
+    const field = (id) => $(id).value.trim();
     els.aiProviderAdd.addEventListener('click', () => {
-      const id = prompt('Provider ID (short, no spaces)');
-      if (!id) return;
-      const name = prompt('Display name') || id;
-      const command = prompt('Command (e.g. gemini, aichat)') || id;
-      const type = prompt('Type (claude/codex/opencode/generic)', 'generic') || 'generic';
-      const modelFlag = prompt('Model flag (e.g. --model or -m; leave blank if unsupported)', '--model');
-      if (modelFlag === null) return;
-      if (!id.trim() || !command.trim()) { toast('ID and command required', 'error'); return; }
-      const cleanId = id.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      form.classList.toggle('hidden');
+      if (!form.classList.contains('hidden')) $('aiProviderFormId').focus();
+    });
+    const syncEnvNames = () => {
+      const claude = $('aiProviderFormType').value === 'claude';
+      $('aiProviderFormApiKeyEnv').value = claude ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
+      $('aiProviderFormBaseUrlEnv').value = claude ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL';
+    };
+    $('aiProviderFormType').addEventListener('change', syncEnvNames);
+    syncEnvNames();
+    $('aiProviderFormCancel').addEventListener('click', () => { form.reset(); syncEnvNames(); form.classList.add('hidden'); });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const id = field('aiProviderFormId');
+      const command = field('aiProviderFormCommand');
+      if (!id || !command) { toast('ID and command required', 'error'); return; }
+      const cleanId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
       state.aiProviders = Array.isArray(state.aiProviders) ? state.aiProviders : [];
       if (getAIProviders().some((p) => p.id === cleanId)) { toast('Provider ID already exists', 'error'); return; }
-      const customProvider = { id: cleanId, name: name.trim(), command: command.trim(), type: type.trim() || 'generic' };
-      if (modelFlag.trim()) customProvider.modelFlag = modelFlag.trim();
+      const customProvider = { id: cleanId, name: field('aiProviderFormName') || id, command, type: $('aiProviderFormType').value || 'generic' };
+      const modelFlag = field('aiProviderFormModelFlag');
+      if (modelFlag) customProvider.modelFlag = modelFlag;
+      const baseUrl = field('aiProviderFormBaseUrl');
+      const apiKey = $('aiProviderFormApiKey').value.trim();
+      if (baseUrl && !/^https?:\/\//i.test(baseUrl)) { toast('Base URL must start with http:// or https://', 'error'); return; }
+      if (baseUrl) { customProvider.baseUrl = baseUrl; customProvider.baseUrlEnv = field('aiProviderFormBaseUrlEnv'); }
+      if (apiKey) { customProvider.apiKey = apiKey; customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv'); }
       state.aiProviders.push(customProvider);
       state.aiProvider = cleanId;
-      savePreferences();
+      form.reset();
+      syncEnvNames();
+      form.classList.add('hidden');
       populateAISettings();
       renderAIProvidersList();
       syncAIProvider();
