@@ -62,7 +62,27 @@ jobs:
         run: npm ci
 
       - name: Package app
-        run: npm run ${{ matrix.script }} ${{ matrix.args }}
+        shell: bash
+        run: |
+          # dmg creation on the macOS runners intermittently dies with
+          # "hdiutil: couldn't eject disk2 - Resource busy", so packaging is
+          # retried after detaching whatever image the failed run left mounted.
+          for attempt in 1 2 3; do
+            echo "Packaging attempt $attempt"
+            if npm run ${{ matrix.script }} ${{ matrix.args }}; then
+              echo "Packaging succeeded"
+              exit 0
+            fi
+            echo "::warning::Packaging attempt $attempt failed"
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              for dev in $(hdiutil info | awk '/\/dev\/disk/ {print $1}'); do
+                hdiutil detach -force "$dev" >/dev/null 2>&1 || true
+              done
+            fi
+            rm -rf dist
+          done
+          echo "::error::Packaging failed after 3 attempts"
+          exit 1
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
