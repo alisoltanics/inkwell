@@ -640,6 +640,13 @@
                                 <input type="text" id="settingsAiModelCustom" class="hidden" placeholder="Enter model ID" autocomplete="off" spellcheck="false">
                             </div>
                         </div>
+                        <div class="settings-field hidden" id="settingsAiApiFields">
+                            <label for="settingsAiApiKey">API key</label>
+                            <input type="password" id="settingsAiApiKey" placeholder="sk-…" autocomplete="off" spellcheck="false">
+                            <label for="settingsAiBaseUrl" style="margin-top:10px;">Base URL</label>
+                            <input type="text" id="settingsAiBaseUrl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
+                            <p class="settings-desc">Stored on this device. Inkwell calls the provider directly, so no CLI is needed.</p>
+                        </div>
                         <div class="settings-field">
                             <label for="settingsAiResponseLanguage">Response language</label>
                             <select id="settingsAiResponseLanguage">
@@ -675,6 +682,7 @@
                                 <input type="text" id="aiProviderFormCommand" placeholder="Command (e.g. gemini, aichat)" spellcheck="false" required>
                                 <select id="aiProviderFormType" title="Type">
                                     <option value="generic">generic</option>
+                                    <option value="api">api (OpenAI compatible)</option>
                                     <option value="claude">claude</option>
                                     <option value="codex">codex</option>
                                     <option value="opencode">opencode</option>

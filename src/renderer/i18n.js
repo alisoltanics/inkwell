@@ -2331,5 +2331,63 @@
     "There is no answer to insert": "Nessuna risposta da inserire",
   };
 
+  // HTTP (API) provider settings — DeepSeek and other OpenAI-compatible services
+  Object.assign(fa, {
+    'API key': 'کلید API',
+    'Base URL': 'نشانی پایه',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'روی همین دستگاه ذخیره می‌شود. Inkwell مستقیم به سرویس وصل می‌شود و به ابزار خط فرمان نیازی نیست.',
+    'Enter the API key for this provider': 'کلید API این سرویس را وارد کنید',
+    'A key is saved. Type a new one to replace it.': 'کلید ذخیره شده است. برای تغییر، کلید تازه را وارد کنید.',
+  });
+  Object.assign(ar, {
+    'API key': 'مفتاح API',
+    'Base URL': 'عنوان URL الأساسي',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'يُحفظ على هذا الجهاز. يتصل Inkwell بالخدمة مباشرة دون الحاجة إلى أداة سطر أوامر.',
+    'Enter the API key for this provider': 'أدخل مفتاح API لهذا المزوّد',
+    'A key is saved. Type a new one to replace it.': 'المفتاح محفوظ. اكتب مفتاحًا جديدًا لاستبداله.',
+  });
+  Object.assign(fr, {
+    'API key': 'Clé API',
+    'Base URL': 'URL de base',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'Stockée sur cet appareil. Inkwell contacte le service directement, aucune CLI requise.',
+    'Enter the API key for this provider': 'Saisissez la clé API de ce fournisseur',
+    'A key is saved. Type a new one to replace it.': 'Une clé est enregistrée. Saisissez-en une nouvelle pour la remplacer.',
+  });
+  Object.assign(de, {
+    'API key': 'API-Schlüssel',
+    'Base URL': 'Basis-URL',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'Wird auf diesem Gerät gespeichert. Inkwell ruft den Dienst direkt auf, keine CLI nötig.',
+    'Enter the API key for this provider': 'API-Schlüssel für diesen Anbieter eingeben',
+    'A key is saved. Type a new one to replace it.': 'Ein Schlüssel ist gespeichert. Neuen eingeben, um ihn zu ersetzen.',
+  });
+  Object.assign(it, {
+    'API key': 'Chiave API',
+    'Base URL': 'URL di base',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'Salvata su questo dispositivo. Inkwell contatta il servizio direttamente, nessuna CLI necessaria.',
+    'Enter the API key for this provider': 'Inserisci la chiave API di questo provider',
+    'A key is saved. Type a new one to replace it.': 'Una chiave è salvata. Inseriscine una nuova per sostituirla.',
+  });
+  Object.assign(tr, {
+    'API key': 'API anahtarı',
+    'Base URL': 'Temel URL',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'Bu cihazda saklanır. Inkwell servise doğrudan bağlanır, komut satırı aracı gerekmez.',
+    'Enter the API key for this provider': 'Bu sağlayıcı için API anahtarını girin',
+    'A key is saved. Type a new one to replace it.': 'Anahtar kaydedildi. Değiştirmek için yeni bir anahtar girin.',
+  });
+  Object.assign(es, {
+    'API key': 'Clave de API',
+    'Base URL': 'URL base',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': 'Se guarda en este dispositivo. Inkwell llama al servicio directamente, sin necesidad de una CLI.',
+    'Enter the API key for this provider': 'Introduce la clave de API de este proveedor',
+    'A key is saved. Type a new one to replace it.': 'Ya hay una clave guardada. Escribe una nueva para reemplazarla.',
+  });
+  Object.assign(zh, {
+    'API key': 'API 密钥',
+    'Base URL': '基础 URL',
+    'Stored on this device. Inkwell calls the provider directly, so no CLI is needed.': '保存在本机。Inkwell 直接调用服务，无需命令行工具。',
+    'Enter the API key for this provider': '请输入此提供商的 API 密钥',
+    'A key is saved. Type a new one to replace it.': '密钥已保存。输入新密钥即可替换。',
+  });
+
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };
 })();

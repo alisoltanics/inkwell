@@ -239,6 +239,7 @@ let state = {
   telegramBusy: false,
   printBusy: false,
   aiProviders: [],
+  apiPresetsSeeded: false,
 };
 
 const findState = { open: false, query: '', matches: [], index: -1 };
@@ -289,6 +290,9 @@ const els = {
   settingsAiPrompts: $('settingsAiPrompts'),
   settingsAiResponseLanguage: $('settingsAiResponseLanguage'),
   settingsAiResponseLanguageCustom: $('settingsAiResponseLanguageCustom'),
+  settingsAiApiFields: $('settingsAiApiFields'),
+  settingsAiApiKey: $('settingsAiApiKey'),
+  settingsAiBaseUrl: $('settingsAiBaseUrl'),
   settingsAiSave: $('settingsAiSave'),
   aiProviderAdd: $('aiProviderAdd'),
   aiProvidersList: $('aiProvidersList'),
@@ -680,8 +684,13 @@ function loadPreferences() {
       if (typeof p.lastOpenFromFavorites === 'boolean') state.lastOpenFromFavorites = p.lastOpenFromFavorites;
       if (p.scrollByFile && typeof p.scrollByFile === 'object') state.scrollByFile = p.scrollByFile;
       if (p.cursorByFile && typeof p.cursorByFile === 'object') state.cursorByFile = p.cursorByFile;
+      if (p.apiPresetsSeeded === true) state.apiPresetsSeeded = true;
     }
   } catch (_) {}
+  if (ensureAPIProviderPresets() || !state.apiPresetsSeeded) {
+    state.apiPresetsSeeded = true;
+    savePreferences();
+  }
   applyLanguageDirection();
   applyZoom();
   applyFontSize();
@@ -719,6 +728,7 @@ function savePreferences() {
       scrollByFile: state.scrollByFile,
       cursorByFile: state.cursorByFile,
       aiProviders: state.aiProviders,
+      apiPresetsSeeded: state.apiPresetsSeeded === true,
     }));
   } catch (_) {}
 }
@@ -4014,6 +4024,27 @@ function populateSettingsAIProviderSelect(providers) {
   }
 }
 
+// Only providers that speak HTTP need a key and a base URL in the settings.
+function syncAIApiFields(providerId) {
+  const box = els.settingsAiApiFields;
+  if (!box) return;
+  const api = isApiProvider(providerId);
+  box.classList.toggle('hidden', !api);
+  if (!api) return;
+  const cfg = getAIProviderById(providerId) || {};
+  const status = apiKeyState(providerId);
+  if (els.settingsAiBaseUrl) els.settingsAiBaseUrl.value = status.baseUrl || cfg.baseUrl || '';
+  if (els.settingsAiApiKey) {
+    els.settingsAiApiKey.value = '';
+    els.settingsAiApiKey.classList.toggle('has-saved-key', !!status.hasKey);
+    setUITitle(
+      els.settingsAiApiKey,
+      status.hasKey ? 'A key is saved. Type a new one to replace it.' : 'API key',
+      'placeholder'
+    );
+  }
+}
+
 function populateAISettings() {
   const providers = getAIProviders();
   populateSettingsAIProviderSelect(providers);
@@ -4025,6 +4056,7 @@ function populateAISettings() {
     els.settingsAiModelCustom.classList.add('hidden');
   }
   loadAIModelOptions(provider);
+  syncAIApiFields(provider);
   els.settingsAiPrompts.value = (state.aiPrompts || []).join('\n');
   if (els.settingsAiResponseLanguage) {
     const known = Array.from(els.settingsAiResponseLanguage.options).some((option) => option.value === state.aiResponseLanguage);
@@ -4084,9 +4116,14 @@ function renderAIProvidersList() {
     row.style.padding = '4px 0';
     const info = document.createElement('div');
     info.style.flex = '1';
-    const typeText = p.type ? ' / ' + p.type : '';
-    const modelFlagText = (p.modelFlag ? ' / ' + p.modelFlag : '') + (p.baseUrl ? ' / ' + p.baseUrl : '') + (p.apiKey ? ' / key set' : '');
-    info.innerHTML = '<div style="font-size:12px;">' + escapeHtml(p.name || p.id) + ' <span style="opacity:.6;">(' + escapeHtml(p.command + typeText + modelFlagText) + ')</span></div>';
+    const parts = [p.type === 'api' ? 'HTTP' : p.command];
+    if (p.type && p.type !== 'api') parts.push(p.type);
+    if (p.modelFlag) parts.push(p.modelFlag);
+    if (p.baseUrl) parts.push(p.baseUrl);
+    const hasKey = p.type === 'api' ? apiKeyState(p.id).hasKey : !!p.apiKey;
+    if (hasKey) parts.push('key set');
+    else if (p.type === 'api') parts.push('no key yet');
+    info.innerHTML = '<div style="font-size:12px;">' + escapeHtml(p.name || p.id) + ' <span style="opacity:.6;">(' + escapeHtml(parts.join(' / ')) + ')</span></div>';
     const del = document.createElement('button');
     del.className = 'btn-secondary';
     del.type = 'button';
@@ -4135,7 +4172,8 @@ async function loadVaultSettings() {
   }
 }
 
-function openSettings(tab) {
+async function openSettings(tab) {
+  await refreshAIKeyStatus(getAIProviders().map((p) => p.id));
   setSettingsTab(tab || 'appearance');
   populateAISettings();
   renderLanguageSelect();
@@ -4164,6 +4202,10 @@ function renderLanguageSelect() {
 }
 
 function saveAISettings() {
+  saveAISettingsAsync().catch(() => {});
+}
+
+async function saveAISettingsAsync() {
   const provider = els.settingsAiProvider ? els.settingsAiProvider.value : state.aiProvider;
   if (!getAIProviderById(provider)) { toast('Unknown AI provider', 'error'); return; }
   const model = selectedAIModel(els.settingsAiModel, els.settingsAiModelCustom);
@@ -4177,6 +4219,40 @@ function saveAISettings() {
     : selectedLanguage;
   if (!responseLanguage) { toast('Enter the response language', 'error'); els.settingsAiResponseLanguageCustom.focus(); return; }
 
+  const cfg = getAIProviderById(provider);
+  if (cfg && cfg.type === 'api') {
+    const baseUrl = ((els.settingsAiBaseUrl ? els.settingsAiBaseUrl.value.trim() : '') || cfg.baseUrl || '').replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(baseUrl)) {
+      toast('Base URL must start with http:// or https://', 'error');
+      if (els.settingsAiBaseUrl) els.settingsAiBaseUrl.focus();
+      return;
+    }
+    const apiKey = els.settingsAiApiKey ? els.settingsAiApiKey.value.trim() : '';
+    if (!apiKey && !apiKeyState(provider).hasKey) {
+      toast(t('Enter the API key for this provider'), 'error');
+      if (els.settingsAiApiKey) els.settingsAiApiKey.focus();
+      return;
+    }
+    // The key is written to the app's settings file by the main process and is
+    // never kept in the page state; only the base URL travels with the provider.
+    let saved = null;
+    try {
+      saved = await window.inkwell.saveAIKey({ id: provider, apiKey, baseUrl });
+    } catch (err) {
+      saved = { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+    if (!saved || !saved.ok) {
+      toast((saved && saved.error) || 'Could not save the API key', 'error');
+      return;
+    }
+    aiKeyStatus.set(provider, { hasKey: !!saved.hasKey, baseUrl });
+    // the base URL travels with the provider entry; the key stays on disk only
+    upsertAIProvider({ ...cfg, baseUrl, apiKey: '' });
+    // a fresh key can unlock the live model list of the service
+    aiModelCatalogs.delete(provider);
+    loadAIModelOptions(provider, true);
+  }
+
   state.aiProvider = provider;
   state.aiModels = state.aiModels || {};
   state.aiModels[provider] = model;
@@ -4184,6 +4260,7 @@ function saveAISettings() {
   state.aiResponseLanguage = responseLanguage;
   syncAIProvider();
   renderAIPrompts();
+  renderAIProvidersList();
   savePreferences();
   toast('AI settings saved', 'success');
 }
@@ -4242,6 +4319,7 @@ function setupSettings() {
     els.settingsAiModelCustom.value = preferredAIModel(provider);
     els.settingsAiModelCustom.classList.add('hidden');
     loadAIModelOptions(provider);
+    syncAIApiFields(provider);
   });
   }
   if (els.settingsAiModel) {
@@ -4307,9 +4385,20 @@ function setupSettings() {
       if (!form.classList.contains('hidden')) $('aiProviderFormId').focus();
     });
     const syncEnvNames = () => {
-      const claude = $('aiProviderFormType').value === 'claude';
-      $('aiProviderFormApiKeyEnv').value = claude ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
-      $('aiProviderFormBaseUrlEnv').value = claude ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL';
+      const type = $('aiProviderFormType').value;
+      const claude = type === 'claude';
+      const api = type === 'api';
+      const envId = (field('aiProviderFormId') || 'PROVIDER').toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      $('aiProviderFormApiKeyEnv').value = api ? envId + '_API_KEY' : (claude ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+      $('aiProviderFormBaseUrlEnv').value = api ? '' : (claude ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL');
+      // HTTP providers take the model from the model picker and need no command,
+      // no model flag and no env var names.
+      for (const id of ['aiProviderFormCommand', 'aiProviderFormModelFlag']) {
+        const input = $(id);
+        if (input) input.classList.toggle('hidden', api);
+      }
+      const envRow = form.querySelector('.ai-provider-form-row');
+      if (envRow) envRow.classList.toggle('hidden', api);
     };
     $('aiProviderFormType').addEventListener('change', syncEnvNames);
     syncEnvNames();
@@ -4317,17 +4406,20 @@ function setupSettings() {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const id = field('aiProviderFormId');
-      const command = field('aiProviderFormCommand');
+      const type = $('aiProviderFormType').value || 'generic';
+      // HTTP providers call the API themselves, so they have no command.
+      const command = field('aiProviderFormCommand') || (type === 'api' ? 'api' : '');
       if (!id || !command) { toast('ID and command required', 'error'); return; }
       const cleanId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
       state.aiProviders = Array.isArray(state.aiProviders) ? state.aiProviders : [];
       if (getAIProviders().some((p) => p.id === cleanId)) { toast('Provider ID already exists', 'error'); return; }
-      const customProvider = { id: cleanId, name: field('aiProviderFormName') || id, command, type: $('aiProviderFormType').value || 'generic' };
+      const customProvider = { id: cleanId, name: field('aiProviderFormName') || id, command, type };
       const modelFlag = field('aiProviderFormModelFlag');
       if (modelFlag) customProvider.modelFlag = modelFlag;
       const baseUrl = field('aiProviderFormBaseUrl');
       const apiKey = $('aiProviderFormApiKey').value.trim();
       if (baseUrl && !/^https?:\/\//i.test(baseUrl)) { toast('Base URL must start with http:// or https://', 'error'); return; }
+      if (type === 'api' && !baseUrl) { toast('Base URL is required for API providers', 'error'); return; }
       if (baseUrl) { customProvider.baseUrl = baseUrl; customProvider.baseUrlEnv = field('aiProviderFormBaseUrlEnv'); }
       if (apiKey) { customProvider.apiKey = apiKey; customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv'); }
       state.aiProviders.push(customProvider);
@@ -4353,6 +4445,90 @@ const DEFAULT_AI_PROVIDERS_LIST = [
   { id: 'opencode', name: 'OpenCode', command: 'opencode', type: 'opencode' },
 ];
 const AI_CUSTOM_MODEL_VALUE = '__inkwell_custom_model__';
+
+// Built-in providers are CLIs. Services that only expose an HTTP API are added
+// as custom providers of type "api": the main process calls
+// {baseUrl}/chat/completions itself, so nothing has to be installed and the
+// only thing left to fill in is the API key in Settings → AI.
+const API_PROVIDER_PRESETS = [
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    command: 'api',
+    type: 'api',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKeyEnv: 'DEEPSEEK_API_KEY',
+    defaultModel: 'deepseek-flash',
+    models: [
+      { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+    ],
+  },
+];
+
+// Seeds the presets once, so a provider removed in Settings stays removed. The
+// model list and the default model of a preset are code-owned and refreshed on
+// every launch; the base URL, the saved key and the chosen model stay as they are.
+function ensureAPIProviderPresets() {
+  const list = Array.isArray(state.aiProviders) ? state.aiProviders : [];
+  let changed = false;
+  for (const preset of API_PROVIDER_PRESETS) {
+    const existing = list.find((p) => p && p.id === preset.id);
+    if (existing) {
+      const models = preset.models.map((m) => ({ ...m }));
+      if (JSON.stringify(existing.models || []) !== JSON.stringify(models)) {
+        existing.models = models;
+        changed = true;
+      }
+      if (existing.defaultModel !== preset.defaultModel) {
+        existing.defaultModel = preset.defaultModel;
+        changed = true;
+      }
+      if (!existing.baseUrl) {
+        existing.baseUrl = preset.baseUrl;
+        changed = true;
+      }
+      continue;
+    }
+    if (state.apiPresetsSeeded) continue;
+    list.push({ ...preset, models: preset.models.map((m) => ({ ...m })) });
+    changed = true;
+  }
+  state.aiProviders = list;
+  return changed;
+}
+
+function isApiProvider(providerId) {
+  const provider = getAIProviderById(providerId);
+  return !!(provider && provider.type === 'api');
+}
+
+// Which providers already have a key on disk (the key itself never comes back
+// to the page, only this flag and the saved base URL).
+const aiKeyStatus = new Map();
+
+async function refreshAIKeyStatus(ids) {
+  const list = Array.from(new Set((ids || []).filter(Boolean)));
+  if (!list.length) return;
+  try {
+    const res = await window.inkwell.getAIKeyStatus({ ids: list });
+    if (res && res.ok && res.status) {
+      for (const [id, status] of Object.entries(res.status)) aiKeyStatus.set(id, status);
+    }
+  } catch (_) {}
+}
+
+function apiKeyState(providerId) {
+  return aiKeyStatus.get(providerId) || { hasKey: false, baseUrl: '' };
+}
+
+// Stores (or updates) a provider in the saved custom list.
+function upsertAIProvider(cfg) {
+  state.aiProviders = Array.isArray(state.aiProviders) ? state.aiProviders : [];
+  const index = state.aiProviders.findIndex((p) => p && p.id === cfg.id);
+  if (index >= 0) state.aiProviders[index] = { ...state.aiProviders[index], ...cfg };
+  else state.aiProviders.push({ ...cfg });
+}
 
 function getAIProviders() {
   const custom = Array.isArray(state.aiProviders) ? state.aiProviders.filter((p) => p && p.id && p.name && p.command) : [];
@@ -4433,6 +4609,17 @@ async function loadAIModelOptions(providerId, force = false) {
           if (id && !unique.has(id)) unique.set(id, { id, name: String(model.name || id) });
         }
         aiModelCatalogs.set(providerId, Array.from(unique.values()));
+        // A model saved earlier can disappear from the service. Unless the user
+        // picked it by hand, fall back to the first model the service offers.
+        const current = preferredAIModel(providerId);
+        const listed = aiModelCatalogs.get(providerId) || [];
+        const handPicked = (els.settingsAiModel && els.settingsAiModel.dataset.modelChoiceMade === 'true')
+          || (els.aiModel && els.aiModel.dataset.modelChoiceMade === 'true');
+        if (current && listed.length && !handPicked && !listed.some((model) => model.id === current)) {
+          state.aiModels = state.aiModels || {};
+          state.aiModels[providerId] = listed[0].id;
+          savePreferences();
+        }
       }
       renderAIModelOptions(providerId);
       return aiModelCatalogs.get(providerId);
@@ -4454,6 +4641,8 @@ function preferredAIModel(providerId) {
   if (Object.prototype.hasOwnProperty.call(state.aiModels || {}, providerId)) {
     return String(state.aiModels[providerId] || '').trim();
   }
+  const provider = getAIProviderById(providerId);
+  if (provider && provider.defaultModel) return String(provider.defaultModel);
   return AI_DEFAULT_MODELS[providerId] || '';
 }
 

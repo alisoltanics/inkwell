@@ -839,6 +839,32 @@ function listClaudeModels(providerConfig = {}) {
 
 async function discoverAIModels(providerId, providerConfig = {}) {
   const type = providerConfig.type || providerId;
+  if (type === 'api') {
+    const configured = (Array.isArray(providerConfig.models) ? providerConfig.models : [])
+      .map((model) => (typeof model === 'string' ? { id: model, name: model } : model))
+      .filter((model) => model && model.id);
+    const base = normalizeApiBase(providerConfig.baseUrl);
+    const key = apiProviderKey(providerConfig);
+    if (base && key) {
+      try {
+        const res = await fetch(base + '/models', { headers: { Authorization: 'Bearer ' + key } });
+        if (res.ok) {
+          const data = await res.json();
+          const entries = Array.isArray(data && data.data) ? data.data : (Array.isArray(data && data.models) ? data.models : []);
+          const models = entries
+            .map((model) => {
+              const id = model && (model.id || model.name);
+              return id ? { id: String(id), name: prettyModelName(String(id)) } : null;
+            })
+            .filter(Boolean);
+          if (models.length) return { ok: true, models };
+        }
+      } catch (_) {
+        // offline or a blocked endpoint: fall back to the configured list
+      }
+    }
+    return { ok: true, models: configured };
+  }
   if (Array.isArray(providerConfig.models) && providerConfig.models.length) {
     return { ok: true, models: providerConfig.models.map((model) => typeof model === 'string' ? ({ id: model, name: model }) : model).filter((model) => model && model.id) };
   }
@@ -951,10 +977,145 @@ function providerCredentialEnv(cfg) {
   return env;
 }
 
+/* ---- HTTP (OpenAI compatible) providers -----------------------------------
+   Type "api" providers talk to an OpenAI-compatible endpoint directly
+   (POST {base}/chat/completions), so services that ship no CLI — DeepSeek for
+   one — work without anything installed on the machine.
+   ------------------------------------------------------------------------- */
+
+const DEFAULT_API_MODEL = 'deepseek-chat';
+
+// Friendly names for model ids a service reports in lowercase form.
+const KNOWN_MODEL_NAMES = {
+  'deepseek-flash': 'DeepSeek V4.1 Flash',
+  'deepseek-v4.1-flash': 'DeepSeek V4.1 Flash',
+  'deepseek-v4-pro': 'DeepSeek V4 Pro',
+  'deepseek-v4-flash': 'DeepSeek V4 Flash',
+  'deepseek-chat': 'DeepSeek Chat',
+  'deepseek-reasoner': 'DeepSeek Reasoner',
+};
+
+function prettyModelName(id) {
+  const raw = String(id || '').trim();
+  if (!raw) return raw;
+  if (KNOWN_MODEL_NAMES[raw.toLowerCase()]) return KNOWN_MODEL_NAMES[raw.toLowerCase()];
+  return raw
+    .split(/[-_/]/)
+    .filter(Boolean)
+    .map((word) => (/^v?\d/i.test(word) ? word.toUpperCase()
+      : /^(ai|api|vl|llm|oss)$/i.test(word) ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ');
+}
+
+// API keys for HTTP providers live in the app's own settings file, not in the
+// page state or its prefs, so they never reach the renderer after being saved.
+function storedAIKeys() {
+  const saved = store.get('aiKeys');
+  return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+}
+
+// Missing credentials are filled in from the saved settings, so a key stored
+// once works for every AI action without being sent back and forth.
+function withStoredAICredentials(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  const merged = { ...cfg };
+  const saved = storedAIKeys()[merged.id] || {};
+  if (!merged.apiKey && typeof saved.apiKey === 'string') merged.apiKey = saved.apiKey;
+  if (!merged.baseUrl && typeof saved.baseUrl === 'string') merged.baseUrl = saved.baseUrl;
+  return merged;
+}
+
+function normalizeApiBase(baseUrl) {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+  return /^https?:\/\//i.test(base) ? base : '';
+}
+
+// The key comes from the settings, or from the env var named on the provider,
+// or from <PROVIDER_ID>_API_KEY, so a key can also live in the environment.
+function apiProviderKey(cfg) {
+  if (!cfg || typeof cfg !== 'object') return '';
+  if (typeof cfg.apiKey === 'string' && cfg.apiKey.trim()) return cfg.apiKey.trim();
+  const declared = typeof cfg.apiKeyEnv === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(cfg.apiKeyEnv.trim())
+    ? cfg.apiKeyEnv.trim()
+    : '';
+  if (declared && process.env[declared]) return String(process.env[declared]).trim();
+  const fromId = cfg.id ? String(cfg.id).toUpperCase().replace(/[^A-Z0-9]/g, '_') + '_API_KEY' : '';
+  if (fromId && process.env[fromId]) return String(process.env[fromId]).trim();
+  return '';
+}
+
+function apiResponseText(data) {
+  const choice = data && Array.isArray(data.choices) ? data.choices[0] : null;
+  const message = choice && choice.message ? choice.message : null;
+  if (!message) return '';
+  if (typeof message.content === 'string') return message.content;
+  if (Array.isArray(message.content)) {
+    return message.content.map((part) => (part && typeof part.text === 'string' ? part.text : '')).join('');
+  }
+  return '';
+}
+
+function apiErrorMessage(res, body, name) {
+  let detail = '';
+  try {
+    const parsed = JSON.parse(body);
+    detail = (parsed && parsed.error && (parsed.error.message || parsed.error)) || parsed.message || '';
+  } catch (_) {
+    detail = String(body || '').trim().slice(0, 300);
+  }
+  if (res.status === 401 || res.status === 403) return name + ' rejected the API key (HTTP ' + res.status + '). Check the key in Settings → AI.';
+  if (res.status === 404) return name + ' returned 404. Check the base URL — it usually ends with /v1.';
+  if (res.status === 429) return name + ' is rate limiting requests (HTTP 429). Try again in a moment.';
+  return name + ' request failed (HTTP ' + res.status + ')' + (detail ? ': ' + detail : '');
+}
+
+async function askApiProvider(providerConfig, prompt, model, senderId) {
+  const name = String(providerConfig.name || providerConfig.id || 'The provider');
+  const base = normalizeApiBase(providerConfig.baseUrl);
+  if (!base) return { ok: false, error: name + ' needs a base URL such as https://api.deepseek.com/v1.' };
+  const key = apiProviderKey(providerConfig);
+  if (!key) return { ok: false, error: 'Add an API key for ' + name + ' in Settings → AI.' };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT);
+  if (senderId != null) aiProcs.set(senderId, { proc: { kill: () => controller.abort() }, timer });
+
+  try {
+    const res = await fetch(base + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+      body: JSON.stringify({
+        model: model || providerConfig.defaultModel || DEFAULT_API_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    const body = await res.text();
+    if (!res.ok) return { ok: false, error: apiErrorMessage(res, body, name) };
+    let data;
+    try { data = JSON.parse(body); } catch (_) { return { ok: false, error: name + ' sent a response Inkwell could not read.' }; }
+    const text = stripAnsi(apiResponseText(data)).replace(THINK_RE, '').trim();
+    if (!text) return { ok: false, error: name + ' returned an empty answer.' };
+    return { ok: true, text };
+  } catch (error) {
+    if (error && error.name === 'AbortError') return { ok: false, error: 'Timed out after ' + Math.round(AI_TIMEOUT / 1000) + 's' };
+    return { ok: false, error: name + ' request failed: ' + (error && error.message ? error.message : String(error)) };
+  } finally {
+    clearTimeout(timer);
+    const rec = senderId != null ? aiProcs.get(senderId) : null;
+    if (rec && rec.timer === timer) aiProcs.delete(senderId);
+  }
+}
+
 function buildAICommand(provider, prompt, model, providerConfig) {
   if (providerConfig && providerConfig.command && providerConfig.type) {
     const cmd = providerConfig.command;
     const type = providerConfig.type;
+    // HTTP providers never spawn a process; askApiProvider handles them.
+    if (type === 'api') return null;
     if (type === 'claude' || cmd === 'claude') {
       const args = providerConfig.args ? providerConfig.args.map((a) => String(a)) : ['-p'];
       if (model && providerConfig.useModel !== false) {
@@ -1037,11 +1198,48 @@ const aiProcs = new Map();
 ipcMain.handle('ai:listModels', async (_event, payload) => {
   try {
     const providerId = String(payload && payload.provider || '');
-    const providerConfig = payload && payload.providerConfig && typeof payload.providerConfig === 'object' ? payload.providerConfig : {};
+    let providerConfig = payload && payload.providerConfig && typeof payload.providerConfig === 'object' ? payload.providerConfig : {};
     if (!providerId) return { ok: false, models: [], error: 'No AI provider selected.' };
+    if (providerConfig.type === 'api') providerConfig = withStoredAICredentials(providerConfig);
     return await discoverAIModels(providerId, providerConfig);
   } catch (error) {
     return { ok: false, models: [], error: error.message || String(error) };
+  }
+});
+
+// Which providers already have a saved key, without ever returning the key.
+ipcMain.handle('ai:keyStatus', (_event, payload) => {
+  const ids = Array.isArray(payload && payload.ids) ? payload.ids : [];
+  const saved = storedAIKeys();
+  const status = {};
+  for (const rawId of ids) {
+    const id = String(rawId);
+    const rec = saved[id] || {};
+    status[id] = {
+      hasKey: !!(rec.apiKey && String(rec.apiKey).trim()),
+      baseUrl: typeof rec.baseUrl === 'string' ? rec.baseUrl : '',
+    };
+  }
+  return { ok: true, status };
+});
+
+ipcMain.handle('ai:saveKey', (_event, payload) => {
+  try {
+    const id = String((payload && payload.id) || '').trim();
+    if (!id) return { ok: false, error: 'No provider selected.' };
+    const apiKey = String((payload && payload.apiKey) || '').trim();
+    const baseUrl = String((payload && payload.baseUrl) || '').trim();
+    if (baseUrl && !/^https?:\/\//i.test(baseUrl)) return { ok: false, error: 'Base URL must start with http:// or https://.' };
+    const keys = { ...storedAIKeys() };
+    const entry = { ...(keys[id] || {}) };
+    if (apiKey) entry.apiKey = apiKey;
+    if (baseUrl) entry.baseUrl = baseUrl;
+    if (Object.keys(entry).length) keys[id] = entry;
+    else delete keys[id];
+    store.set('aiKeys', keys);
+    return { ok: true, hasKey: !!(keys[id] && keys[id].apiKey) };
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
   }
 });
 
@@ -1058,11 +1256,16 @@ ipcMain.handle('ai:cancel', (event) => {
   return { ok: true };
 });
 
-ipcMain.handle('ai:ask', (event, payload) => {
+ipcMain.handle('ai:ask', async (event, payload) => {
   const provider = payload && payload.provider;
   const prompt = payload && typeof payload.prompt === 'string' ? payload.prompt : '';
   const model = payload && typeof payload.model === 'string' ? payload.model.trim() : '';
   const providerConfig = payload && payload.providerConfig;
+  if (providerConfig && providerConfig.type === 'api') {
+    if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };
+    killAIFor(event.sender.id);
+    return await askApiProvider(withStoredAICredentials(providerConfig), prompt, model, event.sender.id);
+  }
   const spec = buildAICommand(provider, prompt, model, providerConfig);
   if (!spec) return { ok: false, error: 'Unknown provider: ' + provider };
   if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };

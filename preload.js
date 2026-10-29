@@ -45,8 +45,10 @@ contextBridge.exposeInMainWorld('inkwell', {
   saveTelegramConfig: (config) => ipcRenderer.invoke('settings:setTelegram', config),
   testTelegram: (config) => ipcRenderer.invoke('telegram:test', config),
 
-  // ask an AI CLI about a selection
+  // ask an AI CLI (or an HTTP API provider) about a selection
   askAI: (payload) => ipcRenderer.invoke('ai:ask', payload),
   listAIModels: (payload) => ipcRenderer.invoke('ai:listModels', payload),
   cancelAI: () => ipcRenderer.invoke('ai:cancel'),
+  getAIKeyStatus: (payload) => ipcRenderer.invoke('ai:keyStatus', payload),
+  saveAIKey: (payload) => ipcRenderer.invoke('ai:saveKey', payload),
 });
