@@ -341,6 +341,75 @@ body {
 .markdown-body .katex-display { margin: 1em 0; text-align: center; break-inside: avoid; }
 
 /* =====================================================================
+   flashcards
+   A printed or exported deck always shows every answer: the flip
+   interaction is browser-only, so nothing may stay hidden on paper.
+   ===================================================================== */
+.markdown-body .md-flashdeck {
+    margin: 1.2em 0;
+    border: 0;
+}
+
+.markdown-body .flashdeck-head { display: none; }
+.markdown-body .flashcard-toggle { display: none; }
+
+.markdown-body .flashdeck {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.markdown-body .flashcard {
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-inline-start: 3px solid var(--accent);
+    border-radius: 8px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.markdown-body .flashcard-q {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 1em;
+    font-weight: 700;
+    line-height: 1.5;
+    color: var(--md-heading);
+}
+
+.markdown-body .flashcard-q-text { min-width: 0; }
+
+.markdown-body .flashcard-num {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: rgba(3, 105, 161, 0.12);
+    color: var(--accent);
+    font-size: 0.72em;
+    font-weight: 700;
+}
+
+.markdown-body .flashcard-q-text p,
+.markdown-body .flashcard-a p { margin: 0; }
+
+.markdown-body .flashcard-a {
+    display: block !important;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border-strong);
+    font-size: 0.95em;
+    line-height: 1.65;
+    color: var(--md-text);
+}
+
+/* =====================================================================
    RTL support (code stays LTR)
    ===================================================================== */
 .markdown-body[dir="rtl"] { text-align: right; }

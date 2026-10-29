@@ -26,14 +26,19 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Choose automatic, left-to-right, or right-to-left text direction. Automatic direction supports mixed Persian and English paragraphs; code, tables, and math remain left-to-right.
 - Zoom the document from 50% to 250%.
 - In Settings → Appearance, scale the whole app's font size from 80% to 150% and pick a color theme: Dark, Light, VS Code Dark, Nord, Dracula, Solarized Dark, Solarized Light, Sepia, or Rose.
-- Export a self-contained HTML copy of a document. The export includes local images and is suitable for sharing or printing.
+- Switch the interface language in Settings → Appearance: English, فارسی, العربية, Français, Deutsch, Italiano, Türkçe, Español, or 中文. Persian and Arabic flip the whole app to right-to-left (sidebar, toolbars, menus and dialogs mirror), while each document keeps its own text direction.
+- Export a self-contained HTML copy of a document. The export is written next to the note, appears in the file list immediately, and includes local images, so it is suitable for sharing or printing.
 - Print the current document from the header button or with Ctrl+Shift+P. The printed page uses the same styling as the exported HTML.
 
 ### Ask AI
 
-- Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, create a quiz) are in the AI tools menu in the header.
+- Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, create a quiz, make flashcards, proofread) are in the AI tools menu in the header.
+- Build flashcards from a document: the answer opens as a deck of numbered cards, each showing the question until you click it to reveal the answer. Use **Reveal all** / **Hide all** to toggle the whole deck, then save it as a note or insert the cards as Markdown. Saved decks are written as a `flashcards` block of `Q:` / `A:` lines and render as the same clickable deck in the preview, in the AI answer page, and in printed or exported HTML (where every answer is shown).
+- Build a glossary of the document: the terms, names and acronyms it uses are listed alphabetically with a short definition and a type tag (person, place, concept, acronym, product…). The list is shown as a definition list in the AI panel, and Save/Insert write it as a plain Markdown bullet list so it stays portable.
 - Select text in the editor to get a small action bar: Ask AI about the selection, Explain it, ask AI to change it, copy it, or add a comment. When the selection is code (a fenced block, inline code, or code-looking lines) an **Explain code** action appears too and sends a ready-made explanation prompt to the AI immediately.
-- Ask AI about selected text, or explain a piece of code. AI prompts can include the selected text or document content needed for the chosen action.- Ask AI to edit a selected passage or insert text at the cursor. Review the full Markdown preview with removed text marked red and proposed text highlighted green in place, then accept or reject the change. Accepted changes are saved to the open note; if the note changes while AI is working, Inkwell asks you to generate a fresh proposal.
+- Ask AI about selected text, or explain a piece of code. AI prompts can include the selected text or document content needed for the chosen action.
+- Ask AI to edit a selected passage or insert text at the cursor. Review the full Markdown preview with removed text marked red and proposed text highlighted green in place, then accept or reject the change. Accepted changes are saved to the open note; if the note changes while AI is working, Inkwell asks you to generate a fresh proposal.
+- Proofread a document to check grammar, spelling, and wording. Each suggested fix is reviewed separately in the document, showing the original and proposed text, so you can accept or reject it one by one.
 - Choose Claude, Codex, or OpenCode, set a model, and manage reusable quick prompts in Settings.
 - Add custom CLI providers in Settings with a command, type, model flag, and an optional base URL and API key. These are passed to the command as environment variables (`ANTHROPIC_*` for Claude-type providers, `OPENAI_*` otherwise; the names can be changed). They are stored in Inkwell's local settings.
 - Save a useful AI answer as a new Markdown note.
@@ -95,7 +100,7 @@ Version tags matching `v*` trigger GitHub Actions to build Linux x64, Windows x6
 
 | Action | Shortcut |
 | --- | --- |
-| Save | `Ctrl/Cmd + S` |
+| Save now (edits also save automatically) | `Ctrl/Cmd + S` |
 | New file | `Ctrl/Cmd + N` |
 | Toggle preview | `Ctrl/Cmd + P` |
 | Split view | `Ctrl/Cmd + \\` |

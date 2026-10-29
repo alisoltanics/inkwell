@@ -19,7 +19,180 @@ if (md && md.options) {
     }
     return `<pre class="hljs"><code>${esc}</code></pre>`;
   };
+
+  // A ```flashcards fence (written by the AI flashcard action) renders as an
+  // interactive card deck in the preview. The fence body stays plain "Q:" / "A:"
+  // text, so the note is still readable in any other Markdown editor.
+  const defaultFence = md.renderer.rules.fence;
+  md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+    const info = String(tokens[idx].info || '').trim().split(/\s+/)[0].toLowerCase();
+    if (info === 'flashcards' || info === 'flashcard') {
+      const cards = parseFlashcardBlock(tokens[idx].content);
+      if (cards) {
+        return `<div class="md-flashdeck" data-flashdeck="${attrEscape(JSON.stringify(cards))}"></div>\n`;
+      }
+    }
+    return defaultFence.call(this, tokens, idx, options, env, self);
+  };
 }
+
+function attrEscape(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ============ INTERFACE LANGUAGE ============ */
+const I18N = (window.__i18n && window.__i18n.LANGS && window.__i18n.STRINGS)
+  ? window.__i18n
+  : { LANGS: [{ id: 'en', label: 'English', native: 'English', dir: 'ltr' }], STRINGS: {} };
+
+function isKnownLanguage(id) {
+  return I18N.LANGS.some((lang) => lang.id === id);
+}
+
+function langMeta(id) {
+  return I18N.LANGS.find((lang) => lang.id === id) || I18N.LANGS[0];
+}
+
+// Translate one UI string. English is the key, so an unknown language (or a
+// string that has no translation yet) simply keeps the original text.
+function t(text, vars) {
+  const value = String(text == null ? '' : text);
+  let out = value;
+  if (state.language !== 'en') {
+    const table = I18N.STRINGS[state.language];
+    if (table && Object.prototype.hasOwnProperty.call(table, value)) out = table[value];
+  }
+  if (vars) {
+    for (const key of Object.keys(vars)) out = out.split('%' + key + '%').join(String(vars[key]));
+  }
+  return out;
+}
+
+// The app flips to right-to-left as a whole: the sidebar, toolbars, menus and
+// dialogs mirror, while the editor/preview keep their own per-document dir.
+function applyLanguageDirection() {
+  const meta = langMeta(state.language);
+  const html = document.documentElement;
+  html.setAttribute('lang', state.language === 'zh' ? 'zh-CN' : state.language);
+  html.setAttribute('dir', meta.dir);
+  html.classList.toggle('rtl', meta.dir === 'rtl');
+  document.body.classList.toggle('rtl', meta.dir === 'rtl');
+}
+
+// Cache of the original English text/attributes so switching languages is
+// always reversible. Dynamic areas are skipped: they are rebuilt from t().
+const i18nTextOrigin = new WeakMap();
+const i18nAttrOrigin = new WeakMap();
+const I18N_SKIP_SELECTOR = [
+  '#fileList',
+  '.preview-pane',
+  '#answerDocContent',
+  '#aiAnswer',
+  '#aiPrompts',
+  '#toastContainer',
+  '#commentsList',
+  '#aiProvidersList',
+  '#themeGrid',
+  '#tabBar',
+  '#editor',
+  '#cmtComposerBody',
+  '#cmtModalEditInput',
+  '#explainCodeInput',
+].join(', ');
+
+const I18N_ATTRS = ['title', 'placeholder', 'aria-label'];
+
+function translateStaticDom() {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      if (parent.closest('script, style, code, pre')) return NodeFilter.FILTER_REJECT;
+      if (parent.closest(I18N_SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT;
+      return node.nodeValue && node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  for (const node of nodes) {
+    const current = node.nodeValue;
+    const lead = current.match(/^\s*/)[0];
+    const tail = current.match(/\s*$/)[0];
+    if (!i18nTextOrigin.has(node)) i18nTextOrigin.set(node, current.trim());
+    const original = i18nTextOrigin.get(node);
+    const translated = t(original);
+    if (translated !== current.trim()) node.nodeValue = lead + translated + tail;
+  }
+
+  document.querySelectorAll('[title], [placeholder], [aria-label]').forEach((el) => {
+    if (el.closest(I18N_SKIP_SELECTOR)) return;
+    if (!i18nAttrOrigin.has(el)) {
+      const origin = {};
+      const written = {};
+      for (const name of I18N_ATTRS) {
+        if (!el.hasAttribute(name)) continue;
+        origin[name] = el.getAttribute(name);
+        written[name] = origin[name];
+      }
+      i18nAttrOrigin.set(el, { origin, written });
+    }
+    const state_ = i18nAttrOrigin.get(el);
+    for (const name of I18N_ATTRS) {
+      if (state_.origin[name] == null) continue;
+      const now = el.getAttribute(name);
+      // the value changed outside of i18n (a path, a file name…) — leave it
+      if (now === null || now !== state_.written[name]) continue;
+      const next = t(state_.origin[name]);
+      if (next !== now) {
+        el.setAttribute(name, next);
+        state_.written[name] = next;
+      }
+    }
+  });
+}
+
+// Re-apply every translated string, then rebuild the parts of the UI that are
+// generated in JS (file tree, tabs, settings, AI panel labels).
+function applyLanguage() {
+  applyLanguageDirection();
+  translateStaticDom();
+  if (els.editor) els.editor.placeholder = t('Start writing...');
+  if (els.fileList) renderFileList();
+  if (els.tabBar) renderTabs();
+  // page footers are built by the paginator, so re-run it in the new language
+  if (typeof schedulePaginate === 'function') schedulePaginate(0);
+  if (typeof renderThemeGrid === 'function') renderThemeGrid();
+  if (typeof renderAIProvidersList === 'function') renderAIProvidersList();
+  if (typeof updateDocAiBar === 'function') updateDocAiBar();
+  if (state.currentFile) setStatus(t('Opened %name%', { name: displayNotePath(state.currentFile) }));
+  document.title = 'Inkwell';
+}
+
+// Titles/placeholders set at runtime must be registered so a later language
+// switch can translate them again.
+function setUITitle(el, text, attr = 'title') {
+  if (!el) return;
+  el.setAttribute(attr, t(text));
+  const rec = i18nAttrOrigin.get(el) || { origin: {}, written: {} };
+  rec.origin[attr] = text;
+  rec.written[attr] = el.getAttribute(attr);
+  i18nAttrOrigin.set(el, rec);
+}
+
+function setLanguage(id) {
+  if (!isKnownLanguage(id) || id === state.language) return;
+  state.language = id;
+  applyLanguage();
+  savePreferences();
+  toast(t('Language changed'), 'success', 1600);
+}
+
 
 let state = {
   files: [],
@@ -28,6 +201,7 @@ let state = {
   currentFile: null,
   dirty: false,
   viewMode: 'edit',
+  language: 'en',
   searchQuery: '',
   contextTarget: null,
   contextIsFolder: false,
@@ -86,7 +260,6 @@ const els = {
   toggleSidebarBtn: $('toggleSidebarBtn'),
   currentFileName: $('currentFileName'),
   viewToggle: $('viewToggle'),
-  saveBtn: $('saveBtn'),
   deleteFileBtn: $('deleteFileBtn'),
   saveStatus: $('saveStatus'),
   editorArea: $('editorArea'),
@@ -288,7 +461,17 @@ function renderThemeGrid() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'theme-card' + (p.id === state.palette ? ' active' : '');
-    b.innerHTML = '<span class="theme-swatch">' + p.colors.map((c) => '<i style="background:' + c + '"></i>').join('') + '</span>';
+    // a miniature window: sidebar, page, text lines and accent dot, so every
+    // card shows its own colors even when the app is in a light theme
+    const [side, page, accent, ink] = p.colors;
+    b.innerHTML = '<span class="theme-swatch">'
+      + '<i class="ts-side" style="background:' + side + '"></i>'
+      + '<i class="ts-main" style="background:' + page + '">'
+      + '<i class="ts-line" style="background:' + ink + '"></i>'
+      + '<i class="ts-line ts-short" style="background:' + ink + '"></i>'
+      + '</i>'
+      + '<i class="ts-dot" style="background:' + accent + '"></i>'
+      + '</span>';
     b.appendChild(document.createTextNode(p.label));
     b.addEventListener('click', () => { applyPalette(p.id); savePreferences(); });
     grid.appendChild(b);
@@ -313,14 +496,14 @@ function applyTheme(theme, keepPalette) {
   }
   document.documentElement.dataset.theme = state.theme;
   if (els.themeToggle) {
-    els.themeToggle.title = state.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    setUITitle(els.themeToggle, state.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
   }
 }
 
 function toggleTheme() {
   applyTheme(state.theme === 'dark' ? 'light' : 'dark');
   savePreferences();
-  setStatus('Theme: ' + state.theme);
+  setStatus(t('Theme: %value%', { value: state.theme }));
 }
 
 function initTheme() {
@@ -368,11 +551,26 @@ setupWindowChrome();
 function formatRelative(ms) {
   const diff = Date.now() - ms;
   const min = 60 * 1000, hour = 60 * min, day = 24 * hour;
-  if (diff < min) return 'just now';
-  if (diff < hour) return `${Math.floor(diff / min)}m ago`;
-  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
-  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // relative times follow the interface language ("5m ago" / "۵ دقیقه پیش")
+  const locale = state.language === 'zh' ? 'zh-CN' : state.language;
+  let rtf = null;
+  try { rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'narrow' }); } catch (_) { rtf = null; }
+  if (rtf) {
+    if (diff < min) return rtf.format(0, 'second');
+    if (diff < hour) return rtf.format(-Math.floor(diff / min), 'minute');
+    if (diff < day) return rtf.format(-Math.floor(diff / hour), 'hour');
+    if (diff < 7 * day) return rtf.format(-Math.floor(diff / day), 'day');
+  } else {
+    if (diff < min) return 'just now';
+    if (diff < hour) return `${Math.floor(diff / min)}m ago`;
+    if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+    if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`;
+  }
+  try {
+    return new Date(ms).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+  } catch (_) {
+    return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
 }
 
 /* ============ INIT ============ */
@@ -391,6 +589,7 @@ async function initApp() {
   setupDocAiBar();
   setupComments();
   setViewMode(state.viewMode);
+  applyLanguage();
 
   if (state.files.length > 0 || state.archivedFiles.length > 0) {
     // always come back to the document that was open when the app was closed.
@@ -458,6 +657,7 @@ function loadPreferences() {
       const p = JSON.parse(raw);
       if (typeof p.zoom === 'number') state.zoom = p.zoom;
       if (typeof p.direction === 'string') state.direction = p.direction;
+      if (typeof p.language === 'string' && isKnownLanguage(p.language)) state.language = p.language;
       if (p.dirByFile && typeof p.dirByFile === 'object') state.dirByFile = p.dirByFile;
       if (typeof p.splitPos === 'number') state.splitPos = p.splitPos;
       if (typeof p.sidebarWidth === 'number') state.sidebarWidth = p.sidebarWidth;
@@ -482,6 +682,7 @@ function loadPreferences() {
       if (p.cursorByFile && typeof p.cursorByFile === 'object') state.cursorByFile = p.cursorByFile;
     }
   } catch (_) {}
+  applyLanguageDirection();
   applyZoom();
   applyFontSize();
   syncDirectionButtons();
@@ -501,6 +702,7 @@ function savePreferences() {
       viewMode: state.viewMode,
       theme: state.theme,
       palette: state.palette,
+      language: state.language,
       fontSize: state.fontSize,
       pinned: state.pinned,
       favorites: state.favorites,
@@ -683,11 +885,11 @@ function renderFileList() {
       favHeader.type = 'button';
       favHeader.className = 'list-header list-header-fav list-header-toggle';
       favHeader.setAttribute('aria-expanded', open ? 'true' : 'false');
-      favHeader.title = open ? 'Hide favorites' : 'Show favorites';
+      favHeader.title = t(open ? 'Hide favorites' : 'Show favorites');
       favHeader.innerHTML = `
         ${iconChevron(open)}
         <span class="list-header-icon">${starSvg}</span>
-        <span>Favorites</span>
+        <span>${t('Favorites')}</span>
         <span class="list-count">${favFiles.length}</span>
       `;
       favHeader.addEventListener('click', () => {
@@ -699,6 +901,11 @@ function renderFileList() {
       if (open) {
         for (const f of favFiles) els.fileList.appendChild(buildFileItem(f, 0, true));
       }
+      // keep the Favorites block visually apart from the notes tree below it
+      const divider = document.createElement('div');
+      divider.className = 'list-divider';
+      divider.setAttribute('role', 'separator');
+      els.fileList.appendChild(divider);
     }
   }
 
@@ -707,7 +914,7 @@ function renderFileList() {
   header.innerHTML = `
     <span class="list-header-label">
       <span class="list-header-icon">${searching ? searchSvg : docIcon}</span>
-      <span>${searching ? 'Results' : 'Notes'}</span>
+      <span>${t(searching ? 'Results' : 'Notes')}</span>
     </span>
     <span class="list-count">${files.length}</span>
   `;
@@ -743,11 +950,11 @@ function renderFileList() {
     head.type = 'button';
     head.className = 'list-header list-header-archive list-header-toggle';
     head.setAttribute('aria-expanded', open ? 'true' : 'false');
-    head.title = open ? 'Hide archive' : 'Show archive';
+    head.title = t(open ? 'Hide archive' : 'Show archive');
     head.innerHTML = `
       ${iconChevron(open)}
       <span class="list-header-icon">${archiveSvg}</span>
-      <span>Archive</span>
+      <span>${t('Archive')}</span>
       <span class="list-count">${state.archivedFiles.length}</span>
     `;
     head.addEventListener('click', () => {
@@ -780,15 +987,15 @@ function buildFolderNode(folder, childrenOf, fileItems, forcedOpen, depth) {
   row.className = 'folder-item' + (isActiveFolder ? ' active' : '');
   row.dataset.path = folder.path;
   row.title = fullItemPath(folder.path);
-  row.style.paddingLeft = (10 + depth * 14) + 'px';
+  row.style.paddingInlineStart = (10 + depth * 14) + 'px';
   row.innerHTML = `
     ${iconChevron(open)}
     <span class="folder-item-icon">${iconFolder()}</span>
     <span class="folder-item-name">${escapeHtml(folder.path.split('/').pop())}</span>
     ${childCount ? `<span class="folder-count">${childCount}</span>` : ''}
     <div class="file-item-actions">
-      <button class="rename" title="Rename folder">${renameSvg}</button>
-      <button class="danger" title="Delete folder">${trashSvg}</button>
+      <button class="rename" title="${t('Rename')}">${renameSvg}</button>
+      <button class="danger" title="${t('Delete')}">${trashSvg}</button>
     </div>
   `;
   row.addEventListener('click', (e) => {
@@ -889,7 +1096,7 @@ function renderTabs() {
     tab.innerHTML = `
       <span class="tab-icon">${pinFilledSvg}</span>
       <span class="tab-name">${escapeHtml(baseName(path))}</span>
-      <button class="tab-close" data-unpin title="Unpin" aria-label="Unpin">${tabCloseSvg}</button>
+      <button class="tab-close" data-unpin title="${t('Unpin')}" aria-label="${t('Unpin')}">${tabCloseSvg}</button>
     `;
     tab.addEventListener('click', (e) => {
       if (e.target.closest('[data-unpin]')) return;
@@ -985,7 +1192,7 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
     + (isHtmlDocument ? ' file-item-html' : '');
   item.dataset.name = file.path;
   item.title = fullItemPath(file.path);
-  item.style.paddingLeft = (10 + depth * 14) + 'px';
+  item.style.paddingInlineStart = (10 + depth * 14) + 'px';
 
   // in the Favorites section, show the parent folder so same-named files are distinguishable
   const parentDir = file.path.includes('/') ? file.path.split('/').slice(0, -1).join('/') : '';
@@ -1000,10 +1207,10 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
       <span class="file-item-meta">${meta}</span>
     </div>
     <div class="file-item-actions">
-      <button class="star${fav ? ' is-fav' : ''}" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? starFilledSvg : starSvg}</button>
-      <button class="pin${pinned ? ' is-pinned' : ''}" title="${pinned ? 'Unpin from tabs' : 'Pin to tabs'}">${pinned ? pinFilledSvg : pinSvg}</button>
-      <button class="rename" title="Rename">${renameSvg}</button>
-      <button class="danger" title="Delete">${trashSvg}</button>
+      <button class="star${fav ? ' is-fav' : ''}" title="${t(fav ? 'Remove from favorites' : 'Add to favorites')}">${fav ? starFilledSvg : starSvg}</button>
+      <button class="pin${pinned ? ' is-pinned' : ''}" title="${t(pinned ? 'Unpin from tabs' : 'Pin to tabs')}">${pinned ? pinFilledSvg : pinSvg}</button>
+      <button class="rename" title="${t('Rename')}">${renameSvg}</button>
+      <button class="danger" title="${t('Delete')}">${trashSvg}</button>
     </div>
   `;
   if (isHtmlDocument) item.querySelector('.rename').remove();
@@ -1076,8 +1283,8 @@ function buildArchivedItem(file) {
       <span class="file-item-meta">${meta}</span>
     </div>
     <div class="file-item-actions">
-      <button class="restore" title="Restore note">${restoreSvg}</button>
-      <button class="danger" title="Delete permanently">${trashSvg}</button>
+      <button class="restore" title="${t('Restore')}">${restoreSvg}</button>
+      <button class="danger" title="${t('Delete')}">${trashSvg}</button>
     </div>
   `;
 
@@ -1432,17 +1639,17 @@ async function selectFile(path, options = {}) {
     if (isHtmlFile) {
       els.viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
         btn.disabled = btn.dataset.view !== 'preview';
-        btn.title = btn.dataset.view === 'preview' ? 'HTML preview' : 'HTML files are preview-only';
+        setUITitle(btn, btn.dataset.view === 'preview' ? 'HTML preview' : 'HTML files are preview-only');
       });
     } else {
       els.viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
         btn.disabled = false;
-        btn.title = btn.dataset.view === 'preview' ? 'Preview mode (Ctrl+P)' : btn.dataset.view === 'edit' ? 'Edit mode' : 'Split view';
+        setUITitle(btn, btn.dataset.view === 'preview' ? 'Preview mode (Ctrl+P)' : btn.dataset.view === 'edit' ? 'Edit mode' : 'Split view');
       });
     }
     if (els.commentsPanel && !els.commentsPanel.classList.contains('hidden')) renderComments();
     restoreFilePos(path);
-    setStatus(`Opened ${displayNotePath(path)}`);
+    setStatus(t('Opened %name%', { name: displayNotePath(path) }));
   } catch (e) {
     toast('Could not open file', 'error');
   }
@@ -1585,8 +1792,8 @@ function setupEditorEvents() {
 
 function setSaveStatus(status) {
   const map = { saving: ['Saving...', 'saving'], saved: ['Saved', 'saved'], error: ['Error', 'error'], '': ['', ''] };
-  const [text, cls] = map[status] || ['', ''];
-  els.saveStatus.textContent = text;
+  const [rawText, cls] = map[status] || ['', ''];
+  els.saveStatus.textContent = rawText ? t(rawText) : '';
   els.saveStatus.className = 'save-status ' + cls;
   if (status === 'saved') {
     clearTimeout(setSaveStatus._t);
@@ -1774,7 +1981,7 @@ function applyPagination() {
     const foot = document.createElement('div');
     foot.className = 'page-footer';
     foot.setAttribute('aria-hidden', 'true');
-    foot.textContent = 'Page ' + (i + 1);
+    foot.textContent = t('Page %n%', { n: i + 1 });
     p.appendChild(foot);
   });
 }
@@ -1806,6 +2013,7 @@ function renderPreview(force = false) {
   els.previewContent.classList.add('markdown-body');
   els.previewContent.innerHTML = md.render(els.editor.value || welcomeHtml());
   enhanceCodeBlocks();
+  hydrateFlashcards(els.previewContent);
   els._imgPromise = Promise.all([
     resolvePreviewImages(),
     (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve(),
@@ -2020,7 +2228,7 @@ async function saveFile(silent = false) {
     }
     state.dirty = false;
     setSaveStatus('saved');
-    setStatus('Saved ' + new Date().toLocaleTimeString());
+    setStatus(t('Saved %time%', { time: new Date().toLocaleTimeString() }));
     // refresh timestamps without losing selection
     const tree = await window.inkwell.listFiles();
     state.files = (tree && tree.files) || [];
@@ -2034,8 +2242,6 @@ async function saveFile(silent = false) {
     return false;
   }
 }
-
-els.saveBtn.addEventListener('click', () => saveFile(false));
 
 /* ============ EXPORT / SHARE DOCUMENT ============ */
 // Build a self-contained payload for the export/share pipeline:
@@ -2147,6 +2353,7 @@ async function exportHTML() {
     const res = await window.inkwell.exportHTML(state.currentFile, payload);
     if (res && res.success) {
       toast('Exported HTML: ' + shortenPath(res.path), 'success', 3600);
+      await revealExportedFile(res.path);
     } else if (res && !res.canceled) {
       toast('Export failed: ' + (res.error || 'unknown error'), 'error');
     }
@@ -2155,6 +2362,26 @@ async function exportHTML() {
   } finally {
     if (findState.open && findState.query) applyFindMarks();
   }
+}
+
+// The exported HTML is written next to the note: refresh the tree, open its
+// folder and flash the new row so it is visible without restarting the app.
+async function revealExportedFile(absPath) {
+  const root = String(vaultRoot || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
+  const target = String(absPath || '').replace(/\\/g, '/');
+  if (!root || !target.startsWith(root + '/')) return;
+  const rel = target.slice(root.length + 1);
+  if (!rel) return;
+
+  expandAncestors(rel);
+  await refreshFiles();
+
+  const row = Array.from(els.fileList.querySelectorAll('.file-item'))
+    .find((el) => el.dataset.name === rel);
+  if (!row) return;
+  row.scrollIntoView({ block: 'nearest' });
+  row.classList.add('just-exported');
+  setTimeout(() => row.classList.remove('just-exported'), 1800);
 }
 
 async function sendDocToTelegram() {
@@ -3324,7 +3551,7 @@ function commentCard(c, text) {
   const card = document.createElement('div');
   card.className = 'cmt-card';
   card.dataset.id = c.id;
-  card.title = 'Click to view the full comment';
+  setUITitle(card, 'Click to view the full comment');
 
   const head = document.createElement('div');
   head.className = 'cmt-card-head';
@@ -3334,7 +3561,7 @@ function commentCard(c, text) {
   const loc = document.createElement('button');
   loc.type = 'button';
   loc.className = 'cmt-loc';
-  loc.title = 'Jump to this part';
+  setUITitle(loc, 'Jump to this part');
   let locText = line ? 'Line ' + line : 'Unanchored';
   if (section) locText = '\u00a7 ' + section + ' \u00b7 ' + locText;
   loc.innerHTML = CMT_ICON + '<span>' + escapeHtml(locText) + '</span>';
@@ -3347,14 +3574,14 @@ function commentCard(c, text) {
   const jumpBtn = document.createElement('button');
   jumpBtn.type = 'button';
   jumpBtn.className = 'cmt-act jump';
-  jumpBtn.title = 'Jump to the commented text';
+  setUITitle(jumpBtn, 'Jump to the commented text');
   jumpBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="2.5"/></svg>';
   jumpBtn.addEventListener('click', (e) => { e.stopPropagation(); jumpToComment(c.id); });
 
   const delBtn = document.createElement('button');
   delBtn.type = 'button';
   delBtn.className = 'cmt-act danger';
-  delBtn.title = 'Delete comment';
+  setUITitle(delBtn, 'Delete comment');
   delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>';
   delBtn.addEventListener('click', (e) => { e.stopPropagation(); removeComment(c.id); refreshCommentUI(); toast('Comment deleted', 'success'); });
 
@@ -3765,7 +3992,7 @@ function cmtToolbarCmd(cmd, target) {
 /* ============ SETTINGS ============ */
 function setSettingsTab(tab) {
   const allowed = ['appearance', 'ai', 'vault', 'telegram'];
-  const t = allowed.includes(tab) ? tab : 'ai';
+  const t = allowed.includes(tab) ? tab : 'appearance';
   document.querySelectorAll('.settings-tab').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.settingsTab === t);
   });
@@ -3909,14 +4136,31 @@ async function loadVaultSettings() {
 }
 
 function openSettings(tab) {
-  setSettingsTab(tab || 'ai');
+  setSettingsTab(tab || 'appearance');
   populateAISettings();
+  renderLanguageSelect();
   renderAIProvidersList();
   syncAIProvider();
   populateAIProviderSelect();
   openModal('settings');
   loadTelegramSettings();
-  if ((tab || 'ai') === 'vault') loadVaultSettings();
+  if ((tab || 'appearance') === 'vault') loadVaultSettings();
+}
+
+// One option per interface language; native names stay in their own script so
+// the picker is readable whatever the current language is.
+function renderLanguageSelect() {
+  const select = $('settingsLanguage');
+  if (!select) return;
+  if (!select.options.length) {
+    for (const lang of I18N.LANGS) {
+      const option = document.createElement('option');
+      option.value = lang.id;
+      option.textContent = lang.native + (lang.id === 'en' ? ' — English' : '');
+      select.appendChild(option);
+    }
+  }
+  select.value = state.language;
 }
 
 function saveAISettings() {
@@ -3981,7 +4225,12 @@ async function testTelegram() {
 
 function setupSettings() {
   if (!els.settingsBtn) return;
-  els.settingsBtn.addEventListener('click', () => openSettings('ai'));
+  els.settingsBtn.addEventListener('click', () => openSettings('appearance'));
+  const languageSelect = $('settingsLanguage');
+  if (languageSelect) {
+    renderLanguageSelect();
+    languageSelect.addEventListener('change', () => setLanguage(languageSelect.value));
+  }
   document.querySelectorAll('.settings-tab').forEach((btn) => {
     btn.addEventListener('click', () => setSettingsTab(btn.dataset.settingsTab));
   });
@@ -4260,7 +4509,7 @@ function selectionLooksLikeCode(ctx) {
 function showAIFloat(x, y, ctx) {
   const textChanged = ctx.text !== aiContext.text;
   aiContext = { text: ctx.text, start: ctx.start == null ? null : ctx.start, end: ctx.end == null ? null : ctx.end };
-  if (els.aiContextLabel) els.aiContextLabel.textContent = 'Selected text';
+  if (els.aiContextLabel) els.aiContextLabel.textContent = t('Selected text');
   if (textChanged && !aiBusy) resetAIAnswer(true);
   hideCommentComposer();
   // code selections get "Explain code"; plain text keeps the prose "Explain"
@@ -4307,15 +4556,15 @@ function openAIPanel(mode = 'selection', contextOverride = null) {
     }
   }
   if (els.aiPanelTitle) {
-    els.aiPanelTitle.textContent = mode === 'code' ? 'Ask AI about code' : mode === 'general' ? 'Ask AI' : 'Ask AI about selection';
+    els.aiPanelTitle.textContent = mode === 'code' ? t('Ask AI about code') : mode === 'general' ? t('Ask AI') : t('Ask AI about this selection');
   }
-  els.aiQuestion.placeholder = mode === 'code'
+  setUITitle(els.aiQuestion, mode === 'code'
     ? 'Ask something about the selected code…'
-    : mode === 'general' ? 'Ask anything…' : 'Ask something about the selected text…';
+    : mode === 'general' ? 'Ask anything…' : 'Ask something about the selected text…', 'placeholder');
   els.aiContextBody.textContent = aiContext.text;
   els.aiContextBody.classList.toggle('hidden', !aiContext.text);
   if (els.aiContextLabel) {
-    els.aiContextLabel.textContent = mode === 'code' ? 'Selected code' : mode === 'general' ? 'No context' : 'Selected text';
+    els.aiContextLabel.textContent = mode === 'code' ? t('Code') : mode === 'general' ? t('Document') : t('Selected text');
   }
   els.aiReplaceBtn.classList.toggle('hidden', aiContext.start == null);
   els.aiPanel.classList.remove('hidden');
@@ -4500,11 +4749,11 @@ function resetAIAnswer(clearQuestion = false) {
   pendingAIEdit = null;
   els.aiAnswer.className = 'ai-answer empty';
   els.aiAnswer.removeAttribute('dir');
-  els.aiAnswer.textContent = 'Select some text, then ask a question.';
+  els.aiAnswer.textContent = t('Select some text, then ask a question.');
   els.aiAnswerActions.classList.add('hidden');
   if (els.aiReviewChangeBtn) els.aiReviewChangeBtn.classList.add('hidden');
   els.aiAnswerActions.querySelectorAll('.ai-answer-standard-action').forEach((button) => button.classList.remove('hidden'));
-  if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Ready';
+  if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = t('Ready');
   if (els.aiAnswerBadge) els.aiAnswerBadge.textContent = providerLabel(els.aiProvider.value);
   if (clearQuestion) els.aiQuestion.value = '';
 }
@@ -4620,6 +4869,16 @@ const AI_DOC_PROMPTS = {
     'Put the correct answers, each with a one-line explanation, in a final "## Answers" section at the end \u2014 never next to the questions.',
     'Reply with the quiz only \u2014 no preamble.',
   ].join(' '),
+  flashcards: [
+    'Create study flashcards from the whole document.',
+    'Return ONLY a JSON array (no prose, no code fences) of objects with exactly two keys: "q" for a short, specific question and "a" for a concise answer.',
+    'Write 8 to 12 cards covering the main ideas, definitions and facts; every question must be answerable from the document alone and every answer must stay under 40 words.',
+  ].join(' '),
+  glossary: [
+    'List the key terms, names, acronyms and entities of this document with a short definition of each.',
+    'Return ONLY valid JSON (no prose, no code fences) in this shape: {"terms":[{"term":"exact term as written","type":"person|place|organization|concept|acronym|product|other","definition":"one or two sentences explaining it"}]}.',
+    'Use the exact spelling from the document, define each term only from what the document says, skip generic words, do not repeat a term, cap the list at 40 entries and sort it alphabetically.',
+  ].join(' '),
 };
 
 function getAIResponseLanguage() {
@@ -4649,16 +4908,14 @@ function getAIDocumentPrompt(kind) {
   return `Translate the whole document to ${language} while preserving the Markdown structure, headings, lists, code blocks and links. Output only the translated Markdown.`;
 }
 
-function askAboutDocument(promptText, kind) {
-  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+// Opens the Ask AI panel with the whole document as context and returns its text.
+function openDocumentAIPanel(kind) {
   const text = els.editor.value || '';
-  if (!text.trim()) { toast('This document is empty', 'info'); return; }
-
   aiContext = { text, start: null, end: null, doc: true };
-  if (els.aiPanelTitle) els.aiPanelTitle.textContent = 'Ask AI about document';
-  els.aiQuestion.placeholder = 'Ask something about this document…';
+  if (els.aiPanelTitle) els.aiPanelTitle.textContent = t('Ask AI about document');
+  setUITitle(els.aiQuestion, 'Ask something about this document…', 'placeholder');
   aiAnswerKind = kind || 'answer';
-  els.aiContextLabel.textContent = 'Whole document';
+  els.aiContextLabel.textContent = t('Whole document');
   els.aiContextBody.textContent = text.length > 800 ? text.slice(0, 800) + '\n…' : text;
   els.aiContextBody.classList.remove('hidden');
   els.aiReplaceBtn.classList.add('hidden');
@@ -4667,15 +4924,67 @@ function askAboutDocument(promptText, kind) {
   resetAIAnswer();
   applyAIDirection();
   positionAIPanel();
+  return text;
+}
+
+function askAboutDocument(promptText, kind) {
+  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  const text = els.editor.value || '';
+  if (!text.trim()) { toast('This document is empty', 'info'); return; }
+
+  const docText = openDocumentAIPanel(kind);
   els.aiQuestion.value = promptText;
   const overridePrompt = [
     promptText,
     '',
     '--- DOCUMENT ---',
-    text,
+    docText,
     '--- END DOCUMENT ---',
   ].join('\n');
   askAI(overridePrompt);
+}
+
+// Flashcards: same document context, but the question box keeps a short
+// instruction (the JSON prompt would not fit) and the answer renders as cards.
+function makeFlashcards() {
+  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  const text = els.editor.value || '';
+  if (!text.trim()) { toast('This document is empty', 'info'); return; }
+  const docText = openDocumentAIPanel('flashcards');
+  els.aiQuestion.value = 'Make flashcards from this document.';
+  askAI([
+    AI_DOC_PROMPTS.flashcards,
+    '',
+    '--- DOCUMENT ---',
+    docText,
+    '--- END DOCUMENT ---',
+  ].join('\n'));
+}
+
+// Whole-document grammar check: the AI returns one change per problem and the
+// existing per-change review lets the user accept or reject each fix.
+function proofreadDocument() {
+  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  const text = els.editor.value || '';
+  if (!text.trim()) { toast('This document is empty', 'info'); return; }
+
+  const instruction = [
+    'Proofread this Markdown document and fix grammar, spelling, punctuation, duplicated words and clearly awkward wording.',
+    'Report the most important problems only: at most 15 changes, each one a separate entry.',
+    'Preserve the author\'s meaning, language and Markdown structure (headings, lists, links, code). Do not restyle or shorten the text.',
+  ].join(' ');
+
+  openDocumentAIPanel('proofread');
+  els.aiQuestion.value = 'Proofread this document and fix grammar and spelling.';
+  askAI(buildAITargetEditPrompt(instruction, text), {
+    targetEditRequest: {
+      filePath: state.currentFile,
+      originalContent: text,
+      caret: els.editor.selectionStart,
+      scopeStart: 0,
+      scopeEnd: text.length,
+    },
+  });
 }
 
 function updateDocAiBar() {
@@ -4710,6 +5019,9 @@ function setupDocAiBar() {
     if (!btn) return;
     setAIToolsMenu(false);
     if (!btn.dataset.doc) return;
+    if (btn.dataset.doc === 'proofread') { proofreadDocument(); return; }
+    if (btn.dataset.doc === 'flashcards') { makeFlashcards(); return; }
+    if (btn.dataset.doc === 'glossary') { glossaryDocument(); return; }
     const prompt = getAIDocumentPrompt(btn.dataset.doc);
     if (prompt) askAboutDocument(prompt, btn.dataset.doc);
   });
@@ -4772,10 +5084,10 @@ function submitExplainCode() {
   if (code.length > AI_MAX_SELECTION) code = code.slice(0, AI_MAX_SELECTION);
   closeModal('explainCode');
   aiContext = { text: code, start: null, end: null, doc: false };
-  if (els.aiPanelTitle) els.aiPanelTitle.textContent = 'Explain code';
+  if (els.aiPanelTitle) els.aiPanelTitle.textContent = t('Explain code');
   els.aiQuestion.placeholder = 'Ask something about the code…';
   aiAnswerKind = 'code';
-  els.aiContextLabel.textContent = lang ? 'Code (' + lang + ')' : 'Code';
+  els.aiContextLabel.textContent = lang ? t('Code') + ' (' + lang + ')' : t('Code');
   els.aiContextBody.textContent = code.length > 800 ? code.slice(0, 800) + '\n…' : code;
   els.aiContextBody.classList.remove('hidden');
   els.aiReplaceBtn.classList.add('hidden');
@@ -4911,7 +5223,7 @@ function showAIEditProposal(editRequest, message) {
   els.aiAnswerActions.classList.remove('hidden');
   els.aiAnswerActions.querySelectorAll('.ai-answer-standard-action').forEach((button) => button.classList.add('hidden'));
   els.aiReviewChangeBtn.classList.remove('hidden');
-  if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Ready to review';
+  if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = t('Ready to review');
 }
 
 function buildAITargetEditPrompt(instruction, originalContent) {
@@ -4962,6 +5274,251 @@ function parseAIEditJSON(response) {
     }
   }
   return null;
+}
+
+/* ============ FLASHCARDS ============ */
+// The AI answers the flashcards action with JSON; the answer panel then shows a
+// card deck (question → tap to reveal the answer) instead of raw Markdown.
+function parseFlashcards(response) {
+  const parsed = parseAIEditJSON(response);
+  const list = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.cards) ? parsed.cards : null);
+  if (!list) return null;
+  const cards = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const q = String(item.q != null ? item.q : item.question != null ? item.question : '').trim();
+    const a = String(item.a != null ? item.a : item.answer != null ? item.answer : '').trim();
+    if (!q || !a) continue;
+    cards.push({ q, a });
+    if (cards.length >= 40) break;
+  }
+  return cards.length ? cards : null;
+}
+
+// Notes keep the cards as plain text inside a ```flashcards fence: readable in
+// any editor, and the preview turns the block back into an interactive deck.
+function flashcardsToMarkdown(cards, title = 'Flashcards') {
+  const oneLine = (value) => String(value == null ? '' : value).replace(/\s*\n+\s*/g, ' ').trim();
+  const lines = [`## ${title}`, '', '```flashcards'];
+  cards.forEach((card, index) => {
+    if (index) lines.push('');
+    lines.push(`Q: ${oneLine(card.q)}`, `A: ${oneLine(card.a)}`);
+  });
+  lines.push('```');
+  return lines.join('\n').trim();
+}
+
+// Parse the body of a ```flashcards fence: blank-line separated blocks, each
+// with a "Q:" line followed by an "A:" line (continuation lines are joined).
+function parseFlashcardBlock(text) {
+  const cards = [];
+  const qLine = /^Q\s*[:.)]\s*(.*)$/i;
+  const aLine = /^A\s*[:.)]\s*(.*)$/i;
+  for (const block of String(text || '').split(/\n[ \t]*\n/)) {
+    const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) continue;
+    const question = [];
+    const answer = [];
+    let inAnswer = false;
+    for (const line of lines) {
+      if (!inAnswer) {
+        const a = line.match(aLine);
+        if (a) { inAnswer = true; answer.push(a[1]); continue; }
+        const q = line.match(qLine);
+        if (q) { question.push(q[1]); continue; }
+        question.push(line);
+        continue;
+      }
+      answer.push(line);
+    }
+    const q = question.join(' ').trim();
+    const a = answer.join(' ').trim();
+    if (!q || !a) continue;
+    cards.push({ q, a });
+    if (cards.length >= 60) break;
+  }
+  return cards.length ? cards : null;
+}
+
+function flashcardInline(text) {
+  const value = String(text == null ? '' : text).trim();
+  return value ? md.renderInline(value) : '';
+}
+
+// One deck element (head + cards), shared by the Ask AI answer and the preview.
+function buildFlashdeck(cards) {
+  const wrap = document.createElement('div');
+  wrap.className = 'flashdeck-block';
+
+  const head = document.createElement('div');
+  head.className = 'flashdeck-head';
+  const count = document.createElement('span');
+  count.className = 'flashdeck-count';
+  count.textContent = t(cards.length === 1 ? '%count% card' : '%count% cards', { count: cards.length });
+  const hint = document.createElement('span');
+  hint.className = 'flashdeck-hint';
+  hint.textContent = t('Click a card to flip it');
+  const revealAll = document.createElement('button');
+  revealAll.type = 'button';
+  revealAll.className = 'flashdeck-all';
+  revealAll.textContent = t('Reveal all');
+  head.append(count, hint, revealAll);
+
+  const deck = document.createElement('div');
+  deck.className = 'flashdeck';
+
+  cards.forEach((card, index) => {
+    const el = document.createElement('div');
+    el.className = 'flashcard';
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-pressed', 'false');
+    el.innerHTML = `
+      <div class="flashcard-q"><span class="flashcard-num">${index + 1}</span><span class="flashcard-q-text">${flashcardInline(card.q)}</span><span class="flashcard-toggle" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></div>
+      <div class="flashcard-a">${flashcardInline(card.a)}</div>
+    `;
+    const toggle = () => {
+      const on = el.classList.toggle('revealed');
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    };
+    el.addEventListener('click', toggle);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+    deck.appendChild(el);
+  });
+
+  revealAll.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const allCards = [...deck.querySelectorAll('.flashcard')];
+    const reveal = allCards.some((card) => !card.classList.contains('revealed'));
+    allCards.forEach((card) => {
+      card.classList.toggle('revealed', reveal);
+      card.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+    });
+    revealAll.textContent = reveal ? t('Hide all') : t('Reveal all');
+  });
+
+  wrap.append(head, deck);
+  return wrap;
+}
+
+function renderFlashcards(container, cards) {
+  container.innerHTML = '';
+  container.appendChild(buildFlashdeck(cards));
+}
+
+// Turn the placeholder left by the fence rule into a live deck.
+function hydrateFlashcards(root) {
+  if (!root || !root.querySelector) return;
+  root.querySelectorAll('.md-flashdeck[data-flashdeck]').forEach((host) => {
+    let cards = null;
+    try { cards = JSON.parse(host.getAttribute('data-flashdeck')); } catch (_) { cards = null; }
+    if (!Array.isArray(cards) || !cards.length) { host.remove(); return; }
+    host.removeAttribute('data-flashdeck');
+    host.replaceChildren(buildFlashdeck(cards));
+  });
+}
+
+/* ============ GLOSSARY / ENTITIES ============ */
+// The AI answers the glossary action with JSON; the answer panel shows the
+// terms as a definition list, while Save/Insert use the Markdown form.
+const GLOSSARY_TYPE_LABEL = {
+  person: 'person',
+  place: 'place',
+  organization: 'organization',
+  concept: 'concept',
+  acronym: 'acronym',
+  product: 'product',
+  term: 'term',
+  other: 'other',
+};
+
+function parseGlossary(response) {
+  const parsed = parseAIEditJSON(response);
+  const list = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.terms) ? parsed.terms : null);
+  if (!list) return null;
+  const terms = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const term = String(item.term != null ? item.term : item.name != null ? item.name : '').trim();
+    const definition = String(item.definition != null ? item.definition
+      : item.meaning != null ? item.meaning
+        : item.description != null ? item.description : '').trim();
+    if (!term || !definition) continue;
+    const rawType = String(item.type != null ? item.type : item.kind != null ? item.kind : '').trim().toLowerCase();
+    terms.push({ term, definition, type: GLOSSARY_TYPE_LABEL[rawType] || rawType });
+    if (terms.length >= 60) break;
+  }
+  return terms.length ? terms : null;
+}
+
+function glossaryToMarkdown(terms) {
+  const lines = [`## ${t('Glossary')}`, ''];
+  for (const item of terms) {
+    lines.push(`- **${item.term}**${item.type ? ` (${item.type})` : ''} \u2014 ${item.definition}`);
+  }
+  return lines.join('\n').trim();
+}
+
+function buildGlossary(terms) {
+  const wrap = document.createElement('div');
+  wrap.className = 'glossary-block';
+
+  const head = document.createElement('div');
+  head.className = 'glossary-head';
+  const count = document.createElement('span');
+  count.className = 'glossary-count';
+  count.textContent = t(terms.length === 1 ? '%count% term' : '%count% terms', { count: terms.length });
+  const hint = document.createElement('span');
+  hint.className = 'glossary-hint';
+  hint.textContent = t('sorted alphabetically');
+  head.append(count, hint);
+
+  const list = document.createElement('dl');
+  list.className = 'glossary';
+
+  terms.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'glossary-row';
+    const term = document.createElement('dt');
+    term.className = 'glossary-term';
+    // each entry follows its own text direction, so Latin terms stay readable
+    // inside a right-to-left interface
+    term.setAttribute('dir', 'auto');
+    term.innerHTML = `<span class="glossary-num">${index + 1}</span><span class="glossary-term-text">${flashcardInline(item.term)}</span>`
+      + (item.type ? `<span class="glossary-type">${escapeHtml(t(item.type))}</span>` : '');
+    const def = document.createElement('dd');
+    def.className = 'glossary-def';
+    def.setAttribute('dir', 'auto');
+    def.innerHTML = flashcardInline(item.definition);
+    row.append(term, def);
+    list.appendChild(row);
+  });
+
+  wrap.append(head, list);
+  return wrap;
+}
+
+function renderGlossary(container, terms) {
+  container.innerHTML = '';
+  container.appendChild(buildGlossary(terms));
+}
+
+// Whole-document glossary: the terms, names and acronyms with their meaning.
+function glossaryDocument() {
+  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  const text = els.editor.value || '';
+  if (!text.trim()) { toast('This document is empty', 'info'); return; }
+  const docText = openDocumentAIPanel('glossary');
+  els.aiQuestion.value = t('Build a glossary of terms and entities from this document.');
+  askAI([
+    AI_DOC_PROMPTS.glossary,
+    '',
+    '--- DOCUMENT ---',
+    docText,
+    '--- END DOCUMENT ---',
+  ].join('\n'));
 }
 
 function parseAITargetEdits(originalContent, response, caret, scopeStart = 0, scopeEnd = originalContent.length) {
@@ -5154,7 +5711,7 @@ async function askAI(overridePrompt, options = {}) {
   els.aiAnswer.innerHTML = '<span class="ai-spinner"></span>Thinking…';
   els.aiAnswerActions.classList.add('hidden');
   if (els.aiAnswerBadge) els.aiAnswerBadge.textContent = providerLabel(provider);
-  if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Thinking…';
+  if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = t('Thinking…');
 
   const prompt = applyAIResponseLanguage(overridePrompt || buildAIPrompt(question, aiContext.text), options);
   let res;
@@ -5225,7 +5782,7 @@ async function askAI(overridePrompt, options = {}) {
       if (!options.editRequest.insertion && aiAnswer.trim() === options.editRequest.target.trim()) {
         els.aiAnswer.className = 'ai-answer error';
         els.aiAnswer.textContent = 'AI returned the original passage without making a change. Try asking for a specific improvement, such as clearer wording, a shorter version, or a more natural tone.';
-        if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'No change proposed';
+        if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = t('No change proposed');
         setAIBusy(false);
         return;
       }
@@ -5234,11 +5791,29 @@ async function askAI(overridePrompt, options = {}) {
         ? 'AI prepared a change for the selected passage. Review and accept or reject it in the document.'
         : 'AI prepared an insertion at the cursor. Review and accept or reject it in the document.');
     } else {
-      els.aiAnswer.className = aiAnswer ? 'ai-answer markdown-body' : 'ai-answer empty';
-      els.aiAnswer.innerHTML = aiAnswer ? md.render(aiAnswer) : '(empty response)';
+      const cards = aiAnswerKind === 'flashcards' ? parseFlashcards(aiAnswer) : null;
+      const glossary = aiAnswerKind === 'glossary' ? parseGlossary(aiAnswer) : null;
+      if (glossary && glossary.length) {
+        // keep the Markdown form for Save/Insert, show a definition list instead
+        aiAnswer = glossaryToMarkdown(glossary);
+        els.aiAnswer.className = 'ai-answer glossary-view';
+        els.aiAnswer.removeAttribute('dir');
+        renderGlossary(els.aiAnswer, glossary);
+      } else if (cards && cards.length) {
+        // keep the Markdown form for Save/Insert, show a card deck instead
+        aiAnswer = flashcardsToMarkdown(cards);
+        els.aiAnswer.className = 'ai-answer flashdeck-view';
+        els.aiAnswer.removeAttribute('dir');
+        renderFlashcards(els.aiAnswer, cards);
+      } else {
+        els.aiAnswer.className = aiAnswer ? 'ai-answer markdown-body' : 'ai-answer empty';
+        els.aiAnswer.innerHTML = aiAnswer ? md.render(aiAnswer) : '(empty response)';
+      }
+      // the deck needs the room: prompt chips are not useful once it is built
+      if (els.aiPrompts) els.aiPrompts.classList.toggle('hidden', !!((cards && cards.length) || (glossary && glossary.length)));
       els.aiAnswerActions.classList.remove('hidden');
     }
-    if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = 'Done';
+    if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = t('Done');
     applyAIDirection();
     if (aiOpenAnswerWhenDone && aiAnswer && aiAnswer.trim()) {
       aiOpenAnswerWhenDone = false;
@@ -5529,10 +6104,21 @@ function rejectAIEdit(changeId) {
   toast(remaining ? `Change rejected. ${remaining} more to review.` : 'All remaining changes rejected.', 'info');
 }
 
+// Insert always appends: the answer belongs to the note that was asked about,
+// so it lands at the very end of that document instead of at whatever caret
+// position the editor happened to keep. The caret is then left after the text.
 function insertAIAnswer() {
-  if (!aiAnswer) return;
-  replaceRange(els.editor.selectionStart, els.editor.selectionEnd, aiAnswer);
+  if (!aiAnswer || !aiAnswer.trim()) { toast(t('There is no answer to insert'), 'info'); return; }
+  const value = els.editor.value || '';
+  const sep = value.length === 0 ? '' : (/(\n\s*\n)$/.test(value) ? '' : /\n$/.test(value) ? '\n' : '\n\n');
+  const text = sep + aiAnswer.trim() + '\n';
+  const at = value.length;
+  replaceRange(at, at, text);
+  els.editor.selectionStart = els.editor.selectionEnd = els.editor.value.length;
+  els.editor.scrollTop = els.editor.scrollHeight;
   els.editor.focus();
+  setStatus(t('Added to the end of the document'));
+  toast(t('Added to the end of the document'), 'success', 2200);
 }
 
 function replaceAISelection() {
@@ -5567,12 +6153,15 @@ const AI_KIND_LABEL = {
   translate: 'Translation',
   notes: 'Important notes',
   quiz: 'Quiz',
+  flashcards: 'Flashcards',
+  glossary: 'Glossary',
+  proofread: 'Proofread',
   answer: 'Answer',
   code: 'Code explanation',
 };
 
 function aiAnswerTitle() {
-  const label = AI_KIND_LABEL[aiAnswerKind] || 'Answer';
+  const label = t(AI_KIND_LABEL[aiAnswerKind] || 'Answer');
   const doc = state.currentFile ? state.currentFile.replace(/\.md$/i, '').split('/').pop() : '';
   return doc ? `${label} \u2014 ${doc}` : label;
 }
@@ -5582,6 +6171,7 @@ function openAnswerDoc() {
   answerDocReopenPanel = els.aiPanel && !els.aiPanel.classList.contains('hidden');
   setAnswerDocReviewMode(false);
   els.answerDocContent.innerHTML = md.render(aiAnswer);
+  hydrateFlashcards(els.answerDocContent);
   els.answerDocContent.setAttribute('dir', detectDirectionMajority(aiAnswer));
   els.answerDocContent.querySelectorAll(BIDI_BLOCK_SEL).forEach((el) => {
     el.setAttribute('dir', hasRtlChar(el.textContent) ? 'rtl' : 'ltr');
@@ -5659,7 +6249,6 @@ function insertAIAnswerIntoDoc() {
   closeAnswerDoc();
   els.editor.focus();
   insertAIAnswer();
-  toast('Inserted into document', 'success');
 }
 
 function setupAI() {
@@ -5803,15 +6392,15 @@ function showContextMenu(x, y) {
 
   $('ctxPin').classList.toggle('hidden', isFolder);
   if (!isFolder) {
-    $('ctxPinLabel').textContent = isPinned(state.contextTarget) ? 'Unpin from tabs' : 'Pin to tabs';
+    $('ctxPinLabel').textContent = t(isPinned(state.contextTarget) ? 'Unpin from tabs' : 'Pin to tabs');
   }
 
   $('ctxFav').classList.toggle('hidden', isFolder);
   if (!isFolder) {
-    $('ctxFavLabel').textContent = isFavorite(state.contextTarget) ? 'Remove from favorites' : 'Add to favorites';
+    $('ctxFavLabel').textContent = t(isFavorite(state.contextTarget) ? 'Remove from favorites' : 'Add to favorites');
   }
 
-  $('ctxArchiveLabel').textContent = isFolder ? 'Archive folder' : 'Archive note';
+  $('ctxArchiveLabel').textContent = t(isFolder ? 'Archive folder' : 'Archive note');
 
   menu.classList.remove('hidden');
   const rect = menu.getBoundingClientRect();
@@ -5896,6 +6485,28 @@ document.addEventListener('keydown', (e) => {
   if (!mod) return;
 
   const key = e.key.toLowerCase();
+
+  // Ctrl+A in the rendered preview selects the document itself, not the whole
+  // app chrome (buttons, sidebar, header text)
+  if (key === 'a') {
+    const active = document.activeElement;
+    const inField = active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) && active !== els.editor;
+    const modalOpen = Object.values(modals).some((m) => m && !m.classList.contains('hidden'));
+    const answerOpen = !!(els.answerDocView && !els.answerDocView.classList.contains('hidden'));
+    const sel = window.getSelection();
+    const selectionInPreview = !!(sel && sel.anchorNode && els.preview.contains(sel.anchorNode));
+    const previewActive = state.viewMode === 'preview' || (state.viewMode === 'split' && (selectionInPreview || (active && els.preview.contains(active))));
+    if (previewActive && !inField && !modalOpen && !answerOpen && els.previewContent) {
+      const range = document.createRange();
+      range.selectNodeContents(els.previewContent);
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      e.preventDefault();
+      return;
+    }
+  }
 
   if (key === 'f') { e.preventDefault(); openFind(); return; }
   if (e.shiftKey && key === 'e') { e.preventDefault(); exportHTML(); return; }

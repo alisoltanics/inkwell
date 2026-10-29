@@ -109,6 +109,18 @@
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.3a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2.1-2.8 3.7"/><path d="M12 17.2h.01"/></svg>
                             <span>Quiz</span>
                         </button>
+                        <button class="doc-act" data-doc="flashcards" type="button" title="Make flashcards from this document">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="13" height="14" rx="2"/><path d="M7 3h11a2 2 0 0 1 2 2v11"/></svg>
+                            <span>Flashcards</span>
+                        </button>
+                        <button class="doc-act" data-doc="proofread" type="button" title="Check this document for grammar mistakes and suggest fixes">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 16 4-10 4 10"/><path d="M4 12.5h5"/><path d="m14 15.5 2 2 4.5-5"/></svg>
+                            <span>Proofread</span>
+                        </button>
+                        <button class="doc-act" data-doc="glossary" type="button" title="Extract the terms, names and acronyms of this document and define each one">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h5"/></svg>
+                            <span>Glossary</span>
+                        </button>
                             </div>
                         </div>
                     </div>
@@ -171,12 +183,6 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                         </svg>
-                    </button>
-                    <button id="saveBtn" class="btn-save" title="Save (Ctrl+S)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>
-                        </svg>
-                        Save
                     </button>
                 </div>
             </div>
@@ -280,7 +286,7 @@
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                                     Copy
                                 </button>
-                                <button class="answer-doc-btn answer-doc-normal-action" id="answerDocInsert" type="button" title="Insert at cursor">
+                                <button class="answer-doc-btn answer-doc-normal-action" id="answerDocInsert" type="button" title="Add to the end of the document">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                                     Insert
                                 </button>
@@ -582,11 +588,11 @@
             </div>
             <div class="settings-layout">
                 <nav class="settings-nav">
-                    <button class="settings-tab" data-settings-tab="appearance" type="button">
+                    <button class="settings-tab active" data-settings-tab="appearance" type="button">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z"/></svg>
                         Appearance
                     </button>
-                    <button class="settings-tab active" data-settings-tab="ai" type="button">
+                    <button class="settings-tab" data-settings-tab="ai" type="button">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
                         AI Assistant
                     </button>
@@ -602,6 +608,11 @@
                 <div class="settings-content">
                     <section class="settings-pane hidden" data-settings-pane="appearance">
                         <h4>Appearance</h4>
+                        <div class="settings-field">
+                            <label for="settingsLanguage">Interface language</label>
+                            <select id="settingsLanguage"></select>
+                            <p class="settings-desc">Changes the interface language. Right-to-left languages flip the whole layout.</p>
+                        </div>
                         <div class="settings-field">
                             <label for="settingsFontSize">App font size</label>
                             <div class="font-size-row">
@@ -725,7 +736,6 @@
                 </div>
             </div>
             <div class="modal-footer settings-footer">
-                <span class="settings-version">Inkwell 1.1.0</span>
                 <button class="btn-secondary" data-close="modalSettings" type="button">Done</button>
             </div>
         </div>
@@ -850,7 +860,7 @@
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
                         Save .md
                     </button>
-                    <button class="ai-answer-standard-action" type="button" data-ai="insert" title="Insert at cursor">Insert</button>
+                    <button class="ai-answer-standard-action" type="button" data-ai="insert" title="Add to the end of the document">Insert</button>
                     <button class="ai-answer-standard-action" type="button" data-ai="replace" id="aiReplaceBtn" title="Replace the selection">Replace</button>
                     <button class="ai-answer-standard-action" type="button" data-ai="copy" title="Copy to clipboard">Copy</button>
                     <button class="ai-review-change hidden" id="aiReviewChangeBtn" type="button" data-ai="review-change" title="Review the proposed document change">Review change</button>
@@ -920,6 +930,7 @@
         <div class="lightbox-caption" id="lightboxCaption"></div>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="markdown-bundle.js"></script>
     <script src="renderer.js"></script>
 </body>

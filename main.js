@@ -507,6 +507,11 @@ ipcMain.handle('dialog:exportHTML', async (event, sourcePath, payload) => {
     if (!fs.existsSync(source.abs)) throw new Error('Markdown document not found');
     const outputSegments = [...source.segments];
     outputSegments[outputSegments.length - 1] = outputSegments[outputSegments.length - 1].replace(/\.md$/i, '.html');
+    // An archived note exports beside the note in the vault. Writing inside
+    // .inkwell/archive would hide the file from the list (dot folders are skipped).
+    if (outputSegments.length >= 3 && outputSegments[0] === '.inkwell' && outputSegments[1] === 'archive') {
+      outputSegments.splice(0, 2);
+    }
     const output = resolveLogical(outputSegments.join('/'), { createDirs: true });
     fs.writeFileSync(output.abs, buildStandaloneHtml(payload), 'utf8');
     return { success: true, path: output.abs };

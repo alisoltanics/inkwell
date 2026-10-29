@@ -59,7 +59,7 @@
     --accent-glow: rgba(56, 189, 248, 0.15);
     --danger: #f87171;
     --success: #4ade80;
-    --star: #fbbf24;
+    --star: #d3a24b;
     --radius: 10px;
     --radius-sm: 7px;
     --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
@@ -95,7 +95,7 @@
     --accent-glow: rgba(3, 105, 161, 0.16);
     --danger: #d1242f;
     --success: #15803d;
-    --star: #b45309;
+    --star: #9a6a1e;
     --shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.2);
     --md-text: #29343f;
     --md-heading: #0b1220;
@@ -426,6 +426,9 @@ button { font-family: inherit; }
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
+    /* the wordmark's ink sits half a pixel above the line-box centre: correct
+       it so the text reads level with the logo tile */
+    transform: translateY(0.5px);
 }
 
 .brand-logo {
@@ -433,7 +436,9 @@ button { font-family: inherit; }
     height: 22px;
     border-radius: 6px;
     display: block;
-    box-shadow: 0 2px 10px -2px rgba(56, 189, 248, 0.55);
+    /* the tile is black: a hairline ring keeps its edges visible on a dark
+       sidebar, and a soft glow replaces the old one-sided drop shadow */
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18), 0 2px 10px -3px rgba(56, 189, 248, 0.55);
 }
 
 .btn-new {
@@ -591,12 +596,23 @@ button { font-family: inherit; }
 .list-header-icon svg { width: 12px; height: 12px; display: block; }
 
 /* ============ FAVORITES (sidebar section) ============ */
-.list-header-fav { color: var(--star); }
+/* keep the section as quiet as the Notes header: only the small star keeps a
+   touch of colour, the label and count stay neutral */
+.list-header-fav { color: var(--text-muted); }
+.list-header-fav .list-header-icon { color: var(--star); }
 
-.list-header-fav .list-count {
-    color: var(--star);
-    background: color-mix(in srgb, var(--star) 12%, transparent);
-    border-color: color-mix(in srgb, var(--star) 32%, transparent);
+/* dashed hairline that fades out at both ends, separating Favorites from notes */
+.list-divider {
+    flex: 0 0 auto;
+    height: 1px;
+    margin: 8px 12px 6px;
+    background: repeating-linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--text-muted) 75%, transparent) 0 6px,
+        transparent 6px 12px
+    );
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
 }
 
 /* collapsible section header: the section starts collapsed, one click opens it */
@@ -619,7 +635,7 @@ button { font-family: inherit; }
     transition: background 0.12s, color 0.12s;
 }
 
-.list-header-toggle.list-header-fav { color: var(--star); }
+.list-header-toggle.list-header-fav { color: var(--text-muted); }
 .list-header-toggle:hover { background: var(--bg-hover); }
 .list-header-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
@@ -678,6 +694,17 @@ button { font-family: inherit; }
 }
 
 .file-item:hover { background: var(--bg-hover); }
+
+/* a file that was just written next to the open note (HTML export) */
+.file-item.just-exported {
+    animation: fileJustExported 1.8s ease-out;
+}
+
+@keyframes fileJustExported {
+    0% { background: var(--accent-glow); box-shadow: inset 3px 0 0 var(--accent); }
+    70% { background: var(--accent-glow); box-shadow: inset 3px 0 0 var(--accent); }
+    100% { background: transparent; box-shadow: none; }
+}
 
 .file-item.active {
     background: var(--bg-active);
@@ -779,19 +806,18 @@ button { font-family: inherit; }
 
 /* favorites: keep the actions visible and highlight the star */
 .file-item.has-fav .file-item-actions { display: flex; }
-.file-item-actions button.star.is-fav { color: var(--star); }
+.file-item-actions button.star.is-fav { color: var(--star); opacity: 0.9; }
 .file-item-actions button.star.is-fav:hover {
     color: var(--star);
-    background: color-mix(in srgb, var(--star) 16%, transparent);
+    opacity: 1;
+    background: color-mix(in srgb, var(--star) 12%, transparent);
 }
 
-/* the duplicate row inside the Favorites section reads as a shortcut */
-.file-item.in-favorites {
-    background: color-mix(in srgb, var(--star) 5%, transparent);
-}
+/* the duplicate row inside the Favorites section stays as calm as the others */
+.file-item.in-favorites { background: transparent; }
 .file-item.in-favorites.active { background: var(--bg-active); }
 .file-item.in-favorites:hover { background: var(--bg-hover); }
-.file-item.in-favorites .file-item-icon { color: var(--star); }
+.file-item.in-favorites .file-item-icon { color: var(--text-muted); }
 
 .file-list-empty {
     padding: 32px 16px;
@@ -2522,12 +2548,11 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .settings-status.busy { color: var(--accent); }
 
 .settings-footer {
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     border-top: 1px solid var(--border);
 }
 
-.settings-version { font-size: 11.5px; color: var(--text-muted); }
 
 .modal-hint code {
     padding: 1px 5px;
@@ -3318,6 +3343,227 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .ai-answer.markdown-body { font-size: 13.5px; white-space: normal; }
 .ai-answer.markdown-body > *:first-child { margin-top: 0; }
 .ai-answer.markdown-body > *:last-child { margin-bottom: 0; }
+
+/* ============ FLASHCARD DECK (Ask AI answer) ============ */
+.ai-answer.flashdeck-view {
+    padding: 12px;
+    white-space: normal;
+    scrollbar-width: thin;
+}
+
+.flashdeck-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.flashdeck-count {
+    flex: 0 0 auto;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.flashdeck-hint {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.flashdeck-hint::before { content: '\00b7'; margin-inline-end: 6px; }
+
+.flashdeck-all {
+    flex: 0 0 auto;
+    padding: 4px 11px;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.flashdeck-all:hover { background: var(--accent-glow); border-color: var(--accent); }
+.flashdeck-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.flashdeck {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.flashcard {
+    padding: 11px 13px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.14s, background 0.14s, transform 0.14s, box-shadow 0.14s;
+}
+
+.flashcard:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px -14px rgba(0, 0, 0, 0.7);
+}
+
+.flashcard:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.flashcard.revealed {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg-panel));
+}
+
+.flashcard-q {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.flashcard-q-text { min-width: 0; }
+
+.flashcard-toggle {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-inline-start: auto;
+    color: var(--text-muted);
+    opacity: 0.6;
+    transition: transform 0.16s ease, color 0.16s, opacity 0.16s;
+}
+
+.flashcard:hover .flashcard-toggle { color: var(--accent); opacity: 1; }
+
+.flashcard.revealed .flashcard-toggle {
+    transform: rotate(180deg);
+    color: var(--accent);
+    opacity: 1;
+}
+
+.flashcard-q-text > *:first-child,
+.flashcard-a > *:first-child { margin-top: 0; }
+.flashcard-q-text > *:last-child,
+.flashcard-a > *:last-child { margin-bottom: 0; }
+
+.flashcard-q code,
+.flashcard-a code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.92em;
+    color: var(--accent);
+}
+
+.flashcard-num {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-size: 10.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.flashcard-a {
+    display: none;
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px dashed var(--border-strong);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+}
+
+.flashcard.revealed .flashcard-a {
+    display: block;
+    animation: flashcardIn 0.16s ease-out;
+}
+
+@keyframes flashcardIn {
+    from { opacity: 0; transform: translateY(-2px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ---- the same deck inside the note preview (sizes follow the document) ---- */
+.md-flashdeck {
+    margin: 1.2em 0;
+    max-width: 100%;
+}
+
+.md-flashdeck .flashdeck-head {
+    margin-bottom: 12px;
+    font-size: 0.74em;
+}
+
+.md-flashdeck .flashdeck {
+    gap: 10px;
+}
+
+.md-flashdeck .flashcard {
+    padding: 13px 16px;
+    border-radius: 13px;
+    background: var(--bg-panel);
+    border-color: var(--border-strong);
+}
+
+.md-flashdeck .flashcard-q {
+    gap: 11px;
+    font-size: 0.98em;
+    line-height: 1.55;
+}
+
+.md-flashdeck .flashcard-num {
+    width: 24px;
+    height: 24px;
+    font-size: 0.72em;
+}
+
+.md-flashdeck .flashcard-a {
+    margin-top: 11px;
+    padding-top: 11px;
+    font-size: 0.94em;
+    line-height: 1.7;
+}
+
+.md-flashdeck .flashcard.revealed {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.md-flashdeck .flashcard.revealed .flashcard-num {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.markdown-body[dir="rtl"] .md-flashdeck .flashcard.revealed {
+    box-shadow: inset -3px 0 0 var(--accent);
+}
+
+/* the deck never carries a heading outline anchor or stray margins */
+.md-flashdeck .flashcard-q-text p,
+.md-flashdeck .flashcard-a p { margin: 0; }
 
 /* Markdown typography inside the answer card */
 .ai-answer.markdown-body h1,
@@ -4281,3 +4527,278 @@ mark.cmt-mark.cmt-flash {
 .cmt-composer-actions .cmt-btn { border-radius: 9px; transition: filter .12s, background .12s, transform .08s; }
 .cmt-composer-actions .cmt-btn:active { transform: scale(0.98); }
 .cmt-composer-actions .cmt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* =====================================================================
+   RIGHT-TO-LEFT INTERFACE (Persian / Arabic)
+   The document text keeps its own direction; only the app chrome mirrors.
+   ===================================================================== */
+html.rtl .window-controls {
+    right: auto;
+    left: 0;
+}
+
+html.rtl .sidebar {
+    border-right: none;
+    border-left: 1px solid var(--border);
+    transition: margin-right 0.25s ease;
+}
+html.rtl .sidebar.collapsed { margin-left: 0; margin-right: calc(-1 * var(--sidebar-width, 270px)); }
+
+html.rtl .sidebar-resizer { right: auto; left: -3px; }
+
+html.rtl .sidebar-search svg { left: auto; right: 11px; }
+html.rtl #searchInput { padding: 8px 34px 8px 12px; }
+
+html.rtl .sidebar-search input,
+html.rtl .sidebar-search textarea { text-align: right; }
+
+/* tree chevrons point the other way */
+html.rtl .folder-item .chevron.open,
+html.rtl .list-header-toggle .chevron.open { transform: rotate(-90deg); }
+html.rtl .list-header-toggle .list-count,
+html.rtl .folder-count,
+html.rtl .ai-answer-meta { margin-left: 0; margin-right: auto; }
+
+html.rtl .folder-children {
+    margin-left: 0;
+    margin-right: 18px;
+    padding-left: 0;
+    padding-right: 5px;
+    border-left: none;
+    border-right: 1px solid var(--border);
+}
+
+/* active / flashing rows: the accent rail sits on the reading-start edge */
+html.rtl .file-item.active,
+html.rtl .folder-item.active { box-shadow: inset -3px 0 0 var(--accent); }
+html.rtl .file-item.just-exported { animation-name: fileJustExportedRtl; }
+@keyframes fileJustExportedRtl {
+    0% { background: var(--accent-glow); box-shadow: inset -3px 0 0 var(--accent); }
+    70% { background: var(--accent-glow); box-shadow: inset -3px 0 0 var(--accent); }
+    100% { background: transparent; box-shadow: none; }
+}
+
+html.rtl .doc-cmt .tb-badge { right: auto; left: -5px; }
+
+html.rtl .toast-container { right: auto; left: 20px; align-items: flex-start; }
+
+html.rtl .ai-header-ask { margin-right: 0; }
+html.rtl .ai-ask { margin-right: 0; margin-left: 8px; }
+
+html.rtl .context-menu,
+html.rtl .sel-float,
+html.rtl .cmt-composer { direction: rtl; }
+
+html.rtl .md-flashdeck .flashcard.revealed { box-shadow: inset -3px 0 0 var(--accent); }
+
+/* the answer area scrolls in both directions: keep its scrollbar on-theme */
+.ai-answer {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+}
+.ai-answer::-webkit-scrollbar { width: 9px; }
+.ai-answer::-webkit-scrollbar-track { background: transparent; }
+.ai-answer::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
+.ai-answer::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* =====================================================================
+   RTL TOPBAR INSET
+   The window controls move to the left in RTL, so the bar reserves that
+   space on the left instead of the right.
+   ===================================================================== */
+html.rtl .topbar { padding-left: 138px; padding-right: 14px; }
+
+@media (max-width: 1320px) {
+    html.rtl .topbar { padding-left: 134px; }
+}
+
+/* =====================================================================
+   SINGLE-LINE BUTTON LABELS
+   Translated labels are longer than their English originals (Persian and
+   German-style compounding especially); they must never wrap inside a
+   button — the containers wrap instead.
+   ===================================================================== */
+.btn-new-label,
+.topbar button,
+.sel-btn,
+.doc-act,
+.ai-header-ask,
+.view-btn,
+.view-btn .vb-label,
+.answer-doc-btn,
+.ai-answer-standard-action,
+.ai-ask,
+.ai-suggest,
+.ai-stop,
+.cmt-btn,
+.modal-footer button,
+.settings-tab,
+.settings-actions button,
+.flashdeck-all,
+.explain-lang-row .btn-secondary {
+    white-space: nowrap;
+}
+
+/* =====================================================================
+   SIDEBAR ROWS: hover actions never move the row
+   The folder buttons float over the row instead of taking layout space,
+   so neither the text nor the row height jumps when they appear.
+   ===================================================================== */
+.folder-item .file-item-actions {
+    position: absolute;
+    inset-inline-end: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+}
+
+.folder-item:hover .folder-item-name,
+.folder-item:focus-within .folder-item-name { padding-inline-end: 50px; }
+
+/* =====================================================================
+   THEME CARDS: colored mini preview
+   ===================================================================== */
+.theme-swatch {
+    position: relative;
+    height: 40px;
+    border-radius: 7px;
+}
+
+.theme-swatch .ts-side { flex: 0 0 26%; }
+.theme-swatch .ts-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 10px;
+}
+.theme-swatch .ts-line {
+    display: block;
+    height: 3px;
+    width: 100%;
+    border-radius: 2px;
+    opacity: 0.8;
+}
+.theme-swatch .ts-line.ts-short { width: 58%; }
+.theme-swatch .ts-dot {
+    position: absolute;
+    inset-inline-end: 7px;
+    bottom: 7px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.14);
+}
+
+/* light theme: the black tile already contrasts, so the ring becomes subtle */
+[data-theme="light"] .brand-logo,
+[data-palette="solarized-light"] .brand-logo,
+[data-palette="sepia"] .brand-logo,
+[data-palette="rose"] .brand-logo {
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.14), 0 2px 8px -3px rgba(15, 23, 42, 0.28);
+}
+
+/* =====================================================================
+   GLOSSARY (Ask AI answer): a clean definition list of terms/entities
+   ===================================================================== */
+.ai-answer.glossary-view {
+    padding: 12px;
+    white-space: normal;
+    scrollbar-width: thin;
+}
+
+.glossary-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.glossary-count { font-weight: 600; color: var(--text-secondary); }
+.glossary-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.glossary-hint::before { content: '\00b7'; margin-inline-end: 6px; }
+
+.glossary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+}
+
+.glossary-row {
+    padding: 9px 11px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: border-color 0.14s, background 0.14s;
+}
+
+.glossary-row:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 5%, var(--bg-panel));
+}
+
+.glossary-term {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.45;
+    color: var(--text);
+}
+
+.glossary-term-text { min-width: 0; }
+
+.glossary-num {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.glossary-type {
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.glossary-def {
+    margin: 5px 0 0;
+    padding-inline-start: 26px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+.glossary-def code,
+.glossary-term-text code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    color: var(--accent);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.92em;
+}
