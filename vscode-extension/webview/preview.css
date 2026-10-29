@@ -1,0 +1,59 @@
+/* Layout glue for the Inkwell preview inside a VS Code webview.
+   Everything about the Markdown itself comes from Inkwell's own style.css;
+   this file only makes that stylesheet fit a scrolling page instead of the
+   app's fixed-height window. */
+
+html,
+body {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+    background: var(--bg);
+    color: var(--text);
+}
+
+body.inkwell-preview {
+    padding: 0;
+}
+
+/* In the app the preview pane is a flex child with its own scrollbar; here the
+   page itself scrolls, so the pane only provides the background. */
+.inkwell-preview .preview-pane {
+    flex: none;
+    width: 100%;
+    overflow: visible;
+    border-left: 0;
+    background: var(--bg);
+    min-height: 100vh;
+}
+
+/* Keep the text column comfortable in a narrow editor column. */
+.inkwell-preview .markdown-body {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+/* The app drives the text scale through this variable. */
+.inkwell-preview {
+    --content-scale: 1;
+}
+
+/* Code blocks and tables scroll horizontally instead of widening the page. */
+.inkwell-preview .markdown-body pre {
+    overflow-x: auto;
+}
+
+.inkwell-preview .markdown-body table {
+    display: block;
+    overflow-x: auto;
+}
+
+.inkwell-preview ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.inkwell-preview ::-webkit-scrollbar-thumb {
+    background: var(--border-strong, rgba(128, 128, 128, 0.4));
+    border-radius: 6px;
+}

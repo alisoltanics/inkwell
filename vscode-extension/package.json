@@ -1,0 +1,159 @@
+{
+  "name": "inkwell-preview",
+  "displayName": "Inkwell Preview",
+  "description": "Preview Markdown in VS Code with Inkwell's renderer: the same typography, syntax highlighting, KaTeX math, task lists, footnotes and flashcard decks as the Inkwell app.",
+  "version": "0.1.0",
+  "publisher": "alisoltanics",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alisoltanics/inkwell.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "markdown",
+    "preview",
+    "inkwell",
+    "notes"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCustomEditor:inkwell.preview",
+    "onCommand:inkwell.preview.open",
+    "onCommand:inkwell.preview.openToSide"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "inkwell.preview",
+        "displayName": "Inkwell Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "inkwell.preview.open",
+        "title": "Open Preview",
+        "category": "Inkwell"
+      },
+      {
+        "command": "inkwell.preview.openToSide",
+        "title": "Open Preview to the Side",
+        "category": "Inkwell"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "inkwell.preview.openToSide",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "inkwell.preview.openToSide",
+          "when": "resourceExtname == .md || resourceExtname == .markdown"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "inkwell.preview.open",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "navigation@20"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Inkwell Preview",
+      "properties": {
+        "inkwellPreview.theme": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "dark",
+            "light"
+          ],
+          "enumDescriptions": [
+            "Follow the VS Code color theme",
+            "Always use Inkwell's dark colors",
+            "Always use Inkwell's light colors"
+          ],
+          "default": "auto",
+          "description": "Which Inkwell color mode the preview uses."
+        },
+        "inkwellPreview.palette": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "default",
+            "vscode-dark",
+            "nord",
+            "dracula",
+            "solarized-dark",
+            "solarized-light",
+            "sepia",
+            "rose"
+          ],
+          "enumDescriptions": [
+            "Match the VS Code theme",
+            "Inkwell's own dark/light colors",
+            "VS Code Dark",
+            "Nord",
+            "Dracula",
+            "Solarized Dark",
+            "Solarized Light",
+            "Sepia",
+            "Rose"
+          ],
+          "default": "auto",
+          "description": "Inkwell palette for the preview. A palette overrides the color mode it was designed for."
+        },
+        "inkwellPreview.fontSize": {
+          "type": "number",
+          "default": 100,
+          "minimum": 70,
+          "maximum": 180,
+          "description": "Text scale of the preview, in percent."
+        },
+        "inkwellPreview.direction": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "ltr",
+            "rtl"
+          ],
+          "enumDescriptions": [
+            "Let each block pick its own direction",
+            "Always left to right",
+            "Always right to left"
+          ],
+          "default": "auto",
+          "description": "Base text direction of the preview."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "media": "node scripts/sync-media.js",
+    "test": "node scripts/smoke-test.js",
+    "vscode:prepublish": "node scripts/sync-media.js",
+    "package": "node scripts/package.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
