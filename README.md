@@ -43,6 +43,7 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Add custom CLI providers in Settings with a command, type, model flag, and an optional base URL and API key. These are passed to the command as environment variables (`ANTHROPIC_*` for Claude-type providers, `OPENAI_*` otherwise; the names can be changed). They are stored in Inkwell's local settings.
 - Use a service that only offers an HTTP API, with no CLI to install: providers of type `api` (OpenAI compatible) are called directly by Inkwell. DeepSeek is pre-added — paste your API key in Settings → AI, and the base URL (`https://api.deepseek.com/v1`) is already filled in. Inkwell reads the model list from the service as soon as a key is saved, so new models (DeepSeek V4.1 Flash, V4 Pro, …) appear on their own; `DEEPSEEK_API_KEY` in the environment works as well. The key is written to Inkwell's own settings file with owner-only permissions and is never kept in the page state or sent back to the interface.
 - Save a useful AI answer as a new Markdown note.
+- Send an AI answer to Telegram in one click: it goes as a self-contained HTML file (titled with the action and the note, flashcard decks with every answer visible) to the chat configured in Settings → Telegram. If Telegram is not set up yet, the settings open on that tab.
 
 Inkwell does not provide an AI model or AI account. It starts the selected command-line client installed on your computer (`claude`, `codex`, or `opencode`) and uses that client's local setup and authentication. For Claude, Inkwell runs the `claude` CLI. It also reads `claudeCode.environmentVariables` from the local VS Code user `settings.json`, when present, and passes those environment variables to the CLI process. HTTP providers are different: Inkwell sends the request itself to the base URL you configured, with your API key, and the key never leaves your machine except towards that service. Inkwell does not put these credentials in the project or send them to GitHub. When you submit an AI request, the prompt and any included note text are sent by the selected CLI or HTTP provider to the AI service configured there; review that service's privacy terms before sending sensitive content.
 
@@ -119,4 +120,5 @@ Version tags matching `v*` trigger GitHub Actions to build Linux x64, Windows x6
 - `preload.js` — restricted bridge between the UI and Electron main process
 - `html.js` — builds self-contained HTML exports
 - `src/renderer/` — application interface and Markdown rendering bundle
+- `vscode-extension/` — Inkwell Preview, a VS Code extension that previews Markdown with this renderer
 - `.github/workflows/release.yml` — cross-platform release build workflow

@@ -2389,5 +2389,63 @@
     'A key is saved. Type a new one to replace it.': '密钥已保存。输入新密钥即可替换。',
   });
 
+  // Sending an AI answer to Telegram
+  Object.assign(fa, {
+    'Send the answer to Telegram as an HTML file': 'ارسال پاسخ به تلگرام به‌صورت فایل HTML',
+    'Sending answer to Telegram…': 'در حال ارسال پاسخ به تلگرام…',
+    'Answer sent to Telegram': 'پاسخ به تلگرام ارسال شد',
+    'There is no answer to send': 'پاسخی برای ارسال وجود ندارد',
+    'Telegram send failed: %error%': 'ارسال به تلگرام ناموفق بود: %error%',
+  });
+  Object.assign(ar, {
+    'Send the answer to Telegram as an HTML file': 'إرسال الإجابة إلى تيليجرام كملف HTML',
+    'Sending answer to Telegram…': 'جارٍ إرسال الإجابة إلى تيليجرام…',
+    'Answer sent to Telegram': 'تم إرسال الإجابة إلى تيليجرام',
+    'There is no answer to send': 'لا توجد إجابة لإرسالها',
+    'Telegram send failed: %error%': 'فشل الإرسال إلى تيليجرام: %error%',
+  });
+  Object.assign(fr, {
+    'Send the answer to Telegram as an HTML file': 'Envoyer la réponse sur Telegram en fichier HTML',
+    'Sending answer to Telegram…': 'Envoi de la réponse sur Telegram…',
+    'Answer sent to Telegram': 'Réponse envoyée sur Telegram',
+    'There is no answer to send': 'Aucune réponse à envoyer',
+    'Telegram send failed: %error%': 'Échec de l’envoi sur Telegram : %error%',
+  });
+  Object.assign(de, {
+    'Send the answer to Telegram as an HTML file': 'Antwort als HTML-Datei an Telegram senden',
+    'Sending answer to Telegram…': 'Antwort wird an Telegram gesendet…',
+    'Answer sent to Telegram': 'Antwort an Telegram gesendet',
+    'There is no answer to send': 'Keine Antwort zum Senden vorhanden',
+    'Telegram send failed: %error%': 'Senden an Telegram fehlgeschlagen: %error%',
+  });
+  Object.assign(it, {
+    'Send the answer to Telegram as an HTML file': 'Invia la risposta su Telegram come file HTML',
+    'Sending answer to Telegram…': 'Invio della risposta su Telegram…',
+    'Answer sent to Telegram': 'Risposta inviata su Telegram',
+    'There is no answer to send': 'Nessuna risposta da inviare',
+    'Telegram send failed: %error%': 'Invio su Telegram non riuscito: %error%',
+  });
+  Object.assign(tr, {
+    'Send the answer to Telegram as an HTML file': 'Yanıtı HTML dosyası olarak Telegram’a gönder',
+    'Sending answer to Telegram…': 'Yanıt Telegram’a gönderiliyor…',
+    'Answer sent to Telegram': 'Yanıt Telegram’a gönderildi',
+    'There is no answer to send': 'Gönderilecek yanıt yok',
+    'Telegram send failed: %error%': 'Telegram’a gönderim başarısız: %error%',
+  });
+  Object.assign(es, {
+    'Send the answer to Telegram as an HTML file': 'Enviar la respuesta a Telegram como archivo HTML',
+    'Sending answer to Telegram…': 'Enviando la respuesta a Telegram…',
+    'Answer sent to Telegram': 'Respuesta enviada a Telegram',
+    'There is no answer to send': 'No hay respuesta para enviar',
+    'Telegram send failed: %error%': 'Error al enviar a Telegram: %error%',
+  });
+  Object.assign(zh, {
+    'Send the answer to Telegram as an HTML file': '将回答以 HTML 文件发送到 Telegram',
+    'Sending answer to Telegram…': '正在将回答发送到 Telegram…',
+    'Answer sent to Telegram': '回答已发送到 Telegram',
+    'There is no answer to send': '没有可发送的回答',
+    'Telegram send failed: %error%': '发送到 Telegram 失败：%error%',
+  });
+
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };
 })();

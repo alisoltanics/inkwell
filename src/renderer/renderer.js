@@ -361,6 +361,7 @@ const els = {
   answerDocBack: $('answerDocBack'),
   answerDocCopy: $('answerDocCopy'),
   answerDocInsert: $('answerDocInsert'),
+  answerDocTelegram: $('answerDocTelegram'),
   answerDocSave: $('answerDocSave'),
   saveAnswerName: $('saveAnswerName'),
   saveAnswerLocation: $('saveAnswerLocation'),
@@ -6421,6 +6422,57 @@ function saveAIAnswerAsFile() {
   setTimeout(() => { els.saveAnswerName.focus(); els.saveAnswerName.select(); }, 50);
 }
 
+// Sends the answer to the configured Telegram chat as a standalone HTML
+// document: the same builder an exported note uses, including the flashcard
+// deck (with every answer visible, since a document cannot be flipped open).
+function buildAIAnswerPayload() {
+  const holder = document.createElement('div');
+  holder.className = 'markdown-body';
+  holder.innerHTML = md.render(aiAnswer || '');
+  hydrateFlashcards(holder);
+  holder.querySelectorAll('.flashcard').forEach((card) => {
+    card.classList.add('revealed');
+    card.setAttribute('aria-pressed', 'true');
+  });
+  const dir = detectDirectionMajority(aiAnswer || '');
+  holder.setAttribute('dir', dir);
+  holder.querySelectorAll(BIDI_BLOCK_SEL).forEach((el) => {
+    el.setAttribute('dir', hasRtlChar(el.textContent) ? 'rtl' : 'ltr');
+  });
+  const label = aiAnswerTitle();
+  const stamp = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return {
+    title: label,
+    dir,
+    headerHtml: `<h1>${escapeHtml(label)}</h1><div class="doc-meta">Inkwell &middot; ${escapeHtml(stamp)}</div>`,
+    bodyHtml: holder.innerHTML,
+  };
+}
+
+async function sendAIAnswerToTelegram(button) {
+  if (!aiAnswer || !aiAnswer.trim()) { toast(t('There is no answer to send'), 'info'); return; }
+  if (state.telegramBusy) return;
+  state.telegramBusy = true;
+  if (button) button.classList.add('busy');
+  try {
+    const payload = buildAIAnswerPayload();
+    toast(t('Sending answer to Telegram…'), 'info', 2500);
+    const res = await window.inkwell.sendDocToTelegram(payload.title, payload);
+    if (res && res.success) {
+      toast(t('Answer sent to Telegram'), 'success', 3600);
+    } else {
+      const error = (res && res.error) || 'unknown error';
+      toast(t('Telegram send failed: %error%', { error }), 'error', 5000);
+      if (/not configured/i.test(error)) openSettings('telegram');
+    }
+  } catch (e) {
+    toast(t('Telegram send failed: %error%', { error: e && e.message ? e.message : String(e) }), 'error', 5000);
+  } finally {
+    state.telegramBusy = false;
+    if (button) button.classList.remove('busy');
+  }
+}
+
 async function createAnswerFile() {
   let name = sanitizeName(els.saveAnswerName.value.trim());
   if (!name) { toast('Please enter a valid file name', 'error'); return; }
@@ -6553,6 +6605,7 @@ function setupAI() {
     if (btn.dataset.ai === 'insert') insertAIAnswer();
     else if (btn.dataset.ai === 'replace') replaceAISelection();
     else if (btn.dataset.ai === 'copy') copyAIAnswer();
+    else if (btn.dataset.ai === 'telegram') sendAIAnswerToTelegram(btn);
     else if (btn.dataset.ai === 'page') openAnswerDoc();
     else if (btn.dataset.ai === 'save') saveAIAnswerAsFile();
   });
@@ -6569,6 +6622,7 @@ function setupAI() {
     els.answerDocBack.addEventListener('click', backFromAnswerDoc);
     els.answerDocCopy.addEventListener('click', async () => { await copyAIAnswer(); });
     els.answerDocInsert.addEventListener('click', insertAIAnswerIntoDoc);
+    if (els.answerDocTelegram) els.answerDocTelegram.addEventListener('click', () => sendAIAnswerToTelegram(els.answerDocTelegram));
     els.answerDocSave.addEventListener('click', saveAIAnswerAsFile);
   }
 
