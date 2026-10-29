@@ -6104,19 +6104,39 @@ function rejectAIEdit(changeId) {
   toast(remaining ? `Change rejected. ${remaining} more to review.` : 'All remaining changes rejected.', 'info');
 }
 
+// Appends text at the very end of the open document.
+// In preview mode the editor textarea is hidden, where execCommand('insertText')
+// is a silent no-op, so the value is written directly and the normal change
+// pipeline (dirty flag, preview render, autosave) is run afterwards.
+function appendToDocument(text) {
+  const ed = els.editor;
+  if (!ed.offsetParent) {
+    ed.value = ed.value + text;
+    ed.selectionStart = ed.selectionEnd = ed.value.length;
+    onEditorChanged();
+    return;
+  }
+  const at = ed.value.length;
+  replaceRange(at, at, text);
+  ed.selectionStart = ed.selectionEnd = ed.value.length;
+}
+
 // Insert always appends: the answer belongs to the note that was asked about,
 // so it lands at the very end of that document instead of at whatever caret
-// position the editor happened to keep. The caret is then left after the text.
+// position the editor happened to keep.
 function insertAIAnswer() {
   if (!aiAnswer || !aiAnswer.trim()) { toast(t('There is no answer to insert'), 'info'); return; }
   const value = els.editor.value || '';
   const sep = value.length === 0 ? '' : (/(\n\s*\n)$/.test(value) ? '' : /\n$/.test(value) ? '\n' : '\n\n');
-  const text = sep + aiAnswer.trim() + '\n';
-  const at = value.length;
-  replaceRange(at, at, text);
-  els.editor.selectionStart = els.editor.selectionEnd = els.editor.value.length;
-  els.editor.scrollTop = els.editor.scrollHeight;
-  els.editor.focus();
+  appendToDocument(sep + aiAnswer.trim() + '\n');
+  const editorVisible = !!els.editor.offsetParent;
+  if (editorVisible) {
+    els.editor.focus();
+    els.editor.scrollTop = els.editor.scrollHeight;
+  } else if (els.preview) {
+    // preview mode: bring the appended text into view on the page
+    els.preview.scrollTop = els.preview.scrollHeight;
+  }
   setStatus(t('Added to the end of the document'));
   toast(t('Added to the end of the document'), 'success', 2200);
 }
