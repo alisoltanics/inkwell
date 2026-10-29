@@ -33,17 +33,17 @@
                     <span>Inkwell</span>
                 </div>
                 <div class="sidebar-actions">
-                    <button id="newFileBtn" class="btn-new" title="New file (Ctrl+N)">
+                    <button id="newFileBtn" class="btn-new" title="New note (Ctrl+N)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
                             <path d="M12 5v14M5 12h14"/>
                         </svg>
-                        New
+                        <span class="btn-new-label">New note</span>
                     </button>
                     <button id="newFolderBtn" class="btn-new btn-new-ghost" title="New folder">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 11v6M9 14h6"/>
                         </svg>
-                        Folder
+                        <span class="btn-new-label">New folder</span>
                     </button>
                 </div>
             </div>
@@ -105,9 +105,9 @@
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
                             <span>Notes</span>
                         </button>
-                        <button class="doc-act" id="askCodeHeaderBtn" type="button" title="Open Ask AI for the selected code">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg>
-                            <span>Ask AI about code</span>
+                        <button class="doc-act" data-doc="quiz" type="button" title="Create a quiz from this document">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.3a2.9 2.9 0 0 1 5.6 1c0 1.9-2.8 2.1-2.8 3.7"/><path d="M12 17.2h.01"/></svg>
+                            <span>Quiz</span>
                         </button>
                             </div>
                         </div>
@@ -142,7 +142,6 @@
                 </div>
                 <div class="topbar-right">
                     <span class="save-status" id="saveStatus"></span>
-                    <span class="word-count" id="wordCount">0 words</span>
                     <button id="settingsBtn" class="btn-icon" title="Settings">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     </button>
@@ -152,6 +151,9 @@
                     </button>
                     <button id="exportBtn" class="btn-icon" title="Export document as HTML (Ctrl+Shift+E)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                    </button>
+                    <button id="printBtn" class="btn-icon" title="Print document (Ctrl+Shift+P)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
                     </button>
                     <button id="telegramBtn" class="btn-icon" title="Send document to Telegram">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 3.5 2.5 10.7l5.4 1.9M21.5 3.5l-3.1 16.4-6-4.6M21.5 3.5 7.9 12.6m0 0v4.9l3-3.1"/></svg>
@@ -330,11 +332,11 @@
     <div class="modal-overlay hidden" id="modalNewFile">
         <div class="modal">
             <div class="modal-header">
-                <h3>New File</h3>
+                <h3>New note</h3>
                 <button class="modal-close" data-close="modalNewFile">&times;</button>
             </div>
             <div class="modal-body">
-                <label for="newFileName">File name</label>
+                <label for="newFileName">Note name</label>
                 <div class="input-with-ext">
                     <input type="text" id="newFileName" placeholder="my-notes" autocomplete="off">
                     <span class="input-ext">.md</span>
@@ -343,7 +345,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" data-close="modalNewFile">Cancel</button>
-                <button class="btn-primary" id="createFileConfirm">Create File</button>
+                <button class="btn-primary" id="createFileConfirm">Create note</button>
             </div>
         </div>
     </div>
@@ -472,6 +474,24 @@
         </div>
     </div>
 
+    <!-- Modal: Delete archived note -->
+    <div class="modal-overlay hidden" id="modalDeleteArchived">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Delete archived note</h3>
+                <button class="modal-close" data-close="modalDeleteArchived">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Permanently delete the archived note <strong id="deleteArchivedName"></strong>?</p>
+                <p class="modal-hint">This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="modalDeleteArchived">Cancel</button>
+                <button class="btn-danger" id="deleteArchivedConfirm">Delete</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Rename File -->
     <div class="modal-overlay hidden" id="modalRename">
         <div class="modal">
@@ -485,6 +505,7 @@
                     <input type="text" id="renameInput" placeholder="filename" autocomplete="off">
                     <span class="input-ext">.md</span>
                 </div>
+                <p class="modal-hint">Stays in: <strong id="renameLocation">Library</strong></p>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" data-close="modalRename">Cancel</button>
@@ -720,6 +741,10 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9a2.5 2.5 0 1 1 4.7 1.2c-.6 1-2.3 1.3-2.3 3M12 17.5h.01"/></svg>
             Explain
         </button>
+        <button class="sel-btn sel-btn-code hidden" id="askCodeFloatBtn" type="button" title="Explain the selected code with AI">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg>
+            Explain code
+        </button>
         <button class="sel-btn sel-btn-edit" id="aiChangeFloatBtn" type="button" title="Ask AI to change this selection">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
             Change
@@ -861,6 +886,14 @@
         <button class="context-item" id="ctxPin">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
             <span id="ctxPinLabel">Pin to tabs</span>
+        </button>
+        <button class="context-item" id="ctxFav">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            <span id="ctxFavLabel">Add to favorites</span>
+        </button>
+        <button class="context-item" id="ctxArchive">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+            <span id="ctxArchiveLabel">Archive</span>
         </button>
         <button class="context-item" id="ctxRename">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

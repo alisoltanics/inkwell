@@ -43,6 +43,13 @@ let state = {
   sidebarWidth: 270,
   theme: 'dark',
   pinned: [],
+  favorites: [],
+  // session-only: the Favorites section always starts collapsed on launch
+  favoritesOpen: false,
+  archivedFiles: [],
+  archivedFolders: [],
+  // session-only as well
+  archiveOpen: false,
   aiProvider: 'claude',
   aiModels: {},
   aiResponseLanguage: 'auto',
@@ -52,9 +59,11 @@ let state = {
   aiPrompts: ['Explain this', 'Translate to Persian', 'Explain this in Persian', 'Summarize this', 'What is this?'],
   commentsByFile: {},
   lastFile: null,
+  lastOpenFromFavorites: false,
   scrollByFile: {},
   cursorByFile: {},
   telegramBusy: false,
+  printBusy: false,
   aiProviders: [],
 };
 
@@ -80,7 +89,6 @@ const els = {
   saveBtn: $('saveBtn'),
   deleteFileBtn: $('deleteFileBtn'),
   saveStatus: $('saveStatus'),
-  wordCount: $('wordCount'),
   editorArea: $('editorArea'),
   editorWrap: $('editorWrap'),
   editor: $('editor'),
@@ -122,6 +130,7 @@ const els = {
   settingsTelegramTest: $('settingsTelegramTest'),
   themeToggle: $('themeToggle'),
   exportBtn: $('exportBtn'),
+  printBtn: $('printBtn'),
   telegramBtn: $('telegramBtn'),
   findBar: $('findBar'),
   findInput: $('findInput'),
@@ -131,7 +140,7 @@ const els = {
   findClose: $('findClose'),
   aiToolbarBtn: $('aiToolbarBtn'),
   aiHeaderSelectionBtn: $('aiHeaderSelectionBtn'),
-  askCodeHeaderBtn: $('askCodeHeaderBtn'),
+  askCodeFloatBtn: $('askCodeFloatBtn'),
   explainCodeToolbarBtn: $('explainCodeToolbarBtn'),
   explainCodeInput: $('explainCodeInput'),
   explainLang: $('explainLang'),
@@ -212,6 +221,7 @@ const modals = {
   newFolder: $('modalNewFolder'),
   deleteFile: $('modalDeleteFile'),
   deleteFolder: $('modalDeleteFolder'),
+  deleteArchived: $('modalDeleteArchived'),
   rename: $('modalRename'),
   renameFolder: $('modalRenameFolder'),
   saveAnswer: $('modalSaveAnswer'),
@@ -252,6 +262,7 @@ function preferredTheme() {
 const PALETTES = [
   { id: 'default-dark', label: 'Dark', mode: 'dark', palette: '', colors: ['#0a0e17', '#131a29', '#38bdf8', '#e8edf4'] },
   { id: 'default-light', label: 'Light', mode: 'light', palette: '', colors: ['#ffffff', '#eef2f7', '#0369a1', '#0f172a'] },
+  { id: 'vscode-dark', label: 'VS Code Dark', mode: 'dark', palette: 'vscode-dark', colors: ['#1f1f1f', '#181818', '#0078d4', '#cccccc'] },
   { id: 'nord', label: 'Nord', mode: 'dark', palette: 'nord', colors: ['#2e3440', '#3b4252', '#88c0d0', '#eceff4'] },
   { id: 'dracula', label: 'Dracula', mode: 'dark', palette: 'dracula', colors: ['#282a36', '#343746', '#bd93f9', '#f8f8f2'] },
   { id: 'solarized-dark', label: 'Solarized Dark', mode: 'dark', palette: 'solarized-dark', colors: ['#002b36', '#0a3b48', '#2aa198', '#eee8d5'] },
@@ -366,9 +377,9 @@ function formatRelative(ms) {
 
 /* ============ INIT ============ */
 async function initApp() {
+  loadPreferences();
   try { await updateVaultDisplay(await window.inkwell.getNotesDir()); } catch (_) {}
   await refreshFiles();
-  loadPreferences();
   setupEditorEvents();
   setupToolbar();
   setupZoom();
@@ -380,13 +391,27 @@ async function initApp() {
   setupDocAiBar();
   setupComments();
   setViewMode(state.viewMode);
-  updateWordCount();
 
-  if (state.files.length > 0) {
-    const last = state.lastFile && state.files.some((f) => f.path === state.lastFile)
-      ? state.lastFile : state.files[0].path;
-    if (state.lastFile && last !== state.lastFile) state.lastFile = last;
-    await selectFile(last);
+  if (state.files.length > 0 || state.archivedFiles.length > 0) {
+    // always come back to the document that was open when the app was closed.
+    // Its folder is revealed too — unless that note was last opened from the
+    // Favorites section or from the archive, where the tree is left untouched.
+    const remembered = state.lastFile;
+    const known = !!remembered && (
+      state.files.some((f) => f.path === remembered)
+      || state.archivedFiles.some((f) => ARCHIVE_PREFIX + f.path === remembered)
+    );
+    const last = known
+      ? remembered
+      : (state.files[0] ? state.files[0].path : ARCHIVE_PREFIX + state.archivedFiles[0].path);
+    const reveal = !state.lastOpenFromFavorites && !isArchivedPath(last);
+    await selectFile(last, { reveal });
+    // the remembered note may be gone (renamed/moved outside the app): fall back
+    const fallback = state.files[0] ? state.files[0].path : null;
+    if (!state.currentFile) {
+      if (fallback && fallback !== last) await selectFile(fallback, { reveal: true });
+      else showEmptyEditor();
+    }
   } else {
     showEmptyEditor();
   }
@@ -441,6 +466,7 @@ function loadPreferences() {
       if (typeof p.palette === 'string') applyPalette(p.palette);
       if (typeof p.fontSize === 'number') state.fontSize = p.fontSize;
       if (Array.isArray(p.pinned)) state.pinned = p.pinned.filter((x) => typeof x === 'string');
+      if (Array.isArray(p.favorites)) state.favorites = p.favorites.filter((x) => typeof x === 'string');
       if (typeof p.aiProvider === 'string') state.aiProvider = p.aiProvider;
       if (p.aiModels && typeof p.aiModels === 'object') state.aiModels = p.aiModels;
       if (typeof p.aiResponseLanguage === 'string' && p.aiResponseLanguage.trim()) state.aiResponseLanguage = p.aiResponseLanguage.trim();
@@ -451,6 +477,7 @@ function loadPreferences() {
       if (Array.isArray(p.aiProviders)) state.aiProviders = p.aiProviders.filter((pp) => pp && typeof pp === 'object' && pp.id && pp.name && pp.command);
       if (p.commentsByFile && typeof p.commentsByFile === 'object') state.commentsByFile = p.commentsByFile;
       if (typeof p.lastFile === 'string') state.lastFile = p.lastFile;
+      if (typeof p.lastOpenFromFavorites === 'boolean') state.lastOpenFromFavorites = p.lastOpenFromFavorites;
       if (p.scrollByFile && typeof p.scrollByFile === 'object') state.scrollByFile = p.scrollByFile;
       if (p.cursorByFile && typeof p.cursorByFile === 'object') state.cursorByFile = p.cursorByFile;
     }
@@ -476,6 +503,7 @@ function savePreferences() {
       palette: state.palette,
       fontSize: state.fontSize,
       pinned: state.pinned,
+      favorites: state.favorites,
       aiProvider: state.aiProvider,
       aiModels: state.aiModels,
       aiResponseLanguage: state.aiResponseLanguage,
@@ -485,6 +513,7 @@ function savePreferences() {
       aiPrompts: state.aiPrompts,
       commentsByFile: state.commentsByFile,
       lastFile: state.lastFile,
+      lastOpenFromFavorites: state.lastOpenFromFavorites,
       scrollByFile: state.scrollByFile,
       cursorByFile: state.cursorByFile,
       aiProviders: state.aiProviders,
@@ -563,21 +592,19 @@ function iconFolder() {
 /* ============ FILE LIST (tree) ============ */
 async function refreshFiles() {
   try {
-    const tree = await window.inkwell.listFiles();
+    const [tree, archive] = await Promise.all([
+      window.inkwell.listFiles(),
+      window.inkwell.listArchive(),
+    ]);
     state.files = (tree && tree.files) || [];
     state.folders = (tree && tree.folders) || [];
-    // auto-expand ancestor folders of the active file
-    if (state.currentFile) {
-      const parts = state.currentFile.split('/');
-      let acc = '';
-      for (let i = 0; i < parts.length - 1; i++) {
-        acc = acc ? acc + '/' + parts[i] : parts[i];
-        state.expandedFolders.add(acc);
-      }
-    }
+    state.archivedFiles = (archive && archive.files) || [];
+    state.archivedFolders = (archive && archive.folders) || [];
   } catch (e) {
     state.files = [];
     state.folders = [];
+    state.archivedFiles = [];
+    state.archivedFolders = [];
     toast('Failed to load files', 'error');
   }
   applyFilter();
@@ -612,7 +639,7 @@ function iconChevron(open) {
 
 function renderFileList() {
   const listRect = els.fileList.getBoundingClientRect();
-  const anchor = Array.from(els.fileList.querySelectorAll('.file-item, .folder-item'))
+  const anchor = Array.from(els.fileList.querySelectorAll('.file-item:not(.in-favorites), .folder-item'))
     .find((row) => {
       const rect = row.getBoundingClientRect();
       return rect.bottom > listRect.top && rect.top < listRect.bottom;
@@ -621,7 +648,7 @@ function renderFileList() {
   const anchorOffset = anchor ? anchor.getBoundingClientRect().top - listRect.top : 0;
   const restoreAnchor = () => {
     if (!anchorPath) return;
-    const next = Array.from(els.fileList.querySelectorAll('.file-item, .folder-item'))
+    const next = Array.from(els.fileList.querySelectorAll('.file-item:not(.in-favorites), .folder-item'))
       .find((row) => (row.dataset.name || row.dataset.path) === anchorPath);
     if (!next) return;
     const currentOffset = next.getBoundingClientRect().top - els.fileList.getBoundingClientRect().top;
@@ -633,7 +660,7 @@ function renderFileList() {
     const empty = document.createElement('div');
     empty.className = 'file-list-empty';
     empty.innerHTML = state.files.length === 0 && state.folders.length === 0
-      ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><div>No markdown files yet.<br>Click <strong>New</strong> to create one.</div>`
+      ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><div>No notes yet.<br>Click <strong>New note</strong> to write your first one.</div>`
       : 'No files match your search.';
     els.fileList.appendChild(empty);
     restoreAnchor();
@@ -644,9 +671,46 @@ function renderFileList() {
   const folders = (state.filteredFolders || []).slice().sort((a, b) => a.path.localeCompare(b.path));
   const files = state.filtered;
 
+  // Favorites section (starred docs; collapsed by default, hidden while searching)
+  if (!searching) {
+    pruneFavorites();
+    const favFiles = state.favorites
+      .map((p) => state.files.find((f) => f.path === p))
+      .filter(Boolean);
+    if (favFiles.length) {
+      const open = !!state.favoritesOpen;
+      const favHeader = document.createElement('button');
+      favHeader.type = 'button';
+      favHeader.className = 'list-header list-header-fav list-header-toggle';
+      favHeader.setAttribute('aria-expanded', open ? 'true' : 'false');
+      favHeader.title = open ? 'Hide favorites' : 'Show favorites';
+      favHeader.innerHTML = `
+        ${iconChevron(open)}
+        <span class="list-header-icon">${starSvg}</span>
+        <span>Favorites</span>
+        <span class="list-count">${favFiles.length}</span>
+      `;
+      favHeader.addEventListener('click', () => {
+        // toggled for this session only — the section never opens by itself
+        state.favoritesOpen = !state.favoritesOpen;
+        renderFileList();
+      });
+      els.fileList.appendChild(favHeader);
+      if (open) {
+        for (const f of favFiles) els.fileList.appendChild(buildFileItem(f, 0, true));
+      }
+    }
+  }
+
   const header = document.createElement('div');
   header.className = 'list-header';
-  header.innerHTML = `<span>${searching ? 'Results' : 'Notes'}</span><span class="list-count">${files.length}</span>`;
+  header.innerHTML = `
+    <span class="list-header-label">
+      <span class="list-header-icon">${searching ? searchSvg : docIcon}</span>
+      <span>${searching ? 'Results' : 'Notes'}</span>
+    </span>
+    <span class="list-count">${files.length}</span>
+  `;
   els.fileList.appendChild(header);
 
   const fileItems = new Map();
@@ -671,6 +735,31 @@ function renderFileList() {
   for (const fd of childrenOf.get('') || []) {
     els.fileList.appendChild(buildFolderNode(fd, childrenOf, fileItems, searching, 0));
   }
+
+  // Archive section (hidden while searching, collapsed by default)
+  if (!searching && state.archivedFiles.length) {
+    const open = !!state.archiveOpen;
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'list-header list-header-archive list-header-toggle';
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    head.title = open ? 'Hide archive' : 'Show archive';
+    head.innerHTML = `
+      ${iconChevron(open)}
+      <span class="list-header-icon">${archiveSvg}</span>
+      <span>Archive</span>
+      <span class="list-count">${state.archivedFiles.length}</span>
+    `;
+    head.addEventListener('click', () => {
+      state.archiveOpen = !state.archiveOpen;
+      renderFileList();
+    });
+    els.fileList.appendChild(head);
+    if (open) {
+      for (const f of state.archivedFiles) els.fileList.appendChild(buildArchivedItem(f));
+    }
+  }
+
   restoreAnchor();
 }
 
@@ -741,10 +830,15 @@ function buildFolderNode(folder, childrenOf, fileItems, forcedOpen, depth) {
 }
 
 const docIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+const searchSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>';
 const renameSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 const trashSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 const pinSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
 const pinFilledSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
+const starSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+const starFilledSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+const archiveSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>';
+const restoreSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
 const tabCloseSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 
 /* ============ PINNED TABS ============ */
@@ -759,6 +853,8 @@ function isPinned(path) {
 // Keep the pinned list in sync with files that still exist (e.g. after files
 // were deleted outside the app or a folder was removed).
 function prunePins() {
+  // an empty list means "not loaded yet" — never wipe the saved pins for that
+  if (!state.files.length) return;
   const exists = new Set(state.files.map((f) => f.path));
   const kept = state.pinned.filter((p) => exists.has(p));
   if (kept.length !== state.pinned.length) {
@@ -797,12 +893,12 @@ function renderTabs() {
     `;
     tab.addEventListener('click', (e) => {
       if (e.target.closest('[data-unpin]')) return;
-      selectFile(path);
+      selectFile(path, { source: 'tab' });
     });
     tab.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        selectFile(path);
+        selectFile(path, { source: 'tab' });
       } else if (e.key === 'Delete') {
         e.preventDefault();
         unpinFile(path);
@@ -845,22 +941,66 @@ function unpinFile(path) {
   renderTabs();
 }
 
-function buildFileItem(file, depth = 0) {
+/* ============ FAVORITES ============ */
+function isFavorite(path) {
+  return state.favorites.includes(path);
+}
+
+// Drop favorites whose file no longer exists (deleted outside the app, etc.)
+function pruneFavorites() {
+  // an empty list means "not loaded yet" — never wipe the saved favorites for that
+  if (!state.files.length) return;
+  const exists = new Set(state.files.map((f) => f.path));
+  const kept = state.favorites.filter((p) => exists.has(p));
+  if (kept.length !== state.favorites.length) {
+    state.favorites = kept;
+    savePreferences();
+  }
+}
+
+function toggleFavorite(path) {
+  if (!path) return;
+  const i = state.favorites.indexOf(path);
+  if (i === -1) {
+    state.favorites.push(path);
+    toast('Added to Favorites', 'success');
+  } else {
+    state.favorites.splice(i, 1);
+    toast('Removed from Favorites', 'info');
+  }
+  savePreferences();
+  renderFileList();
+}
+
+function buildFileItem(file, depth = 0, inFavorites = false) {
   const pinned = isPinned(file.path);
+  const fav = isFavorite(file.path);
   const isHtmlDocument = /\.html?$/i.test(file.path);
   const item = document.createElement('div');
-  item.className = 'file-item' + (file.path === state.currentFile ? ' active' : '') + (pinned ? ' has-pin' : '') + (isHtmlDocument ? ' file-item-html' : '');
+  item.className = 'file-item'
+    + (file.path === state.currentFile ? ' active' : '')
+    + (pinned ? ' has-pin' : '')
+    + (fav ? ' has-fav' : '')
+    + (inFavorites ? ' in-favorites' : '')
+    + (isHtmlDocument ? ' file-item-html' : '');
   item.dataset.name = file.path;
   item.title = fullItemPath(file.path);
   item.style.paddingLeft = (10 + depth * 14) + 'px';
+
+  // in the Favorites section, show the parent folder so same-named files are distinguishable
+  const parentDir = file.path.includes('/') ? file.path.split('/').slice(0, -1).join('/') : '';
+  const meta = inFavorites && parentDir
+    ? `${escapeHtml(parentDir)} · ${formatRelative(file.modified)}`
+    : formatRelative(file.modified);
 
   item.innerHTML = `
     <span class="file-item-icon">${docIcon}</span>
     <div class="file-item-body">
       <span class="file-item-title-row"><span class="file-item-name">${escapeHtml(file.name.replace(/\.(?:md|html?)$/i, ''))}</span>${isHtmlDocument ? '<span class="file-type-badge">HTML</span>' : ''}</span>
-      <span class="file-item-meta">${formatRelative(file.modified)}</span>
+      <span class="file-item-meta">${meta}</span>
     </div>
     <div class="file-item-actions">
+      <button class="star${fav ? ' is-fav' : ''}" title="${fav ? 'Remove from favorites' : 'Add to favorites'}">${fav ? starFilledSvg : starSvg}</button>
       <button class="pin${pinned ? ' is-pinned' : ''}" title="${pinned ? 'Unpin from tabs' : 'Pin to tabs'}">${pinned ? pinFilledSvg : pinSvg}</button>
       <button class="rename" title="Rename">${renameSvg}</button>
       <button class="danger" title="Delete">${trashSvg}</button>
@@ -868,12 +1008,16 @@ function buildFileItem(file, depth = 0) {
   `;
   if (isHtmlDocument) item.querySelector('.rename').remove();
 
-  item.addEventListener('click', () => selectFile(file.path));
+  item.addEventListener('click', () => selectFile(file.path, { source: inFavorites ? 'favorites' : 'tree' }));
   item.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     state.contextTarget = file.path;
     state.contextIsFolder = false;
     showContextMenu(e.clientX, e.clientY);
+  });
+  item.querySelector('.star').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleFavorite(file.path);
   });
   item.querySelector('.pin').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -895,6 +1039,133 @@ function buildFileItem(file, depth = 0) {
 
   return item;
 }
+
+/* ============ ARCHIVE ============ */
+// Archived notes live in the hidden .inkwell/archive folder. They are addressed
+// internally with that prefix (so the editor can read and save them) while all
+// labels show the original path.
+const ARCHIVE_PREFIX = '.inkwell/archive/';
+
+function isArchivedPath(p) {
+  return typeof p === 'string' && p.startsWith(ARCHIVE_PREFIX);
+}
+
+// human-facing path for a note that may live in the archive
+function displayNotePath(p) {
+  return isArchivedPath(p) ? p.slice(ARCHIVE_PREFIX.length) : p;
+}
+
+// An archived row opens the note without touching the archive; restoring and
+// deleting are explicit buttons.
+function buildArchivedItem(file) {
+  const key = ARCHIVE_PREFIX + file.path;
+  const item = document.createElement('div');
+  item.className = 'file-item archived-item' + (state.currentFile === key ? ' active' : '');
+  item.dataset.archivePath = file.path;
+  item.title = `${file.path} (archived) — restore it to put it back in your notes`;
+
+  const parentDir = file.path.includes('/') ? file.path.split('/').slice(0, -1).join('/') : '';
+  const meta = parentDir
+    ? `${escapeHtml(parentDir)} · ${formatRelative(file.modified)}`
+    : formatRelative(file.modified);
+
+  item.innerHTML = `
+    <span class="file-item-icon">${archiveSvg}</span>
+    <div class="file-item-body">
+      <span class="file-item-title-row"><span class="file-item-name">${escapeHtml(file.name.replace(/\.(?:md|html?)$/i, ''))}</span></span>
+      <span class="file-item-meta">${meta}</span>
+    </div>
+    <div class="file-item-actions">
+      <button class="restore" title="Restore note">${restoreSvg}</button>
+      <button class="danger" title="Delete permanently">${trashSvg}</button>
+    </div>
+  `;
+
+  item.addEventListener('click', () => selectFile(key, { source: 'archive' }));
+  item.querySelector('.restore').addEventListener('click', (e) => {
+    e.stopPropagation();
+    restoreArchivedItem(file);
+  });
+  item.querySelector('.danger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openDeleteArchivedModal(file);
+  });
+
+  return item;
+}
+
+// Move a note (or a whole folder) into the archive and drop every reference
+// that pointed at it.
+async function archiveItem(path, isFolder = false) {
+  if (!path) return;
+  const wasCurrent = state.currentFile === path || (isFolder && state.currentFile && state.currentFile.startsWith(path + '/'));
+  try {
+    const result = await window.inkwell.archiveItem(path);
+    if (!result || !result.success) {
+      toast('Could not archive: ' + ((result && result.error) || 'unknown error'), 'error');
+      return;
+    }
+    const matches = (p) => p === path || (isFolder && p.startsWith(path + '/'));
+    state.pinned = state.pinned.filter((p) => !matches(p));
+    state.favorites = state.favorites.filter((p) => !matches(p));
+    if (matches(state.lastFile)) state.lastFile = null;
+    if (matches(state.newFileFolder)) state.newFileFolder = '';
+    for (const p of [...state.expandedFolders]) if (matches(p)) state.expandedFolders.delete(p);
+    savePreferences();
+    if (wasCurrent) {
+      state.currentFile = null;
+      state.dirty = false;
+    }
+    await refreshFiles();
+    if (wasCurrent) {
+      if (state.files.length) await selectFile(state.files[0].path, { reveal: true, source: 'tree' });
+      else showEmptyEditor();
+    }
+    toast(`Archived ${isFolder ? 'folder ' : ''}${path}`, 'success');
+  } catch (e) {
+    toast('Could not archive item', 'error');
+  }
+}
+
+async function restoreArchivedItem(file) {
+  if (!file || !file.path) return;
+  try {
+    const result = await window.inkwell.restoreArchived(file.path);
+    if (!result || !result.success) {
+      toast('Could not restore: ' + ((result && result.error) || 'unknown error'), 'error');
+      return;
+    }
+    await refreshFiles();
+    expandAncestors(file.path);
+    await selectFile(file.path, { reveal: true, source: 'tree' });
+    toast('Restored ' + file.path, 'success');
+  } catch (e) {
+    toast('Could not restore note', 'error');
+  }
+}
+
+function openDeleteArchivedModal(file) {
+  $('deleteArchivedName').textContent = file.path;
+  modals.deleteArchived.dataset.target = file.path;
+  openModal('deleteArchived');
+}
+
+$('deleteArchivedConfirm').addEventListener('click', async () => {
+  const path = modals.deleteArchived.dataset.target;
+  if (!path) return;
+  try {
+    const result = await window.inkwell.deleteArchived(path);
+    if (!result || !result.success) {
+      toast('Could not delete: ' + ((result && result.error) || 'unknown error'), 'error');
+      return;
+    }
+    closeModal('deleteArchived');
+    await refreshFiles();
+    toast('Deleted archived note', 'success');
+  } catch (e) {
+    toast('Could not delete archived note', 'error');
+  }
+});
 
 /* ============ DRAG & DROP (move notes / folders) ============ */
 // Rows are draggable; only folder rows and the list background (vault root)
@@ -1072,6 +1343,7 @@ function remapMovedPaths(oldPath, newPath) {
   if (under(state.lastFile)) state.lastFile = remap(state.lastFile);
   if (under(state.newFileFolder)) state.newFileFolder = remap(state.newFileFolder);
   state.pinned = state.pinned.map((p) => (under(p) ? remap(p) : p));
+  state.favorites = state.favorites.map((p) => (under(p) ? remap(p) : p));
 
   const remapMap = (obj) => {
     const out = {};
@@ -1114,7 +1386,7 @@ async function moveItem(src, isFolder, newPath, destDir) {
 }
 
 /* ============ SELECT / LOAD FILE ============ */
-async function selectFile(path) {
+async function selectFile(path, options = {}) {
   if (state.currentFile && state.currentFile !== path) rememberEditorPos();
   if (state.dirty && state.currentFile && state.currentFile !== path) {
     await saveFile(true);
@@ -1127,23 +1399,31 @@ async function selectFile(path) {
 
     state.currentFile = path;
     state.lastFile = path;
-    schedulePrefsSave();
+    // remember where this note was opened from: one opened from Favorites
+    // must not pop its folder open in the tree on the next launch
+    if (options.source) state.lastOpenFromFavorites = options.source === 'favorites';
+    // write straight away (not via the debounce): if the app is closed right
+    // after opening a note, the next launch must still restore this document
+    savePreferences();
     state.dirty = false;
     const isHtmlFile = /\.html?$/i.test(path);
     if (isHtmlFile) setViewMode('preview');
     state.direction = state.dirByFile[path] || 'auto';
     syncDirectionButtons();
     els.editor.value = result.content;
-    els.currentFileName.textContent = path.replace(/\.(?:md|html?)$/i, '');
-    els.currentFileName.title = path.replace(/\.(?:md|html?)$/i, '');
+    const shownPath = displayNotePath(path);
+    els.currentFileName.textContent = shownPath.replace(/\.(?:md|html?)$/i, '');
+    els.currentFileName.title = isArchivedPath(path) ? `${shownPath} (archived)` : shownPath;
     els.deleteFileBtn.disabled = false;
     setSaveStatus('');
 
-    expandAncestors(path);
+    // no automatic folder expansion here: opening a note from Favorites or a
+    // pinned tab must not pop its folder open in the tree. Callers that want
+    // the containing folder revealed (startup restore) pass { reveal: true }.
+    if (options.reveal) expandAncestors(path);
     renderFileList();
     highlightActive();
     renderTabs();
-    updateWordCount();
     applyDirection();
     renderPreview();
     renderEditorHighlight();
@@ -1162,7 +1442,7 @@ async function selectFile(path) {
     }
     if (els.commentsPanel && !els.commentsPanel.classList.contains('hidden')) renderComments();
     restoreFilePos(path);
-    setStatus(`Opened ${path}`);
+    setStatus(`Opened ${displayNotePath(path)}`);
   } catch (e) {
     toast('Could not open file', 'error');
   }
@@ -1170,7 +1450,9 @@ async function selectFile(path) {
 
 function highlightActive() {
   els.fileList.querySelectorAll('.file-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.name === state.currentFile);
+    // archived rows carry the archive path in a data attribute of their own
+    const key = el.dataset.archivePath ? ARCHIVE_PREFIX + el.dataset.archivePath : el.dataset.name;
+    el.classList.toggle('active', key === state.currentFile);
   });
 }
 
@@ -1194,7 +1476,6 @@ function showEmptyEditor() {
   els.deleteFileBtn.disabled = true;
   els.previewContent.innerHTML = welcomeHtml();
   setSaveStatus('');
-  updateWordCount();
   applyDirection();
   renderEditorHighlight();
   schedulePaginate(0);
@@ -1211,7 +1492,7 @@ function welcomeHtml() {
     <p>A clean Markdown editor with live preview, AI assistance, and Telegram sharing.</p>
     <h3>Get started</h3>
     <ul>
-      <li>Click <strong>New</strong> in the sidebar to create your first file</li>
+      <li>Click <strong>New note</strong> in the sidebar to write your first note</li>
       <li>Toggle between <strong>Edit</strong>, <strong>Preview</strong>, and <strong>Split</strong> views</li>
       <li>Your work auto-saves as you type</li>
       <li>Open <strong>Settings</strong> to configure the AI assistant and Telegram</li>
@@ -1221,7 +1502,7 @@ function welcomeHtml() {
       <thead><tr><th>Action</th><th>Shortcut</th></tr></thead>
       <tbody>
         <tr><td>Save</td><td><code>Ctrl</code> + <code>S</code></td></tr>
-        <tr><td>New file</td><td><code>Ctrl</code> + <code>N</code></td></tr>
+        <tr><td>New note</td><td><code>Ctrl</code> + <code>N</code></td></tr>
         <tr><td>Preview</td><td><code>Ctrl</code> + <code>P</code></td></tr>
         <tr><td>Split view</td><td><code>Ctrl</code> + <code>\\</code></td></tr>
         <tr><td>Toggle sidebar</td><td><code>Ctrl</code> + <code>B</code></td></tr>
@@ -1311,13 +1592,6 @@ function setSaveStatus(status) {
     clearTimeout(setSaveStatus._t);
     setSaveStatus._t = setTimeout(() => { els.saveStatus.textContent = ''; els.saveStatus.className = 'save-status'; }, 1600);
   }
-}
-
-function updateWordCount() {
-  const text = els.editor.value.trim();
-  const words = text ? text.split(/\s+/).length : 0;
-  const chars = els.editor.value.length;
-  els.wordCount.textContent = `${words} ${words === 1 ? 'word' : 'words'} · ${chars} ${chars === 1 ? 'char' : 'chars'}`;
 }
 
 /* ============ PAGINATED PREVIEW (PAGE DIVIDERS) ============ */
@@ -1909,7 +2183,32 @@ async function sendDocToTelegram() {
   }
 }
 
+async function printDoc() {
+  if (!state.currentFile) { toast('Open a file first', 'info'); return; }
+  if (state.printBusy) return;
+  if (state.dirty) await saveFile(true);
+
+  state.printBusy = true;
+  const btn = els.printBtn;
+  if (btn) btn.classList.add('busy');
+  try {
+    const payload = await buildPrintPayload();
+    toast('Preparing print\u2026', 'info', 2000);
+    const res = await window.inkwell.printDoc(payload);
+    if (res && !res.success) {
+      toast('Print failed: ' + (res.error || 'unknown error'), 'error', 5000);
+    }
+  } catch (e) {
+    toast('Print failed', 'error');
+  } finally {
+    state.printBusy = false;
+    if (btn) btn.classList.remove('busy');
+    if (findState.open && findState.query) applyFindMarks();
+  }
+}
+
 els.exportBtn.addEventListener('click', exportHTML);
+if (els.printBtn) els.printBtn.addEventListener('click', printDoc);
 if (els.telegramBtn) els.telegramBtn.addEventListener('click', sendDocToTelegram);
 
 /* ============ VIEW MODE ============ */
@@ -2374,7 +2673,6 @@ function insertBlock(before, after, content) {
 
 function onEditorChanged() {
   state.dirty = true;
-  updateWordCount();
   applyDirection();
   renderEditorHighlight();
   renderPreview();
@@ -2502,11 +2800,16 @@ Object.values(modals).forEach(overlay => {
 });
 
 /* ============ NAME HELPERS ============ */
+// Keep what the user typed: only characters no filesystem accepts are dropped.
+// Spaces are meaningful in a note title, so they are preserved (never turned
+// into dashes) — runs of whitespace just collapse to a single space.
 function sanitizeName(s) {
-  return String(s).replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '-').trim();
-}
-function sanitizePath(p) {
-  return String(p).split('/').map(sanitizeName).filter(Boolean).join('/');
+  return String(s)
+    .replace(/\s+/g, ' ')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .replace(/^\.+/, '')
+    .replace(/[. ]+$/, '')
+    .trim();
 }
 function joinPath(dir, name) {
   return dir ? dir + '/' + name : name;
@@ -2555,7 +2858,7 @@ async function createNewFile() {
     closeModal('newFile');
     if (folder) state.expandedFolders.add(folder);
     await refreshFiles();
-    await selectFile(fullPath);
+    await selectFile(fullPath, { source: 'tree' });
     toast('Created ' + fullPath, 'success');
   } catch (e) {
     toast('Could not create file', 'error');
@@ -2608,7 +2911,7 @@ async function createNewFolder() {
 
 /* ============ DELETE FILE ============ */
 function openDeleteModal(path) {
-  $('deleteFileName').textContent = path;
+  $('deleteFileName').textContent = displayNotePath(path);
   modals.deleteFile.dataset.target = path;
   openModal('deleteFile');
 }
@@ -2627,6 +2930,8 @@ $('deleteFileConfirm').addEventListener('click', async () => {
     toast('Deleted ' + path, 'success');
     const pinIdx = state.pinned.indexOf(path);
     if (pinIdx !== -1) { state.pinned.splice(pinIdx, 1); savePreferences(); }
+    const favIdx = state.favorites.indexOf(path);
+    if (favIdx !== -1) { state.favorites.splice(favIdx, 1); savePreferences(); }
     if (state.dirByFile[path] !== undefined) { delete state.dirByFile[path]; savePreferences(); }
     if (state.commentsByFile[path] !== undefined) { delete state.commentsByFile[path]; savePreferences(); }
     if (state.currentFile === path) {
@@ -2662,6 +2967,8 @@ $('deleteFolderConfirm').addEventListener('click', async () => {
     const before = state.pinned.length;
     state.pinned = state.pinned.filter((p) => p !== path && !p.startsWith(path + '/'));
     if (state.pinned.length !== before) savePreferences();
+    state.favorites = state.favorites.filter((p) => p !== path && !p.startsWith(path + '/'));
+    savePreferences();
     let dirChanged = false;
     for (const k of Object.keys(state.dirByFile)) {
       if (k === path || k.startsWith(path + '/')) { delete state.dirByFile[k]; dirChanged = true; }
@@ -2695,7 +3002,11 @@ $('deleteFolderConfirm').addEventListener('click', async () => {
 
 /* ============ RENAME FILE ============ */
 function openRenameModal(path) {
-  $('renameInput').value = path.replace(/\.md$/i, '');
+  // Only the base name is editable: a rename keeps the note in its folder.
+  const name = path.split('/').pop().replace(/\.md$/i, '');
+  const loc = $('renameLocation');
+  if (loc) loc.textContent = path.split('/').slice(0, -1).join('/') || 'Library';
+  $('renameInput').value = name;
   modals.rename.dataset.target = path;
   openModal('rename');
   setTimeout(() => { const i = $('renameInput'); i.focus(); i.select(); }, 50);
@@ -2709,15 +3020,17 @@ $('renameConfirm').addEventListener('click', doRename);
 
 async function doRename() {
   const oldPath = modals.rename.dataset.target;
-  const raw = $('renameInput').value.trim();
-  if (!oldPath || !raw) { toast('Please enter a name', 'error'); return; }
+  if (!oldPath) { closeModal('rename'); return; }
 
-  let newPath = sanitizePath(raw.replace(/\.md$/i, ''));
-  if (!newPath) { toast('Please enter a valid name', 'error'); return; }
-  newPath += '.md';
+  const dir = oldPath.split('/').slice(0, -1).join('/');
+  const base = sanitizeName($('renameInput').value.trim().replace(/\.md$/i, ''));
+  if (!base) { toast('Please enter a valid name', 'error'); return; }
+
+  // The folder part is fixed, so renaming can never create a folder on disk.
+  const newPath = joinPath(dir, base) + '.md';
 
   if (newPath === oldPath) { closeModal('rename'); return; }
-  if (state.files.some(f => f.path.toLowerCase() === newPath.toLowerCase())) {
+  if (state.files.some(f => f.path !== oldPath && f.path.toLowerCase() === newPath.toLowerCase())) {
     toast('A file with that name already exists', 'error');
     return;
   }
@@ -2730,6 +3043,12 @@ async function doRename() {
     toast(`Renamed to ${newPath}`, 'success');
     const pinIdx = state.pinned.indexOf(oldPath);
     if (pinIdx !== -1) { state.pinned[pinIdx] = newPath; savePreferences(); }
+    const favIdx = state.favorites.indexOf(oldPath);
+    if (favIdx !== -1) { state.favorites[favIdx] = newPath; savePreferences(); }
+    if (state.lastFile === oldPath) { state.lastFile = newPath; savePreferences(); }
+    for (const map of [state.scrollByFile, state.cursorByFile]) {
+      if (map[oldPath] !== undefined) { map[newPath] = map[oldPath]; delete map[oldPath]; }
+    }
     if (state.dirByFile[oldPath] !== undefined) {
       state.dirByFile[newPath] = state.dirByFile[oldPath];
       delete state.dirByFile[oldPath];
@@ -2769,7 +3088,7 @@ async function doRenameFolder() {
   const parent = oldPath.split('/').slice(0, -1).join('/');
   const newPath = joinPath(parent, name);
   if (newPath === oldPath) { closeModal('renameFolder'); return; }
-  if (state.folders.some(f => f.path.toLowerCase() === newPath.toLowerCase())) {
+  if (state.folders.some(f => f.path !== oldPath && f.path.toLowerCase() === newPath.toLowerCase())) {
     toast('A folder with that name already exists', 'error');
     return;
   }
@@ -2784,6 +3103,8 @@ async function doRenameFolder() {
       state.currentFile = newPath + state.currentFile.slice(oldPath.length);
     }
     state.pinned = state.pinned.map((p) =>
+      (p === oldPath || p.startsWith(oldPath + '/')) ? newPath + p.slice(oldPath.length) : p);
+    state.favorites = state.favorites.map((p) =>
       (p === oldPath || p.startsWith(oldPath + '/')) ? newPath + p.slice(oldPath.length) : p);
     const newDirByFile = {};
     for (const k of Object.keys(state.dirByFile)) {
@@ -3900,12 +4221,52 @@ const AI_EDIT_DELETE_TOKEN = '__INKWELL_DELETE_SELECTED_TEXT__';
 let answerDocReopenPanel = false;
 let aiOpenAnswerWhenDone = false;
 
+/* ---- code selection detection ---- */
+// The "Explain code" action only makes sense for code, so the selection is
+// checked three ways: the selection itself looks like code, it sits inside a
+// ``` fence, or it sits between two backticks on its line.
+const CODE_HINT_WORDS = /(const|let|var|function|class|def|import|export|return|await|async|interface|struct|public|private|static|void|int|float|double|string|bool|new|this|self|try|catch|throw|switch|case|elif|lambda|SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|npm|yarn|sudo|git|docker)/;
+
+function looksLikeCodeText(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (t.includes('```')) return true;
+  if (/^`[^`\n]+`$/.test(t)) return true;
+  const lines = t.split('\n');
+  if (lines.length === 1) {
+    if (/[;{}]\s*$/.test(t)) return true;
+    const strong = /(;|\{|\}|=>|\(\)|\[\]|::|!==?|===?|&&|\|\||<\/?[a-z][\w-]*>|\w+\([^)]*\))/.test(t);
+    return strong && CODE_HINT_WORDS.test(t);
+  }
+  const codey = lines.filter((l) => /[{}();]|=>|<\/?[a-z][\w-]*>|^\s{2,}\S|^\s*(\/\/|#\s*\w|<!|\*)/.test(l)).length;
+  return codey >= Math.max(2, Math.ceil(lines.length * 0.4));
+}
+
+function selectionLooksLikeCode(ctx) {
+  if (!ctx) return false;
+  if (looksLikeCodeText(ctx.text)) return true;
+  if (!els.editor || typeof ctx.start !== 'number') return false;
+  const docText = els.editor.value || '';
+  const before = docText.slice(0, ctx.start);
+  const fences = (before.match(/^```/gm) || []).length;
+  if (fences % 2 === 1) return true;
+  const lineStart = before.lastIndexOf('\n') + 1;
+  const lineEnd = docText.indexOf('\n', ctx.start);
+  const line = docText.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+  const ticksBefore = (line.slice(0, ctx.start - lineStart).match(/`/g) || []).length;
+  return ticksBefore % 2 === 1;
+}
+
 function showAIFloat(x, y, ctx) {
   const textChanged = ctx.text !== aiContext.text;
   aiContext = { text: ctx.text, start: ctx.start == null ? null : ctx.start, end: ctx.end == null ? null : ctx.end };
   if (els.aiContextLabel) els.aiContextLabel.textContent = 'Selected text';
   if (textChanged && !aiBusy) resetAIAnswer(true);
   hideCommentComposer();
+  // code selections get "Explain code"; plain text keeps the prose "Explain"
+  const codeSelected = selectionLooksLikeCode(ctx);
+  if (els.askCodeFloatBtn) els.askCodeFloatBtn.classList.toggle('hidden', !codeSelected);
+  if (els.aiExplainFloatBtn) els.aiExplainFloatBtn.classList.toggle('hidden', codeSelected);
   const btn = els.selFloat;
   btn.classList.remove('hidden');
   btn.style.visibility = 'hidden';
@@ -4252,6 +4613,13 @@ const AI_DOC_PROMPTS = {
   explain: 'Explain the whole document in simple, plain language that a beginner can easily understand.',
   translate: 'Translate the whole document while preserving the Markdown structure, headings, lists, code blocks and links. Output only the translated Markdown.',
   notes: 'Extract the important notes and key takeaways from the whole document and write them as a Markdown bullet list.',
+  quiz: [
+    'Create a quiz from the whole document to check whether the reader understood it.',
+    'Write it in Markdown: a short title, then 8 numbered questions that mix multiple choice (four options A to D) with a few short-answer questions.',
+    'Every question must be answerable from the document alone, and the questions should cover the main topics of the document rather than trivia.',
+    'Put the correct answers, each with a one-line explanation, in a final "## Answers" section at the end \u2014 never next to the questions.',
+    'Reply with the quiz only \u2014 no preamble.',
+  ].join(' '),
 };
 
 function getAIResponseLanguage() {
@@ -4348,6 +4716,22 @@ function setupDocAiBar() {
 }
 
 /* ---- Explain code ---- */
+// Prompt used by "Explain code" in the selection bar: it is sent straight to
+// the AI, so it has to stand on its own (the response language setting is
+// appended by askAI()).
+function buildCodeSelectionPrompt(code) {
+  return [
+    'Explain the selected code clearly and simply, as if teaching someone who is new to it.',
+    'Start with one or two short sentences on what the code does as a whole, then walk through the important parts step by step.',
+    'Describe what each part is for in plain language, and keep all code, identifiers, keywords and names exactly as written.',
+    'Reply with Markdown only \u2014 no preamble.',
+    '',
+    '--- CODE ---',
+    code,
+    '--- END CODE ---',
+  ].join('\n');
+}
+
 function buildCodeExplainPrompt(code, lang) {
   const lines = [];
   lines.push('You are a programming teacher.');
@@ -5182,6 +5566,7 @@ const AI_KIND_LABEL = {
   explain: 'Explanation',
   translate: 'Translation',
   notes: 'Important notes',
+  quiz: 'Quiz',
   answer: 'Answer',
   code: 'Code explanation',
 };
@@ -5260,7 +5645,7 @@ async function createAnswerFile() {
     if (folder) state.expandedFolders.add(folder);
     await refreshFiles();
     toast('Saved to ' + fullPath, 'success');
-    await selectFile(fullPath);
+    await selectFile(fullPath, { source: 'tree' });
     answerDocReopenPanel = false;
     closeAnswerDoc();
   } catch (e) {
@@ -5284,7 +5669,17 @@ function setupAI() {
 
   if (els.aiToolbarBtn) els.aiToolbarBtn.addEventListener('click', () => openAIPanel('selection'));
   if (els.aiHeaderSelectionBtn) els.aiHeaderSelectionBtn.addEventListener('click', () => openAIPanel('general'));
-  if (els.askCodeHeaderBtn) els.askCodeHeaderBtn.addEventListener('click', () => { setAIToolsMenu(false); openAIPanel('code'); });
+  if (els.askCodeFloatBtn) {
+    els.askCodeFloatBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    els.askCodeFloatBtn.addEventListener('click', () => {
+      const context = aiContext && aiContext.text && aiContext.text.trim() ? { ...aiContext } : null;
+      if (!context) { toast('Select some code first', 'info'); return; }
+      openAIPanel('code', context);
+      aiAnswerKind = 'code';
+      els.aiQuestion.value = 'Explain this code clearly and simply.';
+      askAI(buildCodeSelectionPrompt(context.text));
+    });
+  }
   els.aiFloatBtn.addEventListener('mousedown', (e) => e.preventDefault());
   els.aiFloatBtn.addEventListener('click', () => openAIPanel('selection'));
   [els.aiExplainFloatBtn, els.aiChangeFloatBtn].forEach((button) => {
@@ -5411,6 +5806,13 @@ function showContextMenu(x, y) {
     $('ctxPinLabel').textContent = isPinned(state.contextTarget) ? 'Unpin from tabs' : 'Pin to tabs';
   }
 
+  $('ctxFav').classList.toggle('hidden', isFolder);
+  if (!isFolder) {
+    $('ctxFavLabel').textContent = isFavorite(state.contextTarget) ? 'Remove from favorites' : 'Add to favorites';
+  }
+
+  $('ctxArchiveLabel').textContent = isFolder ? 'Archive folder' : 'Archive note';
+
   menu.classList.remove('hidden');
   const rect = menu.getBoundingClientRect();
   const px = Math.min(x, window.innerWidth - rect.width - 8);
@@ -5434,6 +5836,18 @@ $('ctxNewFolderHere').addEventListener('click', () => {
 $('ctxPin').addEventListener('click', () => {
   if (state.contextTarget && !state.contextIsFolder) togglePin(state.contextTarget);
   hideContextMenu();
+});
+
+$('ctxFav').addEventListener('click', () => {
+  if (state.contextTarget && !state.contextIsFolder) toggleFavorite(state.contextTarget);
+  hideContextMenu();
+});
+
+$('ctxArchive').addEventListener('click', () => {
+  const target = state.contextTarget;
+  const isFolder = state.contextIsFolder;
+  hideContextMenu();
+  if (target) archiveItem(target, isFolder);
 });
 
 $('ctxRename').addEventListener('click', () => {
@@ -5485,6 +5899,7 @@ document.addEventListener('keydown', (e) => {
 
   if (key === 'f') { e.preventDefault(); openFind(); return; }
   if (e.shiftKey && key === 'e') { e.preventDefault(); exportHTML(); return; }
+  if (e.shiftKey && key === 'p') { e.preventDefault(); printDoc(); return; }
   if (e.shiftKey && key === 'k') { e.preventDefault(); openExplainCodeDialog(); return; }
 
   // zoom works everywhere
@@ -5522,8 +5937,12 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-/* prevent data loss on close */
+/* prevent data loss on close: flush the pending position/preferences (last
+   opened note, scroll offset, cursor) while the page is still alive */
 window.addEventListener('beforeunload', () => {
+  try { rememberEditorPos(); } catch (_) {}
+  clearTimeout(prefsSaveTimer);
+  try { savePreferences(); } catch (_) {}
   if (state.dirty && state.currentFile) {
     window.inkwell.writeFile(state.currentFile, els.editor.value);
   }

@@ -59,6 +59,7 @@
     --accent-glow: rgba(56, 189, 248, 0.15);
     --danger: #f87171;
     --success: #4ade80;
+    --star: #fbbf24;
     --radius: 10px;
     --radius-sm: 7px;
     --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
@@ -94,6 +95,7 @@
     --accent-glow: rgba(3, 105, 161, 0.16);
     --danger: #d1242f;
     --success: #15803d;
+    --star: #b45309;
     --shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.2);
     --md-text: #29343f;
     --md-heading: #0b1220;
@@ -110,6 +112,47 @@
 }
 
 /* ============ COLOR PALETTES ============ */
+[data-palette="vscode-dark"] {
+    /* VS Code "Dark Modern" defaults: #1f1f1f editor, #181818 chrome,
+       #0078d4 focus/buttons, #4daafc links, #04395e active list row */
+    --bg: #1f1f1f;
+    --bg-elevated: #181818;
+    --bg-panel: #252526;
+    --bg-hover: #2a2d2e;
+    --bg-active: #04395e;
+    --sidebar-bg: #181818;
+    --border: #2b2b2b;
+    --border-strong: #3c3c3c;
+    --text: #cccccc;
+    --text-secondary: #9d9d9d;
+    --text-muted: #7a7a7a;
+    --accent: #0078d4;
+    --accent-2: #4daafc;
+    --accent-glow: color-mix(in srgb, #0078d4 22%, transparent);
+    --danger: #f85149;
+    --success: #81b88b;
+    --md-text: #d4d4d4;
+    --md-heading: #e7e7e7;
+    --md-pre-bg: #181818;
+    --md-code-bg: color-mix(in srgb, #0078d4 16%, transparent);
+    --md-code-color: #4daafc;
+    --md-quote-bg: color-mix(in srgb, #0078d4 10%, transparent);
+    --md-quote-color: #9d9d9d;
+    --md-katex: #d4d4d4;
+    --md-img-bg: #181818;
+    --code-head-bg: #1f1f1f;
+}
+
+/* VS Code paints the selected row with a solid blue, so its label and icons
+   switch to white instead of the usual accent colour */
+[data-palette="vscode-dark"] .file-item.active .file-item-name,
+[data-palette="vscode-dark"] .file-item.active .file-item-icon,
+[data-palette="vscode-dark"] .folder-item.active .folder-item-name,
+[data-palette="vscode-dark"] .folder-item.active .folder-item-icon { color: #ffffff; }
+[data-palette="vscode-dark"] .file-item.active .file-item-meta { color: #c9d1d9; }
+[data-palette="vscode-dark"] .file-item.active .file-item-actions button { color: #c9d1d9; }
+[data-palette="vscode-dark"] .file-item.active .file-item-actions button:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+
 [data-palette="nord"] {
     --bg: #2e3440;
     --bg-elevated: #343b49;
@@ -361,12 +404,11 @@ button { font-family: inherit; }
 .sidebar-resizer.dragging { background: var(--accent-glow); }
 
 .sidebar-top {
-    padding: 16px 14px 12px;
+    padding: 14px 14px 10px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
 }
 
 .sidebar-brand {
@@ -397,28 +439,47 @@ button { font-family: inherit; }
 .btn-new {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    padding: 7px 12px;
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
     font-size: 12.5px;
     font-weight: 600;
     color: #04121c;
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    border: none;
+    /* same border width as the ghost button keeps both buttons exactly equal */
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: transform 0.15s, box-shadow 0.2s;
+    transition: transform 0.15s, box-shadow 0.2s, filter 0.12s;
     box-shadow: 0 2px 12px -2px rgba(56, 189, 248, 0.5);
 }
 
 .btn-new:hover {
     transform: translateY(-1px);
+    filter: brightness(1.04);
     box-shadow: 0 4px 16px -2px rgba(56, 189, 248, 0.6);
 }
+
+.btn-new:active { transform: translateY(0) scale(0.99); }
+
+.btn-new svg { flex: 0 0 auto; }
 
 .sidebar-actions {
     display: flex;
     align-items: center;
     gap: 6px;
+    width: 100%;
+}
+
+/* both actions share the row evenly and stay the same size */
+.btn-new-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .btn-new-ghost {
@@ -432,7 +493,11 @@ button { font-family: inherit; }
     background: var(--bg-hover);
     border-color: var(--border-strong);
     box-shadow: none;
+    filter: none;
 }
+
+.btn-new-icon:focus-visible,
+.btn-new:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .sidebar-search {
     position: relative;
@@ -480,9 +545,13 @@ button { font-family: inherit; }
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 10px 7px;
+    gap: 6px;
+    /* one compact, identical row for every section (Favorites, Notes) */
+    min-height: 28px;
+    padding: 0 10px;
     font-size: 10.5px;
     font-weight: 700;
+    line-height: 1;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-muted);
@@ -499,6 +568,81 @@ button { font-family: inherit; }
     border-radius: 20px;
     padding: 1px 8px;
 }
+
+/* section headers carry a small icon before the label */
+.list-header-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    line-height: 1;
+}
+
+.list-header-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    height: 12px;
+    /* nudged up 1px: uppercase glyphs sit optically above the line-box centre */
+    margin-top: -1px;
+}
+
+.list-header-icon svg { width: 12px; height: 12px; display: block; }
+
+/* ============ FAVORITES (sidebar section) ============ */
+.list-header-fav { color: var(--star); }
+
+.list-header-fav .list-count {
+    color: var(--star);
+    background: color-mix(in srgb, var(--star) 12%, transparent);
+    border-color: color-mix(in srgb, var(--star) 32%, transparent);
+}
+
+/* collapsible section header: the section starts collapsed, one click opens it */
+.list-header-toggle {
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: left;
+    cursor: pointer;
+    line-height: 1;
+    transition: background 0.12s, color 0.12s;
+}
+
+.list-header-toggle.list-header-fav { color: var(--star); }
+.list-header-toggle:hover { background: var(--bg-hover); }
+.list-header-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.list-header-toggle .chevron {
+    flex: 0 0 auto;
+    margin-top: -1px;
+    color: var(--text-muted);
+    transition: transform 0.15s;
+}
+.list-header-toggle .chevron.open { transform: rotate(90deg); }
+.list-header-toggle .list-count { margin-left: auto; }
+
+/* ============ ARCHIVE (sidebar section) ============ */
+.list-header-toggle.list-header-archive { color: var(--text-secondary); }
+
+.archived-item .file-item-icon { color: var(--text-muted); }
+.archived-item .file-item-name { color: var(--text-secondary); font-style: italic; }
+.archived-item:hover .file-item-name { color: var(--text); }
+.archived-item .file-item-actions { display: none; }
+.archived-item:hover .file-item-actions,
+.archived-item:focus-within .file-item-actions { display: flex; }
+
+.file-item-actions button.restore:hover { background: var(--accent-glow); color: var(--accent); }
 
 .folder-count {
     margin-left: auto;
@@ -633,6 +777,22 @@ button { font-family: inherit; }
 .file-item-actions button.pin.is-pinned { color: var(--accent); }
 .file-item-actions button.pin.is-pinned:hover { background: var(--accent-glow); color: var(--accent); }
 
+/* favorites: keep the actions visible and highlight the star */
+.file-item.has-fav .file-item-actions { display: flex; }
+.file-item-actions button.star.is-fav { color: var(--star); }
+.file-item-actions button.star.is-fav:hover {
+    color: var(--star);
+    background: color-mix(in srgb, var(--star) 16%, transparent);
+}
+
+/* the duplicate row inside the Favorites section reads as a shortcut */
+.file-item.in-favorites {
+    background: color-mix(in srgb, var(--star) 5%, transparent);
+}
+.file-item.in-favorites.active { background: var(--bg-active); }
+.file-item.in-favorites:hover { background: var(--bg-hover); }
+.file-item.in-favorites .file-item-icon { color: var(--star); }
+
 .file-list-empty {
     padding: 32px 16px;
     text-align: center;
@@ -757,13 +917,16 @@ button { font-family: inherit; }
 }
 
 .topbar {
-    height: 50px;
+    min-height: 50px;
     flex-shrink: 0;
     display: flex;
+    /* the three groups wrap onto a second line instead of overflowing when
+       the window is narrow, so no control is ever clipped or pushed offscreen */
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 0 138px 0 14px;
+    gap: 6px 12px;
+    padding: 3px 138px 3px 14px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-elevated);
     /* the bar itself is NOT draggable: its box would extend underneath the
@@ -775,12 +938,14 @@ button { font-family: inherit; }
 /* draggable regions live inside the content box (never under the controls) */
 .topbar-left, .topbar-center, .topbar-right { -webkit-app-region: drag; }
 
-.topbar button, .topbar .ai-tools-menu, .topbar .view-toggle, .topbar .breadcrumb, .topbar .word-count, .topbar .save-status { -webkit-app-region: no-drag; }
+.topbar button, .topbar .ai-tools-menu, .topbar .view-toggle, .topbar .breadcrumb, .topbar .save-status { -webkit-app-region: no-drag; }
 
 .topbar-left {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
+    row-gap: 6px;
     flex: 1 1 auto;
     min-width: 0;
     overflow: visible;
@@ -788,10 +953,15 @@ button { font-family: inherit; }
 
 .topbar-right {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: 10px;
+    row-gap: 6px;
     flex: 0 0 auto;
+    min-width: 0;
+    /* when the actions wrap onto their own line they stay pinned right */
+    margin-inline-start: auto;
 }
 
 .topbar-center {
@@ -987,10 +1157,11 @@ button { font-family: inherit; }
     gap: 6px;
     font-size: 13px;
     color: var(--text-muted);
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    min-width: 0;
 }
 
-.breadcrumb-vault { color: var(--text-muted); }
+.breadcrumb-vault { color: var(--text-muted); flex: 0 0 auto; }
 
 .breadcrumb-file {
     color: var(--text);
@@ -998,8 +1169,9 @@ button { font-family: inherit; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 0 0 auto;
-    width: 180px;
+    flex: 0 1 180px;
+    min-width: 60px;
+    max-width: 220px;
 }
 
 .view-toggle {
@@ -1040,12 +1212,6 @@ button { font-family: inherit; }
 .view-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .view-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .view-btn svg { width: 16px; height: 16px; flex: 0 0 auto; }
-
-.word-count {
-    font-size: 12px;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-}
 
 .zoom-controls {
     display: flex;
@@ -2603,35 +2769,85 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 
 .doc-act:active { transform: scale(0.97); }
 
-.ai-header-ask {
+/* Comments and the AI tools trigger are plain icon buttons, so they read as
+   quiet utilities next to the accented Ask AI action */
+.doc-cmt {
     position: relative;
     flex: 0 0 auto;
-    height: 31px;
-    margin-left: 2px;
-    padding: 0 12px;
-    gap: 7px;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated));
-    border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
-    border-radius: 9px;
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    width: 32px;
+    height: 32px;
+    margin-left: 0;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    box-shadow: none;
 }
-.doc-act.ai-header-ask svg { color: currentColor; }
+
+.doc-cmt > span:not(.tb-badge) { display: none; }
+
+.doc-cmt svg,
+.ai-tools-menu-trigger svg { width: 16px; height: 16px; color: currentColor; }
+
+.doc-cmt:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+    border-color: transparent;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Ask AI is the primary header action: accent pill with a visible label.
+   The label is kept at every width (the media query below only drops it on
+   the narrowest screens, where the topbar would otherwise wrap). */
+.ai-header-ask {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    gap: 7px;
+    width: auto;
+    height: 32px;
+    margin-left: 0;
+    padding: 0 12px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 1px 4px -1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.doc-act.ai-header-ask span { display: inline; }
+.doc-act.ai-header-ask svg {
+    width: 15px;
+    height: 15px;
+    color: currentColor;
+    /* the label's ink (cap height, no descenders) sits above the line-box
+       centre, so the icon is shifted up by the same amount to keep both
+       optically level */
+    margin-top: -3px;
+}
+
 .doc-act.ai-header-ask:hover {
     color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated));
-    border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    background: color-mix(in srgb, var(--accent) 20%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
     transform: none;
+    box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
+.doc-act.ai-header-ask:active { transform: scale(0.98); }
 .ai-header-ask:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.doc-cmt { position: relative; }
-.doc-cmt .tb-badge { top: -6px; right: -6px; }
-.doc-cmt:hover { background: rgba(21, 128, 61, 0.14); color: var(--success, #15803d); border-color: var(--success, #15803d); }
-.doc-cmt:hover svg { color: var(--success, #15803d); }
+.doc-cmt .tb-badge { top: -5px; right: -5px; }
 .doc-cmt.has-comments { color: var(--success, #15803d); }
 .doc-cmt.has-comments svg { color: var(--success, #15803d); }
+.doc-cmt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ============ AI ANSWER AS PAGE ============ */
 .answer-doc-view {
@@ -2761,15 +2977,16 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .sel-float {
     position: fixed;
     z-index: 1300;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    flex-wrap: wrap;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 5px;
+    min-width: 152px;
     max-width: calc(100vw - 16px);
     background: var(--bg-elevated);
     border: 1px solid var(--border-strong);
-    border-radius: 999px;
+    border-radius: 12px;
     box-shadow: 0 10px 28px -8px rgba(0, 0, 0, 0.65);
     animation: aiFloatIn 0.12s ease-out;
 }
@@ -2777,22 +2994,25 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .sel-btn {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 5px 11px;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
     font-size: 12px;
     font-weight: 600;
     font-family: inherit;
     color: var(--text);
     background: transparent;
     border: none;
-    border-radius: 999px;
+    border-radius: 8px;
     cursor: pointer;
     white-space: nowrap;
+    text-align: left;
     transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 
 .sel-btn:hover { background: var(--bg-hover); }
-.sel-btn:active { transform: scale(0.96); }
+.sel-btn:active { transform: scale(0.98); }
 .sel-btn svg { flex: 0 0 auto; }
 
 .sel-btn-ai { color: var(--accent); }
@@ -2803,6 +3023,8 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .sel-btn-explain:hover { color: var(--accent); background: var(--accent-glow); }
 .sel-btn-edit { color: var(--text-secondary); }
 .sel-btn-edit:hover { color: var(--accent); background: var(--accent-glow); }
+.sel-btn-code { color: var(--text-secondary); }
+.sel-btn-code:hover { color: var(--accent); background: var(--accent-glow); }
 .sel-btn-cmt { color: var(--success, #15803d); }
 .sel-btn-cmt:hover { background: rgba(21, 128, 61, 0.14); }
 
@@ -3761,27 +3983,36 @@ mark.cmt-mark.cmt-flash {
 
 /* ============ TOPBAR RESPONSIVE ============ */
 /* Placed last so these win by source order over the base rules above.
-   The topbar shares its row with the sidebar, so below a full-HD width the
-   buttons drop their text labels and the file name narrows to keep the
-   right-hand controls visible. */
+   The topbar shares its row with the sidebar, so it sheds button labels first
+   (icons keep their tooltips), tightens gaps next and only then lets groups
+   wrap onto a second row. Nothing is ever hidden behind the window. */
 @media (max-width: 1950px) {
     .view-btn .vb-label { display: none; }
     .view-btn { min-width: 38px; padding: 0 10px; }
     .doc-act span { display: none; }
     .doc-act { padding: 0 8px; }
     .doc-act.ai-header-ask { padding: 0 11px; }
-    .ai-header-ask span { display: inline; }
 }
 
-
 @media (max-width: 1500px) {
-    .word-count { display: none; }
-    .breadcrumb-file { width: 130px; }
+    .breadcrumb-file { flex-basis: 130px; }
+    .topbar { gap: 6px 8px; }
+    .topbar-left, .topbar-right { gap: 6px; row-gap: 6px; }
 }
 
 @media (max-width: 1320px) {
     .zoom-controls { display: none; }
-    .breadcrumb-file { width: 110px; }
+    .breadcrumb-file { flex-basis: 110px; }
+    .save-status { min-width: 0; }
+    .topbar { padding-right: 134px; }
+}
+
+@media (max-width: 1120px) {
+    /* drop the "Library" crumb: the file name is what matters */
+    .breadcrumb-vault, .breadcrumb > svg { display: none; }
+    .breadcrumb-file { flex-basis: 96px; min-width: 48px; }
+    /* Save becomes an icon button so the row still fits on one line */
+    .btn-save { padding: 8px 9px; gap: 0; font-size: 0; }
 }
 
 /* ============ AI TOOLS MENU (topbar) ============ */

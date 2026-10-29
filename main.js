@@ -246,7 +246,10 @@ ipcMain.handle('fs:rename', async (event, oldPath, newPath) => {
     if (!newSegments[newSegments.length - 1].toLowerCase().endsWith('.md')) {
       throw new Error('Filename must end with .md');
     }
-    const dst = resolveLogical(newPath, { createDirs: true });
+    // A rename must never create folders: the destination directory has to
+    // already exist, otherwise the note would land in a freshly built tree.
+    const dst = resolveLogical(newPath, { createDirs: false });
+    if (!fs.existsSync(path.dirname(dst.abs))) throw new Error('Target folder does not exist');
     if (fs.existsSync(dst.abs) && src.abs !== dst.abs) throw new Error('A file with that name already exists');
     fs.renameSync(src.abs, dst.abs);
     return { success: true, path: dst.segments.join('/') };
@@ -283,8 +286,9 @@ ipcMain.handle('fs:renameFolder', async (event, oldPath, newPath) => {
     const newSegments = normalizeSegments(newPath);
     if (src.segments.join('/') === newSegments.join('/')) return { success: true, path: newPath };
     const dst = resolveDir(newSegments.join('/'), { createDirs: false });
+    if (!fs.existsSync(path.dirname(dst.abs))) throw new Error('Target folder does not exist');
     if (fs.existsSync(dst.abs)) throw new Error('A folder with that name already exists');
-    fs.mkdirSync(path.dirname(dst.abs), { recursive: true });
+    // no mkdir here: renaming a folder never builds new parent folders either
     fs.renameSync(src.abs, dst.abs);
     return { success: true, path: dst.segments.join('/') };
   } catch (e) {
@@ -294,6 +298,94 @@ ipcMain.handle('fs:renameFolder', async (event, oldPath, newPath) => {
 
 ipcMain.handle('fs:getNotesDir', async () => {
   return NOTES_DIR;
+});
+
+/* ================= ARCHIVE ================= */
+// Archived items are plain files moved into .inkwell/archive/<original path>.
+// walkNotes() skips dot folders, so they vanish from the notes tree while
+// staying readable in the vault; restoring moves them back where they came
+// from because the archive keeps the original folder structure.
+function archiveRoot() {
+  return path.join(NOTES_DIR, '.inkwell', 'archive');
+}
+
+// remove folders that became empty inside the archive (never the archive root)
+function pruneEmptyArchiveDirs(dirAbs) {
+  const root = archiveRoot();
+  let cur = dirAbs;
+  while (cur.startsWith(root) && cur !== root) {
+    try {
+      if (fs.readdirSync(cur).length) break;
+      fs.rmdirSync(cur);
+    } catch (_) {
+      break;
+    }
+    cur = path.dirname(cur);
+  }
+}
+
+ipcMain.handle('archive:list', async () => {
+  try {
+    if (!NOTES_DIR) return { files: [], folders: [] };
+    const base = archiveRoot();
+    const files = [];
+    const folders = [];
+    if (fs.existsSync(base)) walkNotes(base, '', files, folders);
+    files.sort((a, b) => b.modified - a.modified);
+    folders.sort((a, b) => a.path.localeCompare(b.path));
+    return { files, folders };
+  } catch (e) {
+    return { files: [], folders: [], error: e.message };
+  }
+});
+
+ipcMain.handle('archive:add', async (event, logicalPath) => {
+  try {
+    if (!NOTES_DIR) throw new Error('Choose a vault folder first');
+    const segments = normalizeSegments(logicalPath);
+    if (segments[0] === '.inkwell') throw new Error('Already archived');
+    const srcAbs = path.join(NOTES_DIR, ...segments);
+    if (!insideNotesDir(srcAbs)) throw new Error('Invalid path');
+    if (!fs.existsSync(srcAbs)) throw new Error('Item not found');
+    const dstAbs = path.join(archiveRoot(), ...segments);
+    if (fs.existsSync(dstAbs)) throw new Error('An archived copy of this item already exists');
+    fs.mkdirSync(path.dirname(dstAbs), { recursive: true });
+    fs.renameSync(srcAbs, dstAbs);
+    return { success: true, path: segments.join('/') };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('archive:restore', async (event, archivedPath) => {
+  try {
+    if (!NOTES_DIR) throw new Error('Choose a vault folder first');
+    const segments = normalizeSegments(archivedPath);
+    const srcAbs = path.join(archiveRoot(), ...segments);
+    if (!fs.existsSync(srcAbs)) throw new Error('Archived item not found');
+    const dstAbs = path.join(NOTES_DIR, ...segments);
+    if (!insideNotesDir(dstAbs)) throw new Error('Invalid path');
+    if (fs.existsSync(dstAbs)) throw new Error('A note with that name already exists');
+    fs.mkdirSync(path.dirname(dstAbs), { recursive: true });
+    fs.renameSync(srcAbs, dstAbs);
+    pruneEmptyArchiveDirs(path.dirname(srcAbs));
+    return { success: true, path: segments.join('/') };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('archive:delete', async (event, archivedPath) => {
+  try {
+    const segments = normalizeSegments(archivedPath);
+    const target = path.join(archiveRoot(), ...segments);
+    if (!fs.existsSync(target)) throw new Error('Archived item not found');
+    fs.rmSync(target, { recursive: true, force: true });
+    pruneEmptyArchiveDirs(path.dirname(target));
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });
 
 ipcMain.handle('fs:setNotesDir', async (event, dirPath) => {
@@ -421,6 +513,61 @@ ipcMain.handle('dialog:exportHTML', async (event, sourcePath, payload) => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+// Render the standalone HTML in an offscreen window and hand it to the
+// system print dialog. The payload is the same one exportHTML uses, so the
+// printed output matches the exported HTML exactly.
+ipcMain.handle('print:html', async (event, payload) => {
+  const win = windowFrom(event);
+  if (!win) return { success: false, error: 'No window available' };
+
+  let html;
+  try {
+    html = buildStandaloneHtml(payload);
+  } catch (e) {
+    return { success: false, error: 'Failed to build document: ' + e.message };
+  }
+
+  const tmpFile = path.join(app.getPath('temp'), `inkwell-print-${Date.now()}-${process.pid}.html`);
+  try { fs.writeFileSync(tmpFile, html, 'utf8'); } catch (e) {
+    return { success: false, error: e.message };
+  }
+  const cleanup = () => { try { fs.unlinkSync(tmpFile); } catch (_) {} };
+
+  return await new Promise((resolve) => {
+    const printWin = new BrowserWindow({
+      width: 800,
+      height: 600,
+      show: false,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    let settled = false;
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (!printWin.isDestroyed()) printWin.destroy();
+      resolve(result);
+    };
+
+    printWin.webContents.once('did-finish-load', () => {
+      // silent:false → show the OS print dialog (page preview + printer choice)
+      printWin.webContents.print({ silent: false, printBackground: true }, (error) => {
+        if (error && !/cancel/i.test(String(error.message || error))) {
+          done({ success: false, error: String(error.message || error) });
+        } else {
+          done({ success: true });
+        }
+      });
+    });
+    printWin.webContents.once('did-fail-load', (_e, code, desc) => {
+      done({ success: false, error: `Failed to render document (${desc || code})` });
+    });
+    printWin.on('closed', () => done({ success: false, error: 'Print window was closed' }));
+
+    printWin.loadFile(tmpFile).catch((e) => done({ success: false, error: e.message }));
+  });
 });
 
 /* ================= TELEGRAM SETTINGS + SENDING ================= */

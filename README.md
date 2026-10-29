@@ -9,6 +9,9 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Create, rename, move, search, and delete Markdown files and nested folders.
 - Choose a vault folder in Settings, or select one when creating your first file or folder. The vault is the folder where Inkwell stores your notes.
 - Drag files and folders into other folders to reorganize them.
+- Star a note to keep it in the Favorites section at the top of the sidebar, so frequently used documents are one click away. Renaming or moving a note keeps it in that section.
+- Archive a note or a whole folder (right-click → Archive) to move it out of the notes tree. Archived items live in the hidden `.inkwell/archive` folder inside the vault and are listed in the Archive section of the sidebar, where they can be opened without leaving the archive, restored to their original place, or deleted permanently.
+- Pin notes to the tab bar above the editor, and switch between them without leaving the current view.
 - Changes are saved as you type. Notes can also be edited with any text editor.
 - Add images using paths relative to the vault. Images appear in the preview and can be opened full-screen.
 - Add comments to selected passages, revisit them from the comments panel, and edit or remove them. The comment box opens toward the left when the selection is near the right edge.
@@ -22,14 +25,15 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Highlight fenced code blocks and render inline and display LaTeX math with KaTeX.
 - Choose automatic, left-to-right, or right-to-left text direction. Automatic direction supports mixed Persian and English paragraphs; code, tables, and math remain left-to-right.
 - Zoom the document from 50% to 250%.
-- In Settings → Appearance, scale the whole app's font size from 80% to 150% and pick a color theme: Dark, Light, Nord, Dracula, Solarized Dark, Solarized Light, Sepia, or Rose.
+- In Settings → Appearance, scale the whole app's font size from 80% to 150% and pick a color theme: Dark, Light, VS Code Dark, Nord, Dracula, Solarized Dark, Solarized Light, Sepia, or Rose.
 - Export a self-contained HTML copy of a document. The export includes local images and is suitable for sharing or printing.
+- Print the current document from the header button or with Ctrl+Shift+P. The printed page uses the same styling as the exported HTML.
 
 ### Ask AI
 
-- Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, ask about code) are in the AI tools menu in the header.
-- Ask AI about selected text, or explain a piece of code. AI prompts can include the selected text or document content needed for the chosen action.
-- Ask AI to edit a selected passage or insert text at the cursor. Review the full Markdown preview with removed text marked red and proposed text highlighted green in place, then accept or reject the change. Accepted changes are saved to the open note; if the note changes while AI is working, Inkwell asks you to generate a fresh proposal.
+- Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, create a quiz) are in the AI tools menu in the header.
+- Select text in the editor to get a small action bar: Ask AI about the selection, Explain it, ask AI to change it, copy it, or add a comment. When the selection is code (a fenced block, inline code, or code-looking lines) an **Explain code** action appears too and sends a ready-made explanation prompt to the AI immediately.
+- Ask AI about selected text, or explain a piece of code. AI prompts can include the selected text or document content needed for the chosen action.- Ask AI to edit a selected passage or insert text at the cursor. Review the full Markdown preview with removed text marked red and proposed text highlighted green in place, then accept or reject the change. Accepted changes are saved to the open note; if the note changes while AI is working, Inkwell asks you to generate a fresh proposal.
 - Choose Claude, Codex, or OpenCode, set a model, and manage reusable quick prompts in Settings.
 - Add custom CLI providers in Settings with a command, type, model flag, and an optional base URL and API key. These are passed to the command as environment variables (`ANTHROPIC_*` for Claude-type providers, `OPENAI_*` otherwise; the names can be changed). They are stored in Inkwell's local settings.
 - Save a useful AI answer as a new Markdown note.
