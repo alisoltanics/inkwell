@@ -1,6 +1,6 @@
 {
   "name": "inkwell",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A clean Markdown editor with live preview, AI assistance, and Telegram sharing",
   "main": "main.js",
   "homepage": "https://github.com/alisoltanics/inkwell",
