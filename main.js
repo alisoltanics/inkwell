@@ -714,13 +714,46 @@ function aiSearchDirs() {
   return dirs;
 }
 
+// On Windows a CLI installed by npm is a pair of shims: `opencode` (a POSIX
+// shell script) and `opencode.cmd`. Only the ones listed in PATHEXT can be
+// executed, so the bare name must never win there.
+function windowsExecutableExtensions() {
+  const raw = process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD';
+  const seen = new Set();
+  for (const part of raw.split(';')) {
+    const ext = part.trim().toLowerCase();
+    if (ext) seen.add(ext);
+  }
+  for (const ext of ['.exe', '.cmd', '.bat']) seen.add(ext);
+  return Array.from(seen);
+}
+
 function resolveExecutable(cmd) {
-  if (cmd.includes('/')) return fs.existsSync(cmd) ? cmd : null;
+  if (cmd.includes('/') || cmd.includes('\\')) return fs.existsSync(cmd) ? cmd : null;
+  const isWindows = process.platform === 'win32';
+  const extensions = isWindows ? windowsExecutableExtensions() : [''];
   for (const dir of aiSearchDirs()) {
-    const full = path.join(dir, cmd);
-    try { if (fs.existsSync(full)) return full; } catch (_) {}
+    for (const ext of extensions) {
+      const full = path.join(dir, cmd + ext);
+      try { if (fs.existsSync(full)) return full; } catch (_) {}
+    }
   }
   return null;
+}
+
+// .cmd / .bat files cannot be executed by CreateProcess directly, they need the
+// command interpreter; everything else is spawned as before.
+function spawnExecutable(executable, args, options) {
+  const argv = Array.isArray(args) ? args : [];
+  const isScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(executable);
+  if (!isScript) return spawn(executable, argv, options);
+  const comspec = process.env.ComSpec || 'cmd.exe';
+  const quote = (value) => {
+    const text = String(value);
+    return /[\s"&|<>^]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  };
+  const line = [quote(executable), ...argv.map(quote)].join(' ');
+  return spawn(comspec, ['/d', '/s', '/c', line], { ...options, windowsVerbatimArguments: true });
 }
 
 function captureAICommand(cmd, args, options = {}) {
@@ -729,7 +762,7 @@ function captureAICommand(cmd, args, options = {}) {
   return new Promise((resolve) => {
     let proc;
     try {
-      proc = spawn(executable, args, {
+      proc = spawnExecutable(executable, args, {
         cwd: NOTES_DIR || app.getPath('home'),
         env: { ...process.env, ...(options.env || {}), PATH: aiSearchDirs().join(path.delimiter) },
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -763,7 +796,7 @@ function listCodexModels() {
   return new Promise((resolve) => {
     let proc;
     try {
-      proc = spawn(executable, ['app-server'], {
+      proc = spawnExecutable(executable, ['app-server'], {
         cwd: NOTES_DIR || app.getPath('home'),
         env: { ...process.env, PATH: aiSearchDirs().join(path.delimiter) },
         stdio: ['pipe', 'pipe', 'ignore'],
@@ -1292,7 +1325,7 @@ ipcMain.handle('ai:ask', async (event, payload) => {
   return new Promise((resolve) => {
     let proc;
     try {
-      proc = spawn(cmdPath, spec.args, {
+      proc = spawnExecutable(cmdPath, spec.args, {
         cwd: NOTES_DIR,
         env: { ...process.env, ...(spec.env || {}), ...providerCredentialEnv(providerConfig), PATH: aiSearchDirs().join(path.delimiter) },
         stdio: ['pipe', 'pipe', 'pipe'],
