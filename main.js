@@ -699,15 +699,51 @@ function aiSearchDirs() {
   const seen = new Set();
   const push = (d) => { if (d && !seen.has(d)) { seen.add(d); dirs.push(d); } };
   for (const d of (process.env.PATH || '').split(path.delimiter)) push(d);
+
+  const isWin = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+  const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+
   [
     path.join(home, '.local', 'bin'),
     path.join(home, '.opencode', 'bin'),
     path.join(home, '.bun', 'bin'),
     path.join(home, '.cargo', 'bin'),
+    path.join(home, '.volta', 'bin'),
+    path.join(home, '.asdf', 'shims'),
+    path.join(home, '.local', 'share', 'pnpm'),
     path.join(home, 'bin'),
+    // the CLI installers keep a copy here, outside any package manager
+    path.join(home, '.claude', 'local', 'bin'),
+  ].forEach(push);
+
+  // node version managers put npm globals in versioned folders
+  try {
+    const nvm = path.join(home, '.nvm', 'versions', 'node');
+    if (fs.existsSync(nvm)) {
+      for (const version of fs.readdirSync(nvm).sort().reverse()) push(path.join(nvm, version, 'bin'));
+    }
+  } catch (_) {}
+
+  if (isWin) {
+    [path.join(appData, 'npm'), path.join(localAppData, 'pnpm'), path.join(localAppData, 'Microsoft', 'WinGet', 'Links')].forEach(push);
+  }
+
+  if (isMac) {
+    [
+      '/opt/homebrew/bin', '/opt/homebrew/sbin',
+      '/opt/local/bin',
+      path.join(home, 'Library', 'pnpm'),
+      // the ChatGPT desktop app ships the Codex CLI inside the bundle
+      '/Applications/ChatGPT.app/Contents/Resources',
+    ].forEach(push);
+  }
+
+  [
     '/usr/local/bin', '/usr/bin', '/bin',
     '/usr/local/sbin', '/usr/sbin', '/sbin', '/snap/bin',
-    // Codex CLI ships inside the ChatGPT desktop app
+    // Codex CLI ships inside the ChatGPT desktop app (Linux)
     '/usr/lib/chatgpt/resources',
     '/usr/lib/chatgpt',
   ].forEach(push);
