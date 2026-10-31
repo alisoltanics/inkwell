@@ -8012,14 +8012,25 @@ function isDocumentChangeCommand(instruction) {
   if (!text) return false;
   return isDirectDeleteCommand(text)
     || isInsertionCommand(text)
+    // "write this passage better", "این قسمت رو بهتر بنویس" is still a change
+    || isRewriteNotInsertion(text)
     || /\b(?:improve|rewrite|rephrase|reword|rework|polish|edit|revise|fix|correct|shorten|lengthen|expand|simplify|translate|replace|change|tighten|restructure|reformat|format|convert|turn|split|merge|combine|summari[sz]e|emphasi[sz]e|shorten)\b/i.test(text)
     // "make it livelier", "make this punchier": any adjective after make it/this
     || /\bmake\s+(?:this|it|the\s+[^.]{0,40}?)\s+[a-z]+/i.test(text)
     || /(?:بهتر.{0,14}کن|روان(?:تر|‌تر)?|اصلاح|بازنویسی|ویرایش|کوتاه(?:تر|‌تر)?|ساده(?:تر|‌تر)?|خلاصه(?:تر|‌تر)?|ترجمه|جایگزین|تبدیل|مرتب|قالب|حذف\s*(?:کن|بکن)|بنداز|بگذار|بساز|تغییر.{0,14}(?:کن|بکن|بده)|عوض.{0,10}کن)/u.test(text);
 }
 
+// "write this better", "این قسمت رو بهتر بنویس": the passage is already there,
+// so this asks for a rewrite of it — not for new text where the cursor sits.
+function isRewriteNotInsertion(instruction) {
+  const text = String(instruction || '');
+  return /(?:بهتر|روان‌?تر|کوتاه‌?تر|ساده‌?تر|شفاف‌?تر|شیواتر|قشنگ‌?تر|جذاب‌?تر|دقیق‌?تر|رسمی‌?تر|دوباره)\s*(?:بنویس|بنویسش|بازنویسی|بگو)/u.test(text)
+    || /\bwrite\b[^.\n]{0,24}\b(?:better|again|differently|more\s+\w+|properly|nicely)\b/i.test(text);
+}
+
 function isInsertionCommand(instruction) {
   const text = String(instruction || '').trim();
+  if (isRewriteNotInsertion(text)) return false;
   return /^(?:please\s+)?(?:add|insert|append|write|create|include)\b/i.test(text)
     || /(?:اضافه\s*(?:کن|بکن)|درج\s*(?:کن|بکن)|بنویس|بیفزا)/u.test(text);
 }
@@ -8527,6 +8538,17 @@ function findDeleteTargetRange(originalContent, response, caret) {
   return { start: index, end: index + target.length, target };
 }
 
+// A question can carry a passage that is no longer selected (it was copied, or
+// the caret moved on). The text itself is still the target, so look it up in the
+// document instead of trusting a caret that may now sit somewhere else.
+function locatePassage(originalContent, text) {
+  const wanted = String(text || '');
+  if (!wanted.trim()) return null;
+  const first = originalContent.indexOf(wanted);
+  if (first >= 0) return { start: first, end: first + wanted.length };
+  return findLooseRange(originalContent, wanted, 0, originalContent.length);
+}
+
 // One button, two outcomes: a request that asks for a change in the document
 // becomes a reviewed edit; anything else is a message in the conversation.
 function routeAIRequest() {
@@ -8552,6 +8574,14 @@ function suggestDocumentChange() {
   if (aiContext.start != null && aiContext.end != null && originalContent.slice(aiContext.start, aiContext.end) === aiContext.text) {
     start = aiContext.start;
     end = aiContext.end;
+  } else if (start === end && aiContext.text && aiContext.text.trim() && !isInsertionCommand(instruction)) {
+    // the passage the question was asked about is known, so edit that passage
+    // (an insertion command still goes to the caret: it adds, never replaces)
+    const found = locatePassage(originalContent, aiContext.text);
+    if (found) {
+      start = found.start;
+      end = found.end;
+    }
   }
   const target = originalContent.slice(start, end);
   const directDelete = isDirectDeleteCommand(instruction);
@@ -8713,7 +8743,10 @@ async function askAI(overridePrompt, options = {}) {
       const scopeText = request.originalContent.slice(scopeStartAt, scopeEndAt);
       const reply = String(res.text || '').trim();
       const looksStructured = /^[[{]/.test(reply);
-      if (scopeText && scopeText.trim() && reply && !looksStructured && reply !== scopeText.trim()) {
+      // a scope that is the whole document is not a passage: rewriting it from a
+      // free-form reply would throw away the note
+      const scopeIsWholeDocument = scopeStartAt === 0 && scopeEndAt === request.originalContent.length;
+      if (!scopeIsWholeDocument && scopeText && scopeText.trim() && reply && !looksStructured && reply !== scopeText.trim()) {
         showAIEditProposal({
           filePath: request.filePath,
           originalContent: request.originalContent,
