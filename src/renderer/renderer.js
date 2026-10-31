@@ -6650,6 +6650,9 @@ function setAIBusy(busy) {
 }
 
 const AI_MAX_SELECTION = 12000;
+// A passage can be rewritten in place up to this size: the edit prompt always
+// carries the passage itself, and a whole section is a fair thing to rewrite.
+const AI_MAX_EDIT_TARGET = 60000;
 // When the conversation is about the whole document, the model gets the whole
 // document — a truncated note gives confident, wrong answers.
 const AI_MAX_DOCUMENT = 400000;
@@ -7882,8 +7885,10 @@ function buildAIPrompt(question, selection, options = {}) {
 }
 
 function buildAIEditPrompt(request, instruction) {
+  // the passage is always sent in full; the margin is only extra context, so it
+  // shrinks to nothing rather than pushing text out of the request
   const maxContext = 24000;
-  const margin = Math.floor((maxContext - request.target.length) / 2);
+  const margin = Math.max(0, Math.floor((maxContext - request.target.length) / 2));
   const contextStart = Math.max(0, request.start - margin);
   const contextEnd = Math.min(request.originalContent.length, request.end + margin);
   const prefix = contextStart > 0 ? '...[earlier document text omitted]...\n' : '';
@@ -8549,6 +8554,18 @@ function locatePassage(originalContent, text) {
   return findLooseRange(originalContent, wanted, 0, originalContent.length);
 }
 
+// The passage a question is about — only when it really is a passage. A panel
+// pointed at the whole document puts the entire note in the context, and that
+// is a document to search, never a selection to rewrite.
+function capturedPassage() {
+  const text = String(aiContext.text || '');
+  if (!text.trim() || aiContext.doc || aiContext.bundle) return '';
+  if (text.length > AI_MAX_EDIT_TARGET) return '';
+  const live = els.editor.value || '';
+  if (live && text === live) return '';
+  return text;
+}
+
 // One button, two outcomes: a request that asks for a change in the document
 // becomes a reviewed edit; anything else is a message in the conversation.
 function routeAIRequest() {
@@ -8571,13 +8588,14 @@ function suggestDocumentChange() {
   const originalContent = els.editor.value;
   let start = Math.min(els.editor.selectionStart, els.editor.selectionEnd);
   let end = Math.max(els.editor.selectionStart, els.editor.selectionEnd);
+  const passage = capturedPassage();
   if (aiContext.start != null && aiContext.end != null && originalContent.slice(aiContext.start, aiContext.end) === aiContext.text) {
     start = aiContext.start;
     end = aiContext.end;
-  } else if (start === end && aiContext.text && aiContext.text.trim() && !isInsertionCommand(instruction)) {
+  } else if (start === end && passage && !isInsertionCommand(instruction)) {
     // the passage the question was asked about is known, so edit that passage
     // (an insertion command still goes to the caret: it adds, never replaces)
-    const found = locatePassage(originalContent, aiContext.text);
+    const found = locatePassage(originalContent, passage);
     if (found) {
       start = found.start;
       end = found.end;
@@ -8585,8 +8603,8 @@ function suggestDocumentChange() {
   }
   const target = originalContent.slice(start, end);
   const directDelete = isDirectDeleteCommand(instruction);
-  const selectedPassageInstruction = start === end && aiContext.text && aiContext.text.trim()
-    ? `${instruction}\n\nThe user selected this passage from the document and wants this change applied to it:\n${aiContext.text}`
+  const selectedPassageInstruction = start === end && passage
+    ? `${instruction}\n\nThe user selected this passage from the document and wants this change applied to it:\n${passage}`
     : instruction;
   if (directDelete && start === end) {
     if (!originalContent.trim()) { toast('The document is empty', 'info'); return; }
@@ -8602,8 +8620,8 @@ function suggestDocumentChange() {
     });
     return;
   }
-  if (target.length > AI_MAX_SELECTION) {
-    toast('Select a smaller passage (up to 12,000 characters)', 'info');
+  if (target.length > AI_MAX_EDIT_TARGET) {
+    toast(t('Select a smaller passage (up to %n% characters)', { n: AI_MAX_EDIT_TARGET.toLocaleString() }), 'info');
     return;
   }
   const editRequest = {
