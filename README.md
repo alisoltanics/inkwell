@@ -2,6 +2,14 @@
 
 Inkwell is a desktop Markdown writing app for organizing notes as regular files and working with them in a focused editor. It is built with Electron and runs on Linux, Windows, and macOS. Notes are readable `.md` files on your computer; Inkwell does not encrypt them or require an Inkwell account.
 
+## Screenshots
+
+| Reading and previewing | Asking the AI about a document |
+| --- | --- |
+| ![A Markdown note in preview, with the diagram drawn as a figure](docs/screenshots/editor.png) | ![The Ask AI panel answering about the open document](docs/screenshots/ai-tools.png) |
+| **Split view in the light theme** | **The whole app mirrored for Persian** |
+| ![Markdown source and its preview side by side](docs/screenshots/split-view.png) | ![Right-to-left interface with a Persian note](docs/screenshots/right-to-left.png) |
+
 ## What Inkwell does
 
 ### Write and organize
@@ -120,5 +128,6 @@ Version tags matching `v*` trigger GitHub Actions to build Linux x64, Windows x6
 - `preload.js` — restricted bridge between the UI and Electron main process
 - `html.js` — builds self-contained HTML exports
 - `src/renderer/` — application interface and Markdown rendering bundle
+- `docs/screenshots/` — the screenshots used above
 - `vscode-extension/` — Inkwell Preview, a VS Code extension that previews Markdown with this renderer
 - `.github/workflows/release.yml` — cross-platform release build workflow
