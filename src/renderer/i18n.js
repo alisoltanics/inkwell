@@ -2487,6 +2487,32 @@
     'Show files from other folders': 'نمایش فایل‌های پوشه‌های دیگر',
     'This document is preview-only': 'این سند فقط قابل پیش‌نمایش است',
     'This document has no readable content': 'این سند محتوای قابل خواندن ندارد',
+    'Compare versions': 'مقایسهٔ نسخه‌ها',
+    'Compare': 'مقایسه',
+    'Choose file…': 'انتخاب فایل…',
+    'Use open document': 'استفاده از سند باز',
+    'Version 1 (older)': 'نسخهٔ ۱ (قدیمی‌تر)',
+    'Version 2 (newer)': 'نسخهٔ ۲ (جدیدتر)',
+    'No file chosen': 'فایلی انتخاب نشده',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'یک نسخهٔ قدیمی‌تر و یک نسخهٔ جدیدتر از یک سند انتخاب کنید. Inkwell موضوعات تغییریافته را پیدا می‌کند و هوش مصنوعی می‌گوید چه چیزی اضافه، حذف یا تغییر کرده است.',
+    'Pick two versions first': 'اول دو نسخه را انتخاب کنید',
+    'Both versions are identical': 'هر دو نسخه یکسان‌اند',
+    'Compare %v1% with %v2%': 'مقایسهٔ %v1% با %v2%',
+    'words': 'واژه',
+    'Compare two versions of this document': 'مقایسهٔ دو نسخه از این سند',
+    'That file has no readable text': 'این فایل متن قابل خواندن ندارد',
+    'From library': 'از کتابخانه',
+    'Duplicate': 'ساخت کپی',
+    'Duplicate note': 'ساخت کپی از یادداشت',
+    'Paste': 'چسباندن',
+    'Nothing to paste': 'چیزی برای چسباندن نیست',
+    'Diagram': 'نمودار',
+    'Text': 'متن',
+    'Show the plain text': 'نمایش متن ساده',
+    'Show the diagram': 'نمایش نمودار',
+    'Choose version %n% from the library': 'انتخاب نسخهٔ %n% از کتابخانه',
+    'No files here yet': 'هنوز فایلی اینجا نیست',
+    'No files match your search': 'هیچ فایلی با جستجوی شما پیدا نشد',
   });
   Object.assign(ar, {
     'Ctrl+Enter to send': 'للإرسال: Ctrl+Enter',
@@ -2527,6 +2553,32 @@
     'Show files from other folders': 'إظهار ملفات المجلدات الأخرى',
     'This document is preview-only': 'هذا المستند للمعاينة فقط',
     'This document has no readable content': 'لا يحتوي هذا المستند على محتوى قابل للقراءة',
+    'Compare versions': 'مقارنة النسخ',
+    'Compare': 'مقارنة',
+    'Choose file…': 'اختيار ملف…',
+    'Use open document': 'استخدام المستند المفتوح',
+    'Version 1 (older)': 'النسخة 1 (الأقدم)',
+    'Version 2 (newer)': 'النسخة 2 (الأحدث)',
+    'No file chosen': 'لم يتم اختيار ملف',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'اختر نسخة أقدم ونسخة أحدث من مستند واحد. يجد Inkwell المواضيع المتغيرة ويشرح الذكاء الاصطناعي ما أُضيف أو حُذف أو تغيّر.',
+    'Pick two versions first': 'اختر نسختين أولاً',
+    'Both versions are identical': 'النسختان متطابقتان',
+    'Compare %v1% with %v2%': 'مقارنة %v1% بـ %v2%',
+    'words': 'كلمة',
+    'Compare two versions of this document': 'مقارنة نسختين من هذا المستند',
+    'That file has no readable text': 'لا يحتوي هذا الملف على نص قابل للقراءة',
+    'From library': 'من المكتبة',
+    'Duplicate': 'تكرار',
+    'Duplicate note': 'تكرار الملاحظة',
+    'Paste': 'لصق',
+    'Nothing to paste': 'لا شيء للصقه',
+    'Diagram': 'مخطط',
+    'Text': 'نص',
+    'Show the plain text': 'عرض النص العادي',
+    'Show the diagram': 'عرض المخطط',
+    'Choose version %n% from the library': 'اختيار النسخة %n% من المكتبة',
+    'No files here yet': 'لا توجد ملفات هنا بعد',
+    'No files match your search': 'لا توجد ملفات تطابق بحثك',
   });
   Object.assign(fr, {
     'Ctrl+Enter to send': 'Ctrl+Entrée pour envoyer',
@@ -2567,6 +2619,32 @@
     'Show files from other folders': 'Afficher les fichiers des autres dossiers',
     'This document is preview-only': 'Ce document est en lecture seule',
     'This document has no readable content': 'Ce document ne contient aucun contenu lisible',
+    'Compare versions': 'Comparer les versions',
+    'Compare': 'Comparer',
+    'Choose file…': 'Choisir un fichier…',
+    'Use open document': 'Utiliser le document ouvert',
+    'Version 1 (older)': 'Version 1 (ancienne)',
+    'Version 2 (newer)': 'Version 2 (nouvelle)',
+    'No file chosen': 'Aucun fichier choisi',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'Choisissez une ancienne et une nouvelle version d\'un document. Inkwell repère les sujets modifiés et l\'IA explique ce qui a été ajouté, supprimé ou modifié.',
+    'Pick two versions first': 'Choisissez d\'abord deux versions',
+    'Both versions are identical': 'Les deux versions sont identiques',
+    'Compare %v1% with %v2%': 'Comparer %v1% avec %v2%',
+    'words': 'mots',
+    'Compare two versions of this document': 'Comparer deux versions de ce document',
+    'That file has no readable text': 'Ce fichier ne contient aucun texte lisible',
+    'From library': 'Depuis la bibliothèque',
+    'Duplicate': 'Dupliquer',
+    'Duplicate note': 'Dupliquer la note',
+    'Paste': 'Coller',
+    'Nothing to paste': 'Rien à coller',
+    'Diagram': 'Diagramme',
+    'Text': 'Texte',
+    'Show the plain text': 'Afficher le texte brut',
+    'Show the diagram': 'Afficher le diagramme',
+    'Choose version %n% from the library': 'Choisir la version %n% dans la bibliothèque',
+    'No files here yet': 'Aucun fichier ici pour le moment',
+    'No files match your search': 'Aucun fichier ne correspond à votre recherche',
   });
   Object.assign(de, {
     'Ctrl+Enter to send': 'Ctrl+Enter zum Senden',
@@ -2607,6 +2685,32 @@
     'Show files from other folders': 'Dateien aus anderen Ordnern anzeigen',
     'This document is preview-only': 'Dieses Dokument ist schreibgeschützt',
     'This document has no readable content': 'Dieses Dokument enthält keinen lesbaren Inhalt',
+    'Compare versions': 'Versionen vergleichen',
+    'Compare': 'Vergleichen',
+    'Choose file…': 'Datei wählen…',
+    'Use open document': 'Geöffnetes Dokument verwenden',
+    'Version 1 (older)': 'Version 1 (älter)',
+    'Version 2 (newer)': 'Version 2 (neuer)',
+    'No file chosen': 'Keine Datei gewählt',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'Wähle eine ältere und eine neuere Version eines Dokuments. Inkwell findet die geänderten Themen und die KI beschreibt, was hinzugefügt, entfernt oder geändert wurde.',
+    'Pick two versions first': 'Wähle zuerst zwei Versionen',
+    'Both versions are identical': 'Beide Versionen sind identisch',
+    'Compare %v1% with %v2%': '%v1% mit %v2% vergleichen',
+    'words': 'Wörter',
+    'Compare two versions of this document': 'Zwei Versionen dieses Dokuments vergleichen',
+    'That file has no readable text': 'Diese Datei enthält keinen lesbaren Text',
+    'From library': 'Aus der Bibliothek',
+    'Duplicate': 'Duplizieren',
+    'Duplicate note': 'Notiz duplizieren',
+    'Paste': 'Einfügen',
+    'Nothing to paste': 'Nichts zum Einfügen',
+    'Diagram': 'Diagramm',
+    'Text': 'Text',
+    'Show the plain text': 'Reinen Text anzeigen',
+    'Show the diagram': 'Diagramm anzeigen',
+    'Choose version %n% from the library': 'Version %n% aus der Bibliothek wählen',
+    'No files here yet': 'Noch keine Dateien vorhanden',
+    'No files match your search': 'Keine Dateien passen zu deiner Suche',
   });
   Object.assign(it, {
     'Ctrl+Enter to send': 'Ctrl+Enter per inviare',
@@ -2647,6 +2751,32 @@
     'Show files from other folders': 'Mostra i file delle altre cartelle',
     'This document is preview-only': 'Questo documento è solo in anteprima',
     'This document has no readable content': 'Questo documento non ha contenuto leggibile',
+    'Compare versions': 'Confronta versioni',
+    'Compare': 'Confronta',
+    'Choose file…': 'Scegli file…',
+    'Use open document': 'Usa il documento aperto',
+    'Version 1 (older)': 'Versione 1 (precedente)',
+    'Version 2 (newer)': 'Versione 2 (successiva)',
+    'No file chosen': 'Nessun file scelto',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'Scegli una versione precedente e una successiva di un documento. Inkwell individua gli argomenti cambiati e l\'IA spiega cosa è stato aggiunto, rimosso o modificato.',
+    'Pick two versions first': 'Scegli prima due versioni',
+    'Both versions are identical': 'Le due versioni sono identiche',
+    'Compare %v1% with %v2%': 'Confronta %v1% con %v2%',
+    'words': 'parole',
+    'Compare two versions of this document': 'Confronta due versioni di questo documento',
+    'That file has no readable text': 'Questo file non contiene testo leggibile',
+    'From library': 'Dalla libreria',
+    'Duplicate': 'Duplica',
+    'Duplicate note': 'Duplica nota',
+    'Paste': 'Incolla',
+    'Nothing to paste': 'Niente da incollare',
+    'Diagram': 'Diagramma',
+    'Text': 'Testo',
+    'Show the plain text': 'Mostra il testo semplice',
+    'Show the diagram': 'Mostra il diagramma',
+    'Choose version %n% from the library': 'Scegli la versione %n% dalla libreria',
+    'No files here yet': 'Ancora nessun file qui',
+    'No files match your search': 'Nessun file corrisponde alla ricerca',
   });
   Object.assign(tr, {
     'Ctrl+Enter to send': 'Göndermek için Ctrl+Enter',
@@ -2687,6 +2817,32 @@
     'Show files from other folders': 'Diğer klasörlerdeki dosyaları göster',
     'This document is preview-only': 'Bu belge yalnızca önizlenebilir',
     'This document has no readable content': 'Bu belgede okunabilir içerik yok',
+    'Compare versions': 'Sürümleri karşılaştır',
+    'Compare': 'Karşılaştır',
+    'Choose file…': 'Dosya seç…',
+    'Use open document': 'Açık belgeyi kullan',
+    'Version 1 (older)': 'Sürüm 1 (eski)',
+    'Version 2 (newer)': 'Sürüm 2 (yeni)',
+    'No file chosen': 'Dosya seçilmedi',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'Bir belgenin eski ve yeni sürümünü seçin. Inkwell değişen konuları bulur ve yapay zekâ neyin eklendiğini, kaldırıldığını veya değiştiğini açıklar.',
+    'Pick two versions first': 'Önce iki sürüm seçin',
+    'Both versions are identical': 'İki sürüm aynı',
+    'Compare %v1% with %v2%': '%v1% ile %v2% karşılaştır',
+    'words': 'kelime',
+    'Compare two versions of this document': 'Bu belgenin iki sürümünü karşılaştır',
+    'That file has no readable text': 'Bu dosyada okunabilir metin yok',
+    'From library': 'Kitaplıktan',
+    'Duplicate': 'Çoğalt',
+    'Duplicate note': 'Notu çoğalt',
+    'Paste': 'Yapıştır',
+    'Nothing to paste': 'Yapıştırılacak bir şey yok',
+    'Diagram': 'Diyagram',
+    'Text': 'Metin',
+    'Show the plain text': 'Düz metni göster',
+    'Show the diagram': 'Diyagramı göster',
+    'Choose version %n% from the library': 'Sürüm %n% kitaplıktan seç',
+    'No files here yet': 'Burada henüz dosya yok',
+    'No files match your search': 'Aramanızla eşleşen dosya yok',
   });
   Object.assign(es, {
     'Ctrl+Enter to send': 'Ctrl+Enter para enviar',
@@ -2727,6 +2883,32 @@
     'Show files from other folders': 'Mostrar archivos de otras carpetas',
     'This document is preview-only': 'Este documento es solo de vista previa',
     'This document has no readable content': 'Este documento no tiene contenido legible',
+    'Compare versions': 'Comparar versiones',
+    'Compare': 'Comparar',
+    'Choose file…': 'Elegir archivo…',
+    'Use open document': 'Usar el documento abierto',
+    'Version 1 (older)': 'Versión 1 (anterior)',
+    'Version 2 (newer)': 'Versión 2 (nueva)',
+    'No file chosen': 'Ningún archivo elegido',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': 'Elige una versión anterior y otra nueva de un documento. Inkwell encuentra los temas modificados y la IA explica qué se añadió, se quitó o cambió.',
+    'Pick two versions first': 'Elige primero dos versiones',
+    'Both versions are identical': 'Las dos versiones son idénticas',
+    'Compare %v1% with %v2%': 'Comparar %v1% con %v2%',
+    'words': 'palabras',
+    'Compare two versions of this document': 'Comparar dos versiones de este documento',
+    'That file has no readable text': 'Este archivo no tiene texto legible',
+    'From library': 'Desde la biblioteca',
+    'Duplicate': 'Duplicar',
+    'Duplicate note': 'Duplicar nota',
+    'Paste': 'Pegar',
+    'Nothing to paste': 'Nada que pegar',
+    'Diagram': 'Diagrama',
+    'Text': 'Texto',
+    'Show the plain text': 'Mostrar el texto sin formato',
+    'Show the diagram': 'Mostrar el diagrama',
+    'Choose version %n% from the library': 'Elegir la versión %n% de la biblioteca',
+    'No files here yet': 'Aún no hay archivos aquí',
+    'No files match your search': 'Ningún archivo coincide con tu búsqueda',
   });
   Object.assign(zh, {
     'Ctrl+Enter to send': '按 Ctrl+Enter 发送',
@@ -2767,6 +2949,495 @@
     'Show files from other folders': '显示其他文件夹的文件',
     'This document is preview-only': '此文档仅供预览',
     'This document has no readable content': '此文档没有可读内容',
+    'Compare versions': '比较版本',
+    'Compare': '比较',
+    'Choose file…': '选择文件…',
+    'Use open document': '使用已打开的文档',
+    'Version 1 (older)': '版本 1（较旧）',
+    'Version 2 (newer)': '版本 2（较新）',
+    'No file chosen': '未选择文件',
+    'Pick an older and a newer version of a document. Inkwell finds the changed topics and the AI reports what was added, removed or changed.': '选择同一文档的较旧版本和较新版本。Inkwell 会找出发生变化的主题，AI 说明新增、删除或修改了什么。',
+    'Pick two versions first': '请先选择两个版本',
+    'Both versions are identical': '两个版本完全相同',
+    'Compare %v1% with %v2%': '比较 %v1% 与 %v2%',
+    'words': '字',
+    'Compare two versions of this document': '比较此文档的两个版本',
+    'That file has no readable text': '此文件没有可读文本',
+    'From library': '从库中选择',
+    'Duplicate': '创建副本',
+    'Duplicate note': '创建笔记副本',
+    'Paste': '粘贴',
+    'Nothing to paste': '没有可粘贴的内容',
+    'Diagram': '图表',
+    'Text': '文本',
+    'Show the plain text': '显示纯文本',
+    'Show the diagram': '显示图表',
+    'Choose version %n% from the library': '从库中选择版本 %n%',
+    'No files here yet': '这里还没有文件',
+    'No files match your search': '没有匹配搜索的文件',
+  });
+
+  Object.assign(fa, {
+    'This page did not finish loading. It may need an internet connection.': 'این صفحه کامل بارگذاری نشد. شاید به اتصال اینترنت نیاز داشته باشد.',
+    'Reload preview': 'بارگذاری دوباره',
+  });
+  Object.assign(ar, {
+    'This page did not finish loading. It may need an internet connection.': 'لم تكتمل تحميل هذه الصفحة. قد تحتاج إلى اتصال بالإنترنت.',
+    'Reload preview': 'إعادة تحميل المعاينة',
+  });
+  Object.assign(fr, {
+    'This page did not finish loading. It may need an internet connection.': 'Cette page n’a pas fini de charger. Elle a peut-être besoin d’une connexion Internet.',
+    'Reload preview': 'Recharger l’aperçu',
+  });
+  Object.assign(de, {
+    'This page did not finish loading. It may need an internet connection.': 'Diese Seite wurde nicht vollständig geladen. Möglicherweise wird eine Internetverbindung benötigt.',
+    'Reload preview': 'Vorschau neu laden',
+  });
+  Object.assign(it, {
+    'This page did not finish loading. It may need an internet connection.': 'Questa pagina non ha terminato il caricamento. Potrebbe richiedere una connessione a Internet.',
+    'Reload preview': 'Ricarica anteprima',
+  });
+  Object.assign(tr, {
+    'This page did not finish loading. It may need an internet connection.': 'Bu sayfa tam olarak yüklenmedi. İnternet bağlantısı gerekiyor olabilir.',
+    'Reload preview': 'Önizlemeyi yenile',
+  });
+  Object.assign(es, {
+    'This page did not finish loading. It may need an internet connection.': 'Esta página no terminó de cargarse. Puede que necesite conexión a Internet.',
+    'Reload preview': 'Recargar vista previa',
+  });
+  Object.assign(zh, {
+    'This page did not finish loading. It may need an internet connection.': '此页面未加载完成。可能需要网络连接。',
+    'Reload preview': '重新加载预览',
+  });
+
+  Object.assign(fa, {
+    'Copy path': 'کپی مسیر',
+    'Path copied': 'مسیر کپی شد',
+    'Could not copy the path': 'کپی مسیر انجام نشد',
+    'Convert to Markdown': 'تبدیل به مارک‌داون',
+    'Markdown': 'مارک‌داون',
+    'Fullscreen': 'تمام‌صفحه',
+    'Exit fullscreen': 'خروج از تمام‌صفحه',
+    'Saved as %name%': 'ذخیره شد: %name%',
+    'Zoom in': 'بزرگ‌نمایی',
+    'Zoom out': 'کوچک‌نمایی',
+    'Actual size': 'اندازهٔ واقعی',
+  });
+  Object.assign(ar, {
+    'Copy path': 'نسخ المسار',
+    'Path copied': 'تم نسخ المسار',
+    'Could not copy the path': 'تعذّر نسخ المسار',
+    'Convert to Markdown': 'تحويل إلى Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'ملء الشاشة',
+    'Exit fullscreen': 'الخروج من ملء الشاشة',
+    'Saved as %name%': 'تم الحفظ باسم %name%',
+  });
+  Object.assign(fr, {
+    'Copy path': 'Copier le chemin',
+    'Path copied': 'Chemin copié',
+    'Could not copy the path': 'Impossible de copier le chemin',
+    'Convert to Markdown': 'Convertir en Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Plein écran',
+    'Exit fullscreen': 'Quitter le plein écran',
+    'Saved as %name%': 'Enregistré sous %name%',
+  });
+  Object.assign(de, {
+    'Copy path': 'Pfad kopieren',
+    'Path copied': 'Pfad kopiert',
+    'Could not copy the path': 'Pfad konnte nicht kopiert werden',
+    'Convert to Markdown': 'In Markdown umwandeln',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Vollbild',
+    'Exit fullscreen': 'Vollbild beenden',
+    'Saved as %name%': 'Gespeichert als %name%',
+  });
+  Object.assign(it, {
+    'Copy path': 'Copia percorso',
+    'Path copied': 'Percorso copiato',
+    'Could not copy the path': 'Impossibile copiare il percorso',
+    'Convert to Markdown': 'Converti in Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Schermo intero',
+    'Exit fullscreen': 'Esci da schermo intero',
+    'Saved as %name%': 'Salvato come %name%',
+  });
+  Object.assign(tr, {
+    'Copy path': 'Yolu kopyala',
+    'Path copied': 'Yol kopyalandı',
+    'Could not copy the path': 'Yol kopyalanamadı',
+    'Convert to Markdown': "Markdown'a dönüştür",
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Tam ekran',
+    'Exit fullscreen': 'Tam ekrandan çık',
+    'Saved as %name%': '%name% olarak kaydedildi',
+  });
+  Object.assign(es, {
+    'Copy path': 'Copiar ruta',
+    'Path copied': 'Ruta copiada',
+    'Could not copy the path': 'No se pudo copiar la ruta',
+    'Convert to Markdown': 'Convertir a Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Pantalla completa',
+    'Exit fullscreen': 'Salir de pantalla completa',
+    'Saved as %name%': 'Guardado como %name%',
+  });
+  Object.assign(zh, {
+    'Copy path': '复制路径',
+    'Path copied': '路径已复制',
+    'Could not copy the path': '无法复制路径',
+    'Convert to Markdown': '转换为 Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': '全屏',
+    'Exit fullscreen': '退出全屏',
+    'Saved as %name%': '已保存为 %name%',
+  });
+
+  Object.assign(ar, {
+    'Copy path': 'نسخ المسار',
+    'Path copied': 'تم نسخ المسار',
+    'Could not copy the path': 'تعذّر نسخ المسار',
+    'Convert to Markdown': 'تحويل إلى Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'ملء الشاشة',
+    'Exit fullscreen': 'الخروج من ملء الشاشة',
+    'Saved as %name%': 'تم الحفظ باسم %name%',
+    'Zoom in': 'تكبير',
+    'Zoom out': 'تصغير',
+    'Actual size': 'الحجم الفعلي',
+  });
+
+  Object.assign(fr, {
+    'Copy path': 'Copier le chemin',
+    'Path copied': 'Chemin copié',
+    'Could not copy the path': 'Impossible de copier le chemin',
+    'Convert to Markdown': 'Convertir en Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Plein écran',
+    'Exit fullscreen': 'Quitter le plein écran',
+    'Saved as %name%': 'Enregistré sous %name%',
+    'Zoom in': 'Zoom avant',
+    'Zoom out': 'Zoom arrière',
+    'Actual size': 'Taille réelle',
+  });
+
+  Object.assign(de, {
+    'Copy path': 'Pfad kopieren',
+    'Path copied': 'Pfad kopiert',
+    'Could not copy the path': 'Pfad konnte nicht kopiert werden',
+    'Convert to Markdown': 'In Markdown umwandeln',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Vollbild',
+    'Exit fullscreen': 'Vollbild beenden',
+    'Saved as %name%': 'Gespeichert als %name%',
+    'Zoom in': 'Vergrößern',
+    'Zoom out': 'Verkleinern',
+    'Actual size': 'Originalgröße',
+  });
+
+  Object.assign(it, {
+    'Copy path': 'Copia percorso',
+    'Path copied': 'Percorso copiato',
+    'Could not copy the path': 'Impossibile copiare il percorso',
+    'Convert to Markdown': 'Converti in Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Schermo intero',
+    'Exit fullscreen': 'Esci da schermo intero',
+    'Saved as %name%': 'Salvato come %name%',
+    'Zoom in': 'Ingrandisci',
+    'Zoom out': 'Riduci',
+    'Actual size': 'Dimensione reale',
+  });
+
+  Object.assign(tr, {
+    'Copy path': 'Yolu kopyala',
+    'Path copied': 'Yol kopyalandı',
+    'Could not copy the path': 'Yol kopyalanamadı',
+    'Convert to Markdown': 'Markdown biçimine dönüştür',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Tam ekran',
+    'Exit fullscreen': 'Tam ekrandan çık',
+    'Saved as %name%': '%name% olarak kaydedildi',
+    'Zoom in': 'Yakınlaştır',
+    'Zoom out': 'Uzaklaştır',
+    'Actual size': 'Gerçek boyut',
+  });
+
+  Object.assign(es, {
+    'Copy path': 'Copiar ruta',
+    'Path copied': 'Ruta copiada',
+    'Could not copy the path': 'No se pudo copiar la ruta',
+    'Convert to Markdown': 'Convertir a Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': 'Pantalla completa',
+    'Exit fullscreen': 'Salir de pantalla completa',
+    'Saved as %name%': 'Guardado como %name%',
+    'Zoom in': 'Acercar',
+    'Zoom out': 'Alejar',
+    'Actual size': 'Tamaño real',
+  });
+
+  Object.assign(zh, {
+    'Copy path': '复制路径',
+    'Path copied': '路径已复制',
+    'Could not copy the path': '无法复制路径',
+    'Convert to Markdown': '转换为 Markdown',
+    'Markdown': 'Markdown',
+    'Fullscreen': '全屏',
+    'Exit fullscreen': '退出全屏',
+    'Saved as %name%': '已保存为 %name%',
+    'Zoom in': '放大',
+    'Zoom out': '缩小',
+    'Actual size': '实际大小',
+  });
+
+  Object.assign(fa, {
+    "Ask files": "پرسش از فایل‌ها",
+    "Ask about files…": "پرسش دربارهٔ فایل‌ها…",
+    "Ask about several documents": "پرسش دربارهٔ چند سند",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "یک پوشه یا چند سند را انتخاب کن و یک سؤال بپرس. هوش مصنوعی همهٔ سندهای انتخاب‌شده را می‌خواند و بعد جواب می‌دهد.",
+    "Pick documents": "انتخاب سندها",
+    "No documents selected": "هیچ سندی انتخاب نشده",
+    "%n% documents selected": "%n% سند انتخاب شده",
+    "Choose documents": "انتخاب سندها",
+    "Ask about these documents": "پرسش دربارهٔ این سندها",
+    "Reading documents…": "در حال خواندن سندها…",
+    "Pick at least one document": "حداقل یک سند انتخاب کن",
+    "Nothing to read in those documents": "چیزی برای خواندن در این سندها نیست",
+    "%n% documents could not be read": "%n% سند خوانده نشد",
+    "Question": "پرسش",
+  });
+
+  Object.assign(ar, {
+    "Ask files": "اسأل الملفات",
+    "Ask about files…": "اسأل عن الملفات…",
+    "Ask about several documents": "اسأل عن عدة مستندات",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "اختر مجلدًا أو مجموعة مستندات واطرح سؤالًا واحدًا. يقرأ الذكاء الاصطناعي كل مستند محدد قبل الإجابة.",
+    "Pick documents": "اختيار المستندات",
+    "No documents selected": "لم يتم اختيار أي مستند",
+    "%n% documents selected": "تم اختيار %n% مستندًا",
+    "Choose documents": "اختيار المستندات",
+    "Ask about these documents": "اسأل عن هذه المستندات",
+    "Reading documents…": "جارٍ قراءة المستندات…",
+    "Pick at least one document": "اختر مستندًا واحدًا على الأقل",
+    "Nothing to read in those documents": "لا يوجد ما يُقرأ في هذه المستندات",
+    "%n% documents could not be read": "تعذّرت قراءة %n% مستندًا",
+    "Question": "السؤال",
+  });
+
+  Object.assign(fr, {
+    "Ask files": "Interroger des fichiers",
+    "Ask about files…": "Interroger des fichiers…",
+    "Ask about several documents": "Poser une question sur plusieurs documents",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "Choisissez un dossier ou un ensemble de documents et posez une seule question. L’IA lit chaque document sélectionné avant de répondre.",
+    "Pick documents": "Choisir des documents",
+    "No documents selected": "Aucun document sélectionné",
+    "%n% documents selected": "%n% documents sélectionnés",
+    "Choose documents": "Choisir des documents",
+    "Ask about these documents": "Interroger ces documents",
+    "Reading documents…": "Lecture des documents…",
+    "Pick at least one document": "Choisissez au moins un document",
+    "Nothing to read in those documents": "Rien à lire dans ces documents",
+    "%n% documents could not be read": "%n% documents n’ont pas pu être lus",
+    "Question": "Question",
+  });
+
+  Object.assign(de, {
+    "Ask files": "Dateien fragen",
+    "Ask about files…": "Fragen zu Dateien…",
+    "Ask about several documents": "Frage zu mehreren Dokumenten",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "Wähle einen Ordner oder eine Gruppe von Dokumenten und stelle eine Frage. Die KI liest jedes gewählte Dokument, bevor sie antwortet.",
+    "Pick documents": "Dokumente auswählen",
+    "No documents selected": "Keine Dokumente ausgewählt",
+    "%n% documents selected": "%n% Dokumente ausgewählt",
+    "Choose documents": "Dokumente auswählen",
+    "Ask about these documents": "Zu diesen Dokumenten fragen",
+    "Reading documents…": "Dokumente werden gelesen…",
+    "Pick at least one document": "Wähle mindestens ein Dokument",
+    "Nothing to read in those documents": "In diesen Dokumenten steht nichts zum Lesen",
+    "%n% documents could not be read": "%n% Dokumente konnten nicht gelesen werden",
+    "Question": "Frage",
+  });
+
+  Object.assign(it, {
+    "Ask files": "Chiedi ai file",
+    "Ask about files…": "Chiedi sui file…",
+    "Ask about several documents": "Domanda su più documenti",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "Scegli una cartella o un gruppo di documenti e fai una domanda. L’IA legge ogni documento selezionato prima di rispondere.",
+    "Pick documents": "Scegli documenti",
+    "No documents selected": "Nessun documento selezionato",
+    "%n% documents selected": "%n% documenti selezionati",
+    "Choose documents": "Scegli documenti",
+    "Ask about these documents": "Chiedi su questi documenti",
+    "Reading documents…": "Lettura dei documenti…",
+    "Pick at least one document": "Scegli almeno un documento",
+    "Nothing to read in those documents": "Non c’è nulla da leggere in questi documenti",
+    "%n% documents could not be read": "Impossibile leggere %n% documenti",
+    "Question": "Domanda",
+  });
+
+  Object.assign(tr, {
+    "Ask files": "Dosyalara sor",
+    "Ask about files…": "Dosyalar hakkında sor…",
+    "Ask about several documents": "Birden çok belge hakkında soru",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "Bir klasör veya bir belge grubu seç ve tek bir soru sor. Yapay zekâ yanıtlamadan önce seçilen her belgeyi okur.",
+    "Pick documents": "Belge seç",
+    "No documents selected": "Belge seçilmedi",
+    "%n% documents selected": "%n% belge seçildi",
+    "Choose documents": "Belge seç",
+    "Ask about these documents": "Bu belgeler hakkında sor",
+    "Reading documents…": "Belgeler okunuyor…",
+    "Pick at least one document": "En az bir belge seç",
+    "Nothing to read in those documents": "Bu belgelerde okunacak bir şey yok",
+    "%n% documents could not be read": "%n% belge okunamadı",
+    "Question": "Soru",
+  });
+
+  Object.assign(es, {
+    "Ask files": "Preguntar a archivos",
+    "Ask about files…": "Preguntar sobre archivos…",
+    "Ask about several documents": "Pregunta sobre varios documentos",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "Elige una carpeta o un conjunto de documentos y haz una pregunta. La IA lee cada documento seleccionado antes de responder.",
+    "Pick documents": "Elegir documentos",
+    "No documents selected": "Ningún documento seleccionado",
+    "%n% documents selected": "%n% documentos seleccionados",
+    "Choose documents": "Elegir documentos",
+    "Ask about these documents": "Preguntar sobre estos documentos",
+    "Reading documents…": "Leyendo los documentos…",
+    "Pick at least one document": "Elige al menos un documento",
+    "Nothing to read in those documents": "No hay nada que leer en esos documentos",
+    "%n% documents could not be read": "No se pudieron leer %n% documentos",
+    "Question": "Pregunta",
+  });
+
+  Object.assign(zh, {
+    "Ask files": "向文件提问",
+    "Ask about files…": "询问文件…",
+    "Ask about several documents": "就多个文档提问",
+    "Pick a folder or a set of documents and ask one question. The AI reads every selected document before it answers.": "选择一个文件夹或一组文档，然后提一个问题。AI 会先读完所有选中的文档再回答。",
+    "Pick documents": "选择文档",
+    "No documents selected": "未选择文档",
+    "%n% documents selected": "已选择 %n% 个文档",
+    "Choose documents": "选择文档",
+    "Ask about these documents": "就这些文档提问",
+    "Reading documents…": "正在读取文档…",
+    "Pick at least one document": "至少选择一个文档",
+    "Nothing to read in those documents": "这些文档中没有可读内容",
+    "%n% documents could not be read": "%n% 个文档无法读取",
+    "Question": "问题",
+  });
+
+  Object.assign(fa, {
+    "%n% documents": "%n% سند",
+    "Answer language": "زبان پاسخ",
+    "App default (auto)": "پیش‌فرض اپ (خودکار)",
+    "App default (%lang%)": "پیش‌فرض اپ (%lang%)",
+    "Ask AI about documents": "پرسش از هوش مصنوعی دربارهٔ سندها",
+    "Ask something about these documents…": "دربارهٔ این سندها بپرس…",
+  });
+
+  Object.assign(ar, {
+    "%n% documents": "%n% مستند",
+    "Answer language": "لغة الإجابة",
+    "App default (auto)": "افتراضي التطبيق (تلقائي)",
+    "App default (%lang%)": "افتراضي التطبيق (%lang%)",
+    "Ask AI about documents": "اسأل الذكاء الاصطناعي عن المستندات",
+    "Ask something about these documents…": "اسأل عن هذه المستندات…",
+  });
+
+  Object.assign(fr, {
+    "%n% documents": "%n% documents",
+    "Answer language": "Langue de la réponse",
+    "App default (auto)": "Par défaut de l’app (auto)",
+    "App default (%lang%)": "Par défaut de l’app (%lang%)",
+    "Ask AI about documents": "Interroger l’IA sur les documents",
+    "Ask something about these documents…": "Posez une question sur ces documents…",
+  });
+
+  Object.assign(de, {
+    "%n% documents": "%n% Dokumente",
+    "Answer language": "Antwortsprache",
+    "App default (auto)": "App-Standard (automatisch)",
+    "App default (%lang%)": "App-Standard (%lang%)",
+    "Ask AI about documents": "KI zu Dokumenten fragen",
+    "Ask something about these documents…": "Frage zu diesen Dokumenten…",
+  });
+
+  Object.assign(it, {
+    "%n% documents": "%n% documenti",
+    "Answer language": "Lingua della risposta",
+    "App default (auto)": "Predefinita dell’app (auto)",
+    "App default (%lang%)": "Predefinita dell’app (%lang%)",
+    "Ask AI about documents": "Chiedi all’IA dei documenti",
+    "Ask something about these documents…": "Chiedi qualcosa su questi documenti…",
+  });
+
+  Object.assign(tr, {
+    "%n% documents": "%n% belge",
+    "Answer language": "Yanıt dili",
+    "App default (auto)": "Uygulama varsayılanı (otomatik)",
+    "App default (%lang%)": "Uygulama varsayılanı (%lang%)",
+    "Ask AI about documents": "Belgeler hakkında AI’ya sor",
+    "Ask something about these documents…": "Bu belgeler hakkında bir şey sor…",
+  });
+
+  Object.assign(es, {
+    "%n% documents": "%n% documentos",
+    "Answer language": "Idioma de la respuesta",
+    "App default (auto)": "Predeterminado de la app (auto)",
+    "App default (%lang%)": "Predeterminado de la app (%lang%)",
+    "Ask AI about documents": "Preguntar a la IA sobre los documentos",
+    "Ask something about these documents…": "Pregunta algo sobre estos documentos…",
+  });
+
+  Object.assign(zh, {
+    "%n% documents": "%n% 个文档",
+    "Answer language": "回答语言",
+    "App default (auto)": "应用默认（自动）",
+    "App default (%lang%)": "应用默认（%lang%）",
+    "Ask AI about documents": "就文档询问 AI",
+    "Ask something about these documents…": "就这些文档提问…",
+  });
+
+  Object.assign(fa, {
+    "Open containing folder": "باز کردن پوشهٔ محل فایل",
+    "Could not open the folder": "باز کردن پوشه انجام نشد",
+  });
+
+  Object.assign(ar, {
+    "Open containing folder": "فتح المجلد الذي يحتوي عليه",
+    "Could not open the folder": "تعذّر فتح المجلد",
+  });
+
+  Object.assign(fr, {
+    "Open containing folder": "Ouvrir le dossier contenant",
+    "Could not open the folder": "Impossible d’ouvrir le dossier",
+  });
+
+  Object.assign(de, {
+    "Open containing folder": "Enthaltenden Ordner öffnen",
+    "Could not open the folder": "Ordner konnte nicht geöffnet werden",
+  });
+
+  Object.assign(it, {
+    "Open containing folder": "Apri la cartella che lo contiene",
+    "Could not open the folder": "Impossibile aprire la cartella",
+  });
+
+  Object.assign(tr, {
+    "Open containing folder": "İçeren klasörü aç",
+    "Could not open the folder": "Klasör açılamadı",
+  });
+
+  Object.assign(es, {
+    "Open containing folder": "Abrir la carpeta contenedora",
+    "Could not open the folder": "No se pudo abrir la carpeta",
+  });
+
+  Object.assign(zh, {
+    "Open containing folder": "打开所在文件夹",
+    "Could not open the folder": "无法打开文件夹",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

@@ -206,11 +206,13 @@ let state = {
   searchQuery: '',
   contextTarget: null,
   contextIsFolder: false,
+  contextIsRoot: false,
   expandedFolders: new Set(),
   newFileFolder: '',
   zoom: 100,
   direction: 'auto',
   htmlPreviewZoom: 100,
+  htmlPreviewFullscreen: false,
   fontSize: 100,
   palette: 'default-dark',
   dirByFile: {},
@@ -431,6 +433,8 @@ const modals = {
   saveAnswer: $('modalSaveAnswer'),
   comment: $('modalComment'),
   explainCode: $('modalExplainCode'),
+  compare: $('modalCompare'),
+  askFiles: $('modalAskFiles'),
   selectionEdit: $('modalSelectionEdit'),
   settings: $('modalSettings'),
 };
@@ -1082,6 +1086,7 @@ function buildFolderNode(folder, childrenOf, fileItems, forcedOpen, depth) {
     e.preventDefault();
     state.contextTarget = folder.path;
     state.contextIsFolder = true;
+    state.contextIsRoot = false;
     showContextMenu(e.clientX, e.clientY);
   });
   row.querySelector('.rename').addEventListener('click', (e) => {
@@ -1294,6 +1299,7 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
     e.preventDefault();
     state.contextTarget = file.path;
     state.contextIsFolder = false;
+    state.contextIsRoot = false;
     showContextMenu(e.clientX, e.clientY);
   });
   item.querySelector('.star').addEventListener('click', (e) => {
@@ -1466,6 +1472,13 @@ function buildExternalItem(entry) {
   item.addEventListener('click', (e) => {
     if (e.target.closest('button')) return;
     selectFile(key, { source: 'external' });
+  });
+  item.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    state.contextTarget = key;
+    state.contextIsFolder = false;
+    state.contextIsRoot = false;
+    showContextMenu(e.clientX, e.clientY);
   });
   item.querySelector('.ext-remove').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1780,6 +1793,49 @@ function remapMovedPaths(oldPath, newPath) {
   savePreferences();
 }
 
+// A copy of a note next to the original: "note copy.md", then "note copy 2.md".
+async function duplicateItem(path) {
+  if (!path || isExternalPath(path)) return;
+  try {
+    const res = await window.inkwell.duplicateFile(path);
+    if (!res || !res.success) {
+      toast('Could not duplicate: ' + ((res && res.error) || 'unknown error'), 'error');
+      return;
+    }
+    await refreshFiles();
+    expandAncestors(res.path);
+    await selectFile(res.path, { source: 'tree' });
+    toast('Duplicated ' + res.path.split('/').pop(), 'success');
+  } catch (_) {
+    toast('Could not duplicate note', 'error');
+  }
+}
+
+// Files copied in the system file manager land in the given library folder.
+async function pasteIntoVault(dir) {
+  const target = dir == null ? '' : String(dir);
+  try {
+    const res = await window.inkwell.pasteFiles(target);
+    if (!res || !res.success) {
+      if (res && res.empty) toast('Nothing to paste', 'info');
+      else if (res && res.skipped) toast('Nothing to paste: only notes and images can be added', 'info');
+      else toast('Could not paste: ' + ((res && res.error) || 'unknown error'), 'error');
+      return;
+    }
+    if (target) state.expandedFolders.add(target);
+    await refreshFiles();
+    const first = res.files[0];
+    if (first) {
+      expandAncestors(first);
+      await selectFile(first, { source: 'tree' });
+    }
+    const label = res.files.length === 1 ? first.split('/').pop() : res.files.length + ' files';
+    toast('Pasted ' + label + (res.skipped ? ' (' + res.skipped + ' skipped)' : ''), 'success');
+  } catch (_) {
+    toast('Could not paste', 'error');
+  }
+}
+
 async function moveItem(src, isFolder, newPath, destDir) {
   try {
     const result = isFolder
@@ -2046,7 +2102,10 @@ function schedulePaginate(delay = 0) {
 // Weights/faces can finish loading (and change text metrics) after
 // document.fonts.ready has already resolved, so re-paginate on every font load.
 if (document.fonts && document.fonts.addEventListener) {
-  document.fonts.addEventListener('loadingdone', () => schedulePaginate(0));
+  document.fonts.addEventListener('loadingdone', () => {
+    schedulePaginate(0);
+    try { refreshDiagramBlocks(); } catch (_) {}
+  });
 }
 
 function flattenPreview(root) {
@@ -2095,23 +2154,52 @@ function renderPreview(force = false) {
     els.previewContent.replaceChildren();
     els.previewContent.classList.remove('markdown-body');
     els.editorArea.classList.add('html-preview');
+    htmlPreviewFrames.clear();
+    closeHTMLPreviewMenu();
     const shell = document.createElement('div');
     shell.className = 'html-preview-shell';
     const topbar = document.createElement('div');
     topbar.className = 'html-preview-topbar';
-    topbar.innerHTML = `<span class="html-preview-indicator"></span><span>HTML Preview</span><div class="html-preview-zoom"><button type="button" class="html-preview-zoom-out" title="Zoom out" aria-label="Zoom out">−</button><span class="html-preview-zoom-value">${state.htmlPreviewZoom}%</span><button type="button" class="html-preview-zoom-in" title="Zoom in" aria-label="Zoom in">+</button></div><span class="html-preview-filename">${escapeHtml(baseName(state.currentFile))}</span>`;
+    const fullscreenLabel = t(state.htmlPreviewFullscreen ? 'Exit fullscreen' : 'Fullscreen');
+    topbar.innerHTML = `<span class="html-preview-indicator"></span><span class="html-preview-label">HTML Preview</span>`
+      + `<span class="html-preview-filename">${escapeHtml(baseName(state.currentFile))}</span>`
+      + `<div class="html-preview-zoom"><button type="button" class="html-preview-zoom-out" title="${t('Zoom out')}" aria-label="${t('Zoom out')}">−</button><span class="html-preview-zoom-value">${state.htmlPreviewZoom}%</span><button type="button" class="html-preview-zoom-in" title="${t('Zoom in')}" aria-label="${t('Zoom in')}">+</button></div>`
+      + `<button type="button" class="html-preview-action" data-preview-action="markdown" title="${t('Convert to Markdown')}">${convertIcon}<span>${t('Markdown')}</span></button>`
+      + `<button type="button" class="html-preview-action is-icon" data-preview-action="fullscreen" title="${fullscreenLabel}" aria-label="${fullscreenLabel}">${fullscreenIcon}</button>`;
     const frame = document.createElement('iframe');
     frame.className = 'html-document-preview';
     frame.title = `HTML preview: ${baseName(state.currentFile)}`;
-    frame.setAttribute('sandbox', '');
+    // exported HTML documents often build themselves with JavaScript, so the
+    // page's own scripts have to run. Without allow-same-origin the frame keeps
+    // an opaque origin: it cannot touch the app, its storage or the vault, and
+    // it cannot navigate this window.
+    frame.setAttribute('sandbox', 'allow-scripts');
     frame.srcdoc = buildHTMLPreviewSource(els.editor.value || '', state.htmlPreviewZoom);
     shell.append(topbar, frame);
+    if (state.htmlPreviewFullscreen) shell.classList.add('is-fullscreen');
     els.previewContent.appendChild(shell);
+    if (frame.contentWindow) htmlPreviewFrames.set(frame.contentWindow, { topbar, frame });
+    // right-clicking the bar or the empty shell around the frame behaves like
+    // right-clicking the page itself
+    shell.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      openHTMLPreviewMenu(event.clientX, event.clientY);
+    });
     topbar.querySelector('.html-preview-zoom-out').addEventListener('click', () => setHTMLPreviewZoom(state.htmlPreviewZoom - 10));
     topbar.querySelector('.html-preview-zoom-in').addEventListener('click', () => setHTMLPreviewZoom(state.htmlPreviewZoom + 10));
+    topbar.querySelector('[data-preview-action="markdown"]').addEventListener('click', () => {
+      convertHTMLToMarkdown();
+    });
+    topbar.querySelector('[data-preview-action="fullscreen"]').addEventListener('click', () => {
+      toggleHTMLPreviewFullscreen();
+    });
     return;
   }
   els.editorArea.classList.remove('html-preview');
+  if (state.htmlPreviewFullscreen) {
+    state.htmlPreviewFullscreen = false;
+    document.body.classList.remove('html-preview-fullscreen');
+  }
   els.previewContent.classList.add('markdown-body');
   els.previewContent.innerHTML = md.render(els.editor.value || welcomeHtml());
   enhanceCodeBlocks();
@@ -2157,18 +2245,392 @@ function renderDocxPreview() {
 
 function buildHTMLPreviewSource(source, zoomPercent) {
   const zoomStyle = `<style data-inkwell-html-zoom>html{zoom:${zoomPercent / 100} !important;}</style>`;
-  if (/<head\b[^>]*>/i.test(source)) return source.replace(/<head\b[^>]*>/i, (head) => head + zoomStyle);
-  if (/<html\b[^>]*>/i.test(source)) return source.replace(/<html\b[^>]*>/i, (html) => `${html}<head>${zoomStyle}</head>`);
-  return `<!doctype html><html><head>${zoomStyle}</head><body>${source}</body></html>`;
+  const probeScript = `<script data-inkwell-html-probe>(function () {
+  var reported = false;
+  function report() {
+    try {
+      var text = (document.body && document.body.innerText) || '';
+      text = text.replace(/\\s+/g, ' ').trim();
+      if (reported && text.length > 40) return;
+      reported = true;
+      parent.postMessage({
+        inkwellHtmlPreview: 1,
+        length: text.length,
+        stuck: /Loading the document/i.test(text)
+      }, '*');
+    } catch (e) {}
+  }
+  setTimeout(report, 1200);
+  window.addEventListener('load', function () { setTimeout(report, 300); });
+  // The frame has an opaque origin, so a plain "#anchor" link would try to load
+  // the app's own URL and be blocked. Scroll inside the frame instead.
+  document.addEventListener('click', function (e) {
+    var node = e.target;
+    var link = node && node.closest ? node.closest('a[href]') : null;
+    if (!link) return;
+    var href = link.getAttribute('href') || '';
+    if (href.charAt(0) !== '#' || href.length < 2) return;
+    var id = href.slice(1);
+    var target = document.getElementById(id) || document.querySelector('[name="' + id.replace(/"/g, '\\\\"') + '"]');
+    if (!target) return;
+    e.preventDefault();
+    target.scrollIntoView();
+  }, true);
+  // Right-click belongs to the app, not to the frame's default menu.
+  document.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    try {
+      parent.postMessage({ inkwellHtmlContextMenu: 1, x: e.clientX, y: e.clientY }, '*');
+    } catch (err) {}
+  });
+})();</script>`;
+  if (/<head\b[^>]*>/i.test(source)) return injectProbe(source.replace(/<head\b[^>]*>/i, (head) => head + zoomStyle), probeScript);
+  if (/<html\b[^>]*>/i.test(source)) return injectProbe(source.replace(/<html\b[^>]*>/i, (html) => `${html}<head>${zoomStyle}</head>`), probeScript);
+  // No <html>/<head> at all: many exported pages start straight with <title>,
+  // <meta>, <link> and <style> and are only fragments plus scripts. Let the HTML
+  // parser do the head/body split so those stay real document-level elements
+  // instead of being dumped inside <body>.
+  const parsed = new DOMParser().parseFromString(source, 'text/html');
+  const headHtml = parsed.head ? [...parsed.head.childNodes].map((node) => node.outerHTML).join('') : '';
+  const bodyHtml = parsed.body ? parsed.body.innerHTML : source;
+  return `<!doctype html><html><head>${zoomStyle}${headHtml}</head><body>${bodyHtml}${probeScript}</body></html>`;
 }
+
+// Reports back to the app whether the page produced any content, so a document
+// that depends on an unreachable script or stylesheet can say so instead of
+// sitting on its own "loading" placeholder forever.
+function injectProbe(source, probeScript) {
+  if (/<\/body\s*>/i.test(source)) return source.replace(/<\/body\s*>/i, `${probeScript}</body>`);
+  return `${source}${probeScript}`;
+}
+
+const htmlPreviewFrames = new Map();
+
+function toggleHTMLPreviewFullscreen() {
+  state.htmlPreviewFullscreen = !state.htmlPreviewFullscreen;
+  applyHTMLPreviewFullscreen();
+}
+
+function applyHTMLPreviewFullscreen() {
+  const shell = els.previewContent.querySelector('.html-preview-shell');
+  const on = !!shell && state.htmlPreviewFullscreen;
+  if (shell) shell.classList.toggle('is-fullscreen', on);
+  document.body.classList.toggle('html-preview-fullscreen', on);
+  const btn = shell && shell.querySelector('[data-preview-action="fullscreen"]');
+  if (btn) {
+    const label = t(on ? 'Exit fullscreen' : 'Fullscreen');
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  }
+}
+
+function showHTMLPreviewWarning(topbar) {
+  if (!topbar || !topbar.isConnected || topbar.querySelector('.html-preview-warning')) return;
+  const chip = document.createElement('span');
+  chip.className = 'html-preview-warning';
+  chip.textContent = t('This page did not finish loading. It may need an internet connection.');
+  const reload = document.createElement('button');
+  reload.type = 'button';
+  reload.className = 'html-preview-reload';
+  reload.textContent = t('Reload preview');
+  reload.addEventListener('click', () => {
+    const frame = topbar.parentElement && topbar.parentElement.querySelector('iframe.html-document-preview');
+    chip.remove();
+    if (frame) frame.srcdoc = frame.srcdoc;
+  });
+  chip.append(reload);
+  topbar.append(chip);
+}
+
+function handleHTMLPreviewMessage(event) {
+  const entry = htmlPreviewFrames.get(event.source);
+  if (!entry) return;
+  const data = event.data;
+  if (data && data.inkwellHtmlContextMenu === 1) {
+    const frame = entry.frame;
+    const rect = frame && frame.isConnected ? frame.getBoundingClientRect() : null;
+    const x = rect ? rect.left + Number(data.x || 0) : window.innerWidth / 2;
+    const y = rect ? rect.top + Number(data.y || 0) : window.innerHeight / 2;
+    openHTMLPreviewMenu(x, y);
+    return;
+  }
+  if (!data || data.inkwellHtmlPreview !== 1) return;
+  if (!data.stuck && data.length > 40) return;
+  showHTMLPreviewWarning(entry.topbar);
+}
+
+let htmlPreviewMenuEl = null;
+let htmlPreviewMenuOutside = null;
+
+function closeHTMLPreviewMenu() {
+  if (htmlPreviewMenuOutside) {
+    document.removeEventListener('mousedown', htmlPreviewMenuOutside, true);
+    htmlPreviewMenuOutside = null;
+  }
+  if (htmlPreviewMenuEl) {
+    htmlPreviewMenuEl.remove();
+    htmlPreviewMenuEl = null;
+  }
+}
+
+// Right-clicking anywhere in a previewed page (inside the frame or on the bar
+// above it) opens the same actions as the toolbar, plus zoom and a reload.
+function openHTMLPreviewMenu(clientX, clientY) {
+  closeHTMLPreviewMenu();
+  if (!state.currentFile || !/\.html?$/i.test(state.currentFile)) return;
+  const item = (label, icon, act) => `<button type="button" class="context-item" data-act="${act}">${icon}<span>${escapeHtml(label)}</span></button>`;
+  const menu = document.createElement('div');
+  menu.className = 'context-menu html-preview-menu';
+  menu.innerHTML = [
+    item(t('Convert to Markdown'), convertIcon, 'markdown'),
+    item(t(state.htmlPreviewFullscreen ? 'Exit fullscreen' : 'Fullscreen'), fullscreenIcon, 'fullscreen'),
+    item(t('Copy path'), copyIcon, 'copy-path'),
+    '<div class="context-divider"></div>',
+    item(t('Zoom in'), '', 'zoom-in'),
+    item(t('Zoom out'), '', 'zoom-out'),
+    item(t('Actual size'), '', 'zoom-reset'),
+    '<div class="context-divider"></div>',
+    item(t('Reload preview'), reloadIcon, 'reload'),
+  ].join('');
+  document.body.appendChild(menu);
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(clientX, window.innerWidth - rect.width - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(clientY, window.innerHeight - rect.height - 8)) + 'px';
+  menu.addEventListener('click', (event) => {
+    const button = event.target.closest('.context-item');
+    if (!button) return;
+    const act = button.dataset.act;
+    closeHTMLPreviewMenu();
+    runHTMLPreviewAction(act);
+  });
+  htmlPreviewMenuEl = menu;
+  // a click anywhere else in the app dismisses the menu; a click on the menu
+  // itself is handled above
+  htmlPreviewMenuOutside = (event) => {
+    if (menu.contains(event.target)) return;
+    closeHTMLPreviewMenu();
+  };
+  document.addEventListener('mousedown', htmlPreviewMenuOutside, true);
+}
+
+function runHTMLPreviewAction(act) {
+  const frame = els.previewContent.querySelector('iframe.html-document-preview');
+  if (act === 'markdown') { convertHTMLToMarkdown(); return; }
+  if (act === 'fullscreen') { toggleHTMLPreviewFullscreen(); return; }
+  if (act === 'zoom-in') { setHTMLPreviewZoom(state.htmlPreviewZoom + 10); return; }
+  if (act === 'zoom-out') { setHTMLPreviewZoom(state.htmlPreviewZoom - 10); return; }
+  if (act === 'zoom-reset') { setHTMLPreviewZoom(100); return; }
+  if (act === 'reload') { if (frame) frame.srcdoc = frame.srcdoc; return; }
+  if (act === 'copy-path') {
+    const file = state.currentFile;
+    if (!file) return;
+    const abs = isExternalPath(file) ? externalAbsOf(file) : fullItemPath(file);
+    copyText(abs).then((ok) => {
+      toast(ok ? t('Path copied') : t('Could not copy the path'), ok ? 'success' : 'error');
+    });
+  }
+}
+
+window.addEventListener('message', handleHTMLPreviewMessage);
 
 function setHTMLPreviewZoom(value) {
   state.htmlPreviewZoom = Math.max(60, Math.min(160, Math.round(value / 10) * 10));
   renderPreview(true);
 }
 
+/* ============ HTML -> MARKDOWN ============ */
+// The page's own scripts are never run here: the markup is converted as the
+// author wrote it. Pages that ship their source in a <script type="text/markdown">
+// payload (a common export pattern) are taken as they are.
+function htmlSourceToMarkdown(source) {
+  const parsed = new DOMParser().parseFromString(String(source || ''), 'text/html');
+  const payload = parsed.querySelector('script[type="text/markdown"], script[type="text/x-markdown"], script[data-markdown], script#src[type*="markdown"]');
+  if (payload) {
+    const text = (payload.textContent || '').replace(/<\\\//g, '</').trim();
+    if (text.length > 40) return text;
+  }
+  const body = parsed.body;
+  if (!body) return '';
+  body.querySelectorAll('script, style, noscript, template, svg, nav, aside, form, iframe, link, meta').forEach((node) => node.remove());
+  const blocks = [];
+  markdownOfBlocks(body, blocks);
+  return tidyMarkdown(blocks.join('\n\n'));
+}
+
+function markdownOfInline(node) {
+  let out = '';
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === 3) {
+      out += child.nodeValue.replace(/[\t\n\r]+/g, ' ').replace(/\s{2,}/g, ' ');
+      return;
+    }
+    if (child.nodeType !== 1) return;
+    const tag = child.tagName.toLowerCase();
+    const inner = markdownOfInline(child).trim();
+    if (tag === 'br') out += '  \n';
+    else if (tag === 'strong' || tag === 'b') out += inner ? `**${inner}**` : '';
+    else if (tag === 'em' || tag === 'i') out += inner ? `*${inner}*` : '';
+    else if (tag === 'del' || tag === 's' || tag === 'strike') out += inner ? `~~${inner}~~` : '';
+    else if (tag === 'code') out += '`' + (child.textContent || '').replace(/\s+/g, ' ').trim() + '`';
+    else if (tag === 'a') {
+      const href = (child.getAttribute('href') || '').trim();
+      if (!href || href.charAt(0) === '#' || /^javascript:/i.test(href)) out += inner;
+      else out += inner ? `[${inner}](${href})` : `[${href}](${href})`;
+    } else if (tag === 'img') {
+      const src = (child.getAttribute('src') || '').trim();
+      const alt = (child.getAttribute('alt') || '').trim();
+      if (src && !src.startsWith('data:')) out += `![${alt}](${src})`;
+    } else out += markdownOfInline(child);
+  });
+  return out;
+}
+
+function markdownOfList(list, ordered) {
+  const lines = [];
+  let index = 1;
+  [...list.children].forEach((li) => {
+    if (li.tagName.toLowerCase() !== 'li') return;
+    const inline = [];
+    const nested = [];
+    li.childNodes.forEach((child) => {
+      if (child.nodeType === 1 && /^(ul|ol)$/i.test(child.tagName)) nested.push(child);
+      else if (child.nodeType === 1 && /^(p|div)$/i.test(child.tagName)) inline.push(markdownOfInline(child).trim());
+      else inline.push(markdownOfInline({ childNodes: [child] }).trim());
+    });
+    const marker = ordered ? `${index++}.` : '-';
+    const text = inline.filter(Boolean).join(' ').trim();
+    lines.push(`${marker} ${text}`.trim());
+    nested.forEach((sub) => {
+      markdownOfList(sub, sub.tagName.toLowerCase() === 'ol').split('\n').forEach((line) => lines.push(`   ${line}`));
+    });
+  });
+  return lines.join('\n');
+}
+
+function markdownOfTable(table) {
+  const rows = [...table.querySelectorAll('tr')].map((tr) => [...tr.children]
+    .filter((cell) => /^(td|th)$/i.test(cell.tagName))
+    .map((cell) => markdownOfInline(cell).trim().replace(/\s+/g, ' ').replace(/\|/g, '\\|')));
+  const body = rows.filter((r) => r.length);
+  if (!body.length) return '';
+  const cols = Math.max(...body.map((r) => r.length));
+  const pad = (row) => {
+    const cells = row.slice();
+    while (cells.length < cols) cells.push('');
+    return cells;
+  };
+  const out = ['| ' + pad(body[0]).join(' | ') + ' |', '| ' + Array(cols).fill('---').join(' | ') + ' |'];
+  body.slice(1).forEach((row) => out.push('| ' + pad(row).join(' | ') + ' |'));
+  return out.join('\n');
+}
+
+const MARKDOWN_BLOCK_TAGS = new Set(['div', 'section', 'article', 'main', 'header', 'footer', 'figure', 'figcaption', 'details', 'summary', 'body', 'tbody', 'thead']);
+
+function markdownOfBlocks(node, blocks) {
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === 3) {
+      const text = child.nodeValue.replace(/\s+/g, ' ').trim();
+      if (text) blocks.push(text);
+      return;
+    }
+    if (child.nodeType !== 1) return;
+    const tag = child.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) {
+      const text = markdownOfInline(child).trim();
+      if (text) blocks.push('#'.repeat(Number(tag[1])) + ' ' + text);
+      return;
+    }
+    if (tag === 'p') {
+      const text = markdownOfInline(child).trim();
+      if (text) blocks.push(text);
+      return;
+    }
+    if (tag === 'ul' || tag === 'ol') {
+      const list = markdownOfList(child, tag === 'ol');
+      if (list.trim()) blocks.push(list);
+      return;
+    }
+    if (tag === 'blockquote') {
+      const inner = [];
+      markdownOfBlocks(child, inner);
+      const quoted = inner.join('\n\n').split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n');
+      if (quoted.trim()) blocks.push(quoted);
+      return;
+    }
+    if (tag === 'pre') {
+      const codeEl = child.querySelector('code') || child;
+      const code = (codeEl.textContent || '').replace(/\n+$/, '');
+      if (!code.trim()) return;
+      const langMatch = (codeEl.className || '').match(/language-([\w+#.-]+)/i);
+      blocks.push('```' + (langMatch ? langMatch[1] : '') + '\n' + code + '\n```');
+      return;
+    }
+    if (tag === 'table') {
+      const table = markdownOfTable(child);
+      if (table.trim()) blocks.push(table);
+      return;
+    }
+    if (tag === 'hr') {
+      blocks.push('---');
+      return;
+    }
+    if (MARKDOWN_BLOCK_TAGS.has(tag)) {
+      markdownOfBlocks(child, blocks);
+      return;
+    }
+    // an inline element sitting directly in a block container (a bare <a>, <button>
+    // or <span> row): convert the element itself, not just its children
+    const text = markdownOfInline({ childNodes: [child] }).trim();
+    if (text) blocks.push(text);
+  });
+}
+
+function tidyMarkdown(text) {
+  return String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+$/, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim() + '\n';
+}
+
+async function convertHTMLToMarkdown() {
+  const current = state.currentFile;
+  if (!current || !/\.html?$/i.test(current)) return;
+  const markdown = htmlSourceToMarkdown(els.editor.value || '');
+  if (!markdown || markdown.trim().length < 2) {
+    toast(t('This document has no readable content'), 'error');
+    return;
+  }
+  const external = isExternalPath(current);
+  const relPath = external ? '' : current;
+  const folder = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
+  const base = baseName(external ? externalAbsOf(current) : current).replace(/\.html?$/i, '') || 'document';
+  const taken = new Set(state.files.map((f) => f.path.toLowerCase()));
+  let target = `${base}.md`;
+  let n = 2;
+  while (taken.has((folder ? folder + '/' : '') + target.toLowerCase())) {
+    target = `${base}-${n}.md`;
+    n += 1;
+  }
+  const logical = folder ? `${folder}/${target}` : target;
+  const res = await window.inkwell.writeFile(logical, markdown);
+  if (!res || !res.success) {
+    toast((res && res.error) || t('Save failed'), 'error');
+    return;
+  }
+  await refreshFiles();
+  await selectFile((res && res.path) || logical, { source: 'tree', reveal: true });
+  toast(t('Saved as %name%').replace('%name%', target), 'success');
+}
+
 /* ============ CODE BLOCKS (header + copy) ============ */
 const copyIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const diagramIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="7" height="6" rx="1.2"/><rect x="14.5" y="15" width="7" height="6" rx="1.2"/><path d="M9.5 6h3.5a2 2 0 0 1 2 2v4"/><path d="m13 14 2-2 2 2"/></svg>';
+const convertIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 15h8"/><path d="M8 18h5"/></svg>';
+const fullscreenIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/></svg>';
+const reloadIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>';
 
 function codeLangLabel(code) {
   const m = (code.className || '').match(/language-([\w+#.-]+)/i);
@@ -2203,21 +2665,293 @@ function fallbackCopy(text) {
   }
 }
 
+/* ============ ASCII / BOX-DRAWING DIAGRAMS ============ */
+// A fenced block that is really a diagram (box drawing, arrows, +---+ art) is
+// drawn as a vector diagram instead of a wall of monospace text: every cell of
+// the text grid becomes a line segment or a label, so the layout stays exactly
+// as the author wrote it while the result looks like a figure.
+const DIAGRAM_BOX = {
+  '─': ['l', 'r'], '━': ['l', 'r'], '═': ['l', 'r'], '╌': ['l', 'r'], '╍': ['l', 'r'], '┄': ['l', 'r'], '┈': ['l', 'r'],
+  '│': ['u', 'd'], '┃': ['u', 'd'], '║': ['u', 'd'], '╎': ['u', 'd'], '┆': ['u', 'd'], '┊': ['u', 'd'],
+  '┌': ['r', 'd'], '┏': ['r', 'd'], '╔': ['r', 'd'], '╭': ['r', 'd'],
+  '┐': ['l', 'd'], '┓': ['l', 'd'], '╗': ['l', 'd'], '╮': ['l', 'd'],
+  '└': ['r', 'u'], '┗': ['r', 'u'], '╚': ['r', 'u'], '╰': ['r', 'u'],
+  '┘': ['l', 'u'], '┛': ['l', 'u'], '╝': ['l', 'u'], '╯': ['l', 'u'],
+  '├': ['u', 'd', 'r'], '┣': ['u', 'd', 'r'], '╠': ['u', 'd', 'r'],
+  '┤': ['u', 'd', 'l'], '┫': ['u', 'd', 'l'], '╣': ['u', 'd', 'l'],
+  '┬': ['l', 'r', 'd'], '┳': ['l', 'r', 'd'], '╦': ['l', 'r', 'd'],
+  '┴': ['l', 'r', 'u'], '┻': ['l', 'r', 'u'], '╩': ['l', 'r', 'u'],
+  '┼': ['l', 'r', 'u', 'd'], '╋': ['l', 'r', 'u', 'd'], '╬': ['l', 'r', 'u', 'd'],
+};
+
+const DIAGRAM_ARROWS = {
+  '▶': 'r', '►': 'r', '➤': 'r', '▷': 'r', '→': 'r', '⟶': 'r',
+  '◀': 'l', '◄': 'l', '◁': 'l', '←': 'l', '⟵': 'l',
+  '▲': 'u', '△': 'u', '↑': 'u', '▼': 'd', '▽': 'd', '↓': 'd',
+};
+
+const DIAGRAM_H = new Set(['-', '+', '=', '<', '>']);
+const DIAGRAM_V = new Set(['|', '+', ':', '=']);
+const DIAGRAM_ASCII = new Set(['-', '|', '+', '=']);
+
+function diagramCell(lines, x, y) {
+  const line = lines[y];
+  return line == null ? '' : (line[x] || '');
+}
+
+// Which directions a plain ASCII character connects to its neighbours.
+function diagramAsciiDirs(lines, x, y) {
+  const ch = diagramCell(lines, x, y);
+  if (!DIAGRAM_ASCII.has(ch)) return null;
+  const left = diagramCell(lines, x - 1, y);
+  const right = diagramCell(lines, x + 1, y);
+  const up = diagramCell(lines, x, y - 1);
+  const down = diagramCell(lines, x, y + 1);
+  const dirs = [];
+  if (ch === '-') {
+    if (DIAGRAM_H.has(left)) dirs.push('l');
+    if (DIAGRAM_H.has(right)) dirs.push('r');
+    return dirs.length ? dirs : null;
+  }
+  if (ch === '|') {
+    if (DIAGRAM_V.has(up) || up === '-') dirs.push('u');
+    if (DIAGRAM_V.has(down) || down === '-') dirs.push('d');
+    return dirs.length ? dirs : null;
+  }
+  if (ch === '=') {
+    if (left === '=' || left === '+') dirs.push('l');
+    if (right === '=' || right === '+') dirs.push('r');
+    return dirs.length ? dirs : null;
+  }
+  // '+': a junction in every direction that touches a line
+  if (DIAGRAM_H.has(left) || left === '-') dirs.push('l');
+  if (DIAGRAM_H.has(right) || right === '-') dirs.push('r');
+  if (DIAGRAM_V.has(up) || up === '-') dirs.push('u');
+  if (DIAGRAM_V.has(down) || down === '-') dirs.push('d');
+  return dirs.length ? dirs : null;
+}
+
+// Is this fenced block a diagram? Returns the prepared grid or null.
+function detectDiagram(text) {
+  const raw = String(text || '').replace(/\r/g, '').replace(/\t/g, '    ').split('\n');
+  while (raw.length && !raw[raw.length - 1].trim()) raw.pop();
+  while (raw.length && !raw[0].trim()) raw.shift();
+  if (raw.length < 3 || raw.length > 90) return null;
+  const cols = Math.max(...raw.map((l) => l.length));
+  if (cols < 8 || cols > 220) return null;
+
+  const body = raw.join('\n');
+  const boxCount = (body.match(/[\u2500-\u257F]/g) || []).length;
+  const arrowCount = (body.match(/[▶►◀◄▷◁▲▼△▽→←↑↓]/g) || []).length;
+  if (boxCount >= 10) return { lines: raw, cols, ascii: false };
+  if (boxCount + arrowCount >= 12) return { lines: raw, cols, ascii: false };
+
+  // plain +---+ art: a couple of border rows and some side bars
+  const borders = raw.filter((l) => /^\s*\+[-+=+]+\+\s*$/.test(l) || /^\s*[+|][-+=]{6,}/.test(l.trim())).length;
+  const bars = raw.filter((l) => /^\s*\|/.test(l) || /\|\s*$/.test(l)).length;
+  if (borders >= 2 && bars >= 2) return { lines: raw, cols, ascii: true };
+  return null;
+}
+
+// The grid has to use the font's real advance width, otherwise a long label
+// slowly slides off its column and lands on the lines around it.
+let diagramCellW = 0;
+function diagramCharWidth() {
+  if (diagramCellW) return diagramCellW;
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = '500 13px "JetBrains Mono", "SF Mono", ui-monospace, monospace';
+    const w = ctx.measureText('M'.repeat(20)).width / 20;
+    diagramCellW = w > 3 ? Math.round(w * 100) / 100 : 7.8;
+  } catch (_) {
+    diagramCellW = 7.8;
+  }
+  return diagramCellW;
+}
+
+function diagramToSvg(diagram) {
+  const { lines, cols, ascii } = diagram;
+  const CW = diagramCharWidth();
+  const CH = 19;
+  const PAD = 16;
+  const W = Math.round(cols * CW + PAD * 2);
+  const H = Math.round(lines.length * CH + PAD * 2);
+  const cxOf = (x) => PAD + x * CW + CW / 2;
+  const cyOf = (y) => PAD + y * CH + CH / 2;
+
+  // Hand-typed art rarely keeps a long border on the same column: one row has
+  // it at 90, the next at 91, so the vertical line breaks at every row edge.
+  // Follow the neighbour instead of stopping at the cell border.
+  const hasVert = (x, y) => {
+    const dirs = DIAGRAM_BOX[diagramCell(lines, x, y)];
+    return !!dirs && (dirs.includes('u') || dirs.includes('d'));
+  };
+  const vertEndpoint = (x, y, step) => {
+    if (hasVert(x, y + step)) return x;
+    if (hasVert(x + 1, y + step)) return x + 1;
+    if (hasVert(x - 1, y + step)) return x - 1;
+    return null;
+  };
+
+  const edge = (x, y, dirs) => {
+    const cx = cxOf(x);
+    const cy = cyOf(y);
+    let d = '';
+    for (const dir of dirs) {
+      if (dir === 'l') d += `M${cx} ${cy}H${cx - CW / 2}`;
+      else if (dir === 'r') d += `M${cx} ${cy}H${cx + CW / 2}`;
+      else {
+        const step = dir === 'u' ? -1 : 1;
+        const nx = vertEndpoint(x, y, step);
+        if (nx === null || nx === x) d += `M${cx} ${cy}V${cy + step * CH / 2}`;
+        else d += `M${cx} ${cy}L${cxOf(nx)} ${cy + step * CH}`;
+      }
+    }
+    return d;
+  };
+
+  const arrow = (x, y, dir) => {
+    const cx = cxOf(x);
+    const cy = cyOf(y);
+    const s = 4.2;
+    if (dir === 'r') return `M${cx - s} ${cy - s}L${cx + s} ${cy}L${cx - s} ${cy + s}Z`;
+    if (dir === 'l') return `M${cx + s} ${cy - s}L${cx - s} ${cy}L${cx + s} ${cy + s}Z`;
+    if (dir === 'u') return `M${cx - s} ${cy + s}L${cx} ${cy - s}L${cx + s} ${cy + s}Z`;
+    return `M${cx - s} ${cy - s}L${cx} ${cy + s}L${cx + s} ${cy - s}Z`;
+  };
+
+  let edgePath = '';
+  let arrowPath = '';
+  const rows = [];
+
+  lines.forEach((raw, y) => {
+    const line = raw.replace(/\s+$/, '');
+    let label = '';
+    for (let x = 0; x < line.length; x++) {
+      const ch = line[x];
+      const boxDirs = DIAGRAM_BOX[ch];
+      if (boxDirs) {
+        edgePath += edge(x, y, boxDirs);
+        label += ' ';
+        continue;
+      }
+      const dir = DIAGRAM_ARROWS[ch];
+      if (dir) {
+        arrowPath += arrow(x, y, dir);
+        label += ' ';
+        continue;
+      }
+      if (ascii) {
+        const leftCell = diagramCell(lines, x - 1, y);
+        const rightCell = diagramCell(lines, x + 1, y);
+        const upCell = diagramCell(lines, x, y - 1);
+        const downCell = diagramCell(lines, x, y + 1);
+        if ((ch === '>' && DIAGRAM_H.has(leftCell)) || (ch === '<' && DIAGRAM_H.has(rightCell))) {
+          arrowPath += arrow(x, y, ch === '>' ? 'r' : 'l');
+          label += ' ';
+          continue;
+        }
+        if ((ch === 'v' && (upCell === '|' || upCell === '+')) || (ch === '^' && (downCell === '|' || downCell === '+'))) {
+          arrowPath += arrow(x, y, ch === 'v' ? 'd' : 'u');
+          label += ' ';
+          continue;
+        }
+        const asciiDirs = diagramAsciiDirs(lines, x, y);
+        if (asciiDirs) {
+          edgePath += edge(x, y, asciiDirs);
+          label += ' ';
+          continue;
+        }
+      }
+      label += ch;
+    }
+    rows.push({ y, label });
+  });
+
+  let textNodes = '';
+  for (const row of rows) {
+    const label = row.label.replace(/\s+$/, '');
+    if (!label.trim()) continue;
+    const y = PAD + row.y * CH + CH * 0.72;
+    textNodes += `<text class="dg-text" x="${PAD}" y="${y.toFixed(1)}" xml:space="preserve">${escapeHtml(label)}</text>`;
+  }
+
+  return '<svg class="dg-svg" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H
+    + '" role="img" aria-label="diagram" preserveAspectRatio="xMinYMin meet">'
+    + (edgePath ? `<path class="dg-edge" vector-effect="non-scaling-stroke" d="${edgePath}"/>` : '')
+    + (arrowPath ? `<path class="dg-arrow" d="${arrowPath}"/>` : '')
+    + textNodes
+    + '</svg>';
+}
+
+// A figure that only slightly overflows is scaled down to fit; a much wider one
+// keeps its natural size and scrolls, so the labels stay readable.
+function fitDiagramBlocks() {
+  for (const body of els.previewContent.querySelectorAll('.diagram-body')) {
+    const svg = body.querySelector('svg');
+    if (!svg) continue;
+    const natural = Number(svg.getAttribute('width')) || 0;
+    const available = body.clientWidth - 32;
+    if (!natural || !available) continue;
+    const scrolls = natural > available * 1.35;
+    svg.classList.toggle('dg-scroll', scrolls);
+    if (scrolls && body.scrollLeft > 0) body.scrollLeft = 0;
+  }
+}
+
+// The monospace face can arrive after the first paint; the grid is measured
+// again then, and every figure is redrawn on the new cell width.
+function refreshDiagramBlocks() {
+  const previous = diagramCellW;
+  diagramCellW = 0;
+  const next = diagramCharWidth();
+  if (previous === next) return;
+  for (const body of els.previewContent.querySelectorAll('.diagram-body')) {
+    if (body._diagram) body.innerHTML = diagramToSvg(body._diagram);
+  }
+  fitDiagramBlocks();
+}
+
 function enhanceCodeBlocks() {
   els.previewContent.querySelectorAll('pre').forEach((pre) => {
     if (pre.closest('.code-block')) return;
     const code = pre.querySelector('code');
     if (!code) return;
 
+    const source = code.textContent || '';
+    const langMatch = (code.className || '').match(/language-([\w+#.-]+)/i);
+    const plainLanguage = !langMatch || /^(?:text|txt|plain|plaintext|ascii|diagram|none)$/i.test(langMatch[1]);
+    const diagram = plainLanguage ? detectDiagram(source) : null;
+
     const block = document.createElement('div');
-    block.className = 'code-block';
+    block.className = 'code-block' + (diagram ? ' diagram-block' : '');
 
     const head = document.createElement('div');
     head.className = 'code-head';
 
     const lang = document.createElement('span');
     lang.className = 'code-lang';
-    lang.textContent = codeLangLabel(code);
+    lang.textContent = diagram ? t('Diagram') : codeLangLabel(code);
+
+    const actions = document.createElement('div');
+    actions.className = 'code-head-actions';
+
+    if (diagram) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'code-copy diagram-toggle';
+      toggle.innerHTML = diagramIcon + '<span>' + t('Text') + '</span>';
+      toggle.title = t('Show the plain text');
+      toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const showingSource = block.classList.toggle('show-source');
+        const label = toggle.querySelector('span');
+        if (label) label.textContent = showingSource ? t('Diagram') : t('Text');
+        setUITitle(toggle, showingSource ? 'Show the diagram' : 'Show the plain text');
+      });
+      actions.appendChild(toggle);
+    }
 
     const copy = document.createElement('button');
     copy.type = 'button';
@@ -2240,14 +2974,25 @@ function enhanceCodeBlocks() {
         }, 1400);
       });
     });
+    actions.appendChild(copy);
 
     head.appendChild(lang);
-    head.appendChild(copy);
+    head.appendChild(actions);
     block.appendChild(head);
+
+    if (diagram) {
+      const body = document.createElement('div');
+      body.className = 'diagram-body';
+      body._diagram = diagram;
+      body.innerHTML = diagramToSvg(diagram);
+      pre.classList.add('diagram-source');
+      block.appendChild(body);
+    }
 
     pre.parentNode.insertBefore(block, pre);
     block.appendChild(pre);
   });
+  requestAnimationFrame(() => { try { fitDiagramBlocks(); } catch (_) {} });
 }
 
 /* ============ VAULT IMAGES ============ */
@@ -2871,6 +3616,18 @@ function applyDirection() {
     : state.direction;
   els.previewContent.setAttribute('dir', effective);
   applyBidiBlocks();
+  applyQuestionDirection();
+}
+
+// The boxes where the user writes a question follow the app's text direction:
+// an explicit LTR/RTL setting wins, "auto" lets the first strong character of
+// each box decide, so Persian goes right-to-left and English stays left-to-right.
+function applyQuestionDirection() {
+  const dir = state.direction === 'ltr' || state.direction === 'rtl' ? state.direction : 'auto';
+  ['aiQuestion', 'askFilesQuestion', 'selectionEditPrompt'].forEach((id) => {
+    const el = $(id);
+    if (el) el.setAttribute('dir', dir);
+  });
 }
 
 // Tag block-level elements with appropriate dir based on content:
@@ -5454,13 +6211,17 @@ function openSavedAIChat(id) {
 // document → the whole open note, selection → the highlighted passage,
 // chat → nothing but the conversation itself.
 function aiScopeOf(context) {
-  if (context && context.doc) return 'document';
+  if (context && (context.doc || context.bundle)) return 'document';
   return context && context.text && context.text.trim() ? 'selection' : 'chat';
 }
 
 function aiScopeAvailable(scope) {
   if (scope === 'chat') return true;
-  if (scope === 'document') return !!state.currentFile && !!(els.editor.value || '').trim();
+  // a question about a set of chosen files is a document-scoped conversation
+  if (scope === 'document') {
+    if (aiContext && aiContext.bundle) return true;
+    return !!state.currentFile && !!documentTextForAI().trim();
+  }
   return els.editor.selectionStart !== els.editor.selectionEnd;
 }
 
@@ -5473,7 +6234,7 @@ function scopeForPanelMode(mode) {
 }
 
 function buildAIContextForScope(scope) {
-  if (scope === 'document') return { text: els.editor.value || '', start: null, end: null, doc: true };
+  if (scope === 'document') return { text: documentTextForAI(), start: null, end: null, doc: true };
   if (scope === 'selection') {
     const s = els.editor.selectionStart;
     const e = els.editor.selectionEnd;
@@ -5486,14 +6247,15 @@ function buildAIContextForScope(scope) {
 // composer hint. Called whenever the context or the dock changes.
 function updateAIPanelChrome() {
   const scope = aiScopeOf(aiContext);
+  const bundle = !!aiContext.bundle;
   if (els.aiPanelTitle) {
     els.aiPanelTitle.textContent = aiAnswerKind === 'code'
       ? t('Ask AI about code')
-      : scope === 'chat' ? t('Ask AI') : scope === 'document' ? t('Ask AI about document') : t('Ask AI about this selection');
+      : scope === 'chat' ? t('Ask AI') : scope === 'document' ? t(bundle ? 'Ask AI about documents' : 'Ask AI about document') : t('Ask AI about this selection');
   }
   aiQuestionBasePrompt = aiAnswerKind === 'code'
     ? 'Ask something about the selected code…'
-    : scope === 'chat' ? 'Ask anything…' : scope === 'document' ? 'Ask something about this document…' : 'Ask something about the selected text…';
+    : scope === 'chat' ? 'Ask anything…' : scope === 'document' ? (bundle ? 'Ask something about these documents…' : 'Ask something about this document…') : 'Ask something about the selected text…';
   if (els.aiScopes) {
     els.aiScopes.querySelectorAll('.ai-scope').forEach((btn) => {
       const on = btn.dataset.scope === scope;
@@ -5503,11 +6265,13 @@ function updateAIPanelChrome() {
     });
   }
   const text = aiContext.text || '';
-  if (els.aiContext) els.aiContext.classList.toggle('hidden', !text.trim());
-  if (els.aiContextLabel) {
-    els.aiContextLabel.textContent = scope === 'document' ? t('Whole document') : t('Selected text');
-  }
-  if (els.aiContextBody) {
+  if (els.aiContext) els.aiContext.classList.toggle('hidden', !text.trim() && !bundle);
+  if (bundle && renderAIBundleContext()) {
+    // the bundle block lists the files instead of the first 1200 characters
+  } else if (els.aiContextBody) {
+    if (els.aiContextLabel) {
+      els.aiContextLabel.textContent = scope === 'document' ? t('Whole document') : t('Selected text');
+    }
     els.aiContextBody.textContent = text.length > 1200 ? text.slice(0, 1200) + '\n…' : text;
     els.aiContextBody.classList.toggle('hidden', !text.trim());
   }
@@ -5543,14 +6307,16 @@ function buildAIChatPrompt(selection, options = {}) {
   const { turns, omitted } = aiThreadPromptTurns();
   const lines = [];
   const hasText = !!(selection && selection.trim());
-  const full = hasText && options.full === true;
+  const bundle = options.bundle === true;
+  const full = hasText && (options.full === true || bundle);
   lines.push('You are a helpful assistant embedded in a Markdown note editor.');
   lines.push('This is an ongoing conversation. Answer only the last message from the user and use the earlier turns as context. Do not restate or summarize the earlier answers unless the user asks for it.');
-  if (full) lines.push('The complete document is below; use all of it, not just the part the question mentions.');
+  if (bundle) lines.push('All the documents the user chose are below; use every one of them, not just the part the question mentions.');
+  else if (full) lines.push('The complete document is below; use all of it, not just the part the question mentions.');
   lines.push('Reply with Markdown only — no preamble.');
   if (hasText) {
     lines.push('');
-    lines.push(buildAIContextBlock(selection, full));
+    lines.push(buildAIContextBlock(selection, full, bundle));
   }
   lines.push('');
   lines.push('--- CONVERSATION ---');
@@ -5890,13 +6656,13 @@ const AI_MAX_DOCUMENT = 400000;
 
 // Shared text block for the prompt builders: the document or the passage,
 // with only a safety cap for absurdly large files.
-function buildAIContextBlock(text, full) {
+function buildAIContextBlock(text, full, bundle) {
   const limit = full ? AI_MAX_DOCUMENT : AI_MAX_SELECTION;
   let body = String(text || '').trim();
   let truncated = false;
   if (body.length > limit) { body = body.slice(0, limit); truncated = true; }
-  const open = full ? '--- DOCUMENT ---' : '--- SELECTED TEXT ---';
-  const close = full ? '--- END DOCUMENT ---' : '--- END SELECTED TEXT ---';
+  const open = bundle ? '--- DOCUMENTS ---' : (full ? '--- DOCUMENT ---' : '--- SELECTED TEXT ---');
+  const close = bundle ? '--- END DOCUMENTS ---' : (full ? '--- END DOCUMENT ---' : '--- END SELECTED TEXT ---');
   return [open, body + (truncated ? '\n…[truncated]' : ''), close].join('\n');
 }
 
@@ -5962,7 +6728,10 @@ function getAIResponseLanguage() {
 }
 
 function applyAIResponseLanguage(prompt, options = {}) {
-  const language = getAIResponseLanguage();
+  // a single question can ask for another language than the app default
+  const language = String(options.responseLanguage != null
+    ? options.responseLanguage
+    : getAIResponseLanguage()).trim();
   if (!language || options.deleteTargetRequest) return prompt;
   let directive;
   if (options.targetEditRequest) {
@@ -5985,7 +6754,7 @@ function getAIDocumentPrompt(kind) {
 
 // Opens the Ask AI panel with the whole document as context and returns its text.
 function openDocumentAIPanel(kind) {
-  const text = els.editor.value || '';
+  const text = documentTextForAI();
   aiContext = { text, start: null, end: null, doc: true };
   aiAnswerKind = kind || 'answer';
   aiThreadContext = { ...aiContext };
@@ -6002,7 +6771,7 @@ function openDocumentAIPanel(kind) {
 
 function askAboutDocument(promptText, kind) {
   if (!state.currentFile) { toast('Open a document first', 'info'); return; }
-  const text = els.editor.value || '';
+  const text = documentTextForAI();
   if (!text.trim()) { toast('This document is empty', 'info'); return; }
 
   const docText = openDocumentAIPanel(kind);
@@ -6021,7 +6790,7 @@ function askAboutDocument(promptText, kind) {
 // instruction (the JSON prompt would not fit) and the answer renders as cards.
 function makeFlashcards() {
   if (!state.currentFile) { toast('Open a document first', 'info'); return; }
-  const text = els.editor.value || '';
+  const text = documentTextForAI();
   if (!text.trim()) { toast('This document is empty', 'info'); return; }
   const docText = openDocumentAIPanel('flashcards');
   setAIQuestion('Make flashcards from this document.');
@@ -6038,6 +6807,11 @@ function makeFlashcards() {
 // existing per-change review lets the user accept or reject each fix.
 function proofreadDocument() {
   if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  // proofreading is an edit of the source, and these two are preview-only
+  if (/\.docx$/i.test(state.currentFile) || /\.html?$/i.test(state.currentFile)) {
+    toast(t('This document is preview-only'), 'info');
+    return;
+  }
   const text = els.editor.value || '';
   if (!text.trim()) { toast('This document is empty', 'info'); return; }
 
@@ -6058,6 +6832,909 @@ function proofreadDocument() {
       scopeEnd: text.length,
     },
   });
+}
+
+/* ============ COMPARE TWO VERSIONS ============ */
+// The difference is computed here and the AI only explains it: comparing
+// headings and paragraphs locally keeps the report about topics (not line
+// noise). Both versions still go to the model in full whenever they fit the
+// budget, so nothing is judged from a summary alone.
+const COMPARE_FULL_BUDGET = Math.floor(AI_MAX_DOCUMENT * 0.6);
+const compareSlots = {
+  1: { text: '', label: '', path: '' },
+  2: { text: '', label: '', path: '' },
+};
+
+function normalizeDocText(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeDocBlock(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function countWords(text) {
+  const t = String(text || '').trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+
+// numbers follow the interface language (1,240 / ۱٫۲۴۰ / 1 240)
+function localizeNumber(value) {
+  const locale = state.language === 'zh' ? 'zh-CN' : (state.language || 'en');
+  try { return new Intl.NumberFormat(locale).format(value); } catch (_) { return String(value); }
+}
+
+// A document split at its Markdown headings: every section keeps its own body,
+// and the text before the first heading is section 0 (level 0).
+function splitDocSections(text) {
+  const sections = [{ level: 0, title: '', body: '' }];
+  let buf = [];
+  const flush = () => { sections[sections.length - 1].body = buf.join('\n').trim(); };
+  for (const line of normalizeDocText(text).split('\n')) {
+    const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (m) {
+      flush();
+      buf = [];
+      sections.push({ level: m[1].length, title: m[2].trim(), body: '' });
+    } else {
+      buf.push(line);
+    }
+  }
+  flush();
+  return sections;
+}
+
+function docBlocks(body) {
+  return String(body || '')
+    .split(/\n\s*\n/)
+    .map(normalizeDocBlock)
+    .filter(Boolean);
+}
+
+function compareDocumentVersions(older, newer) {
+  const A = splitDocSections(older);
+  const B = splitDocSections(newer);
+  const keyOf = (section) => normalizeDocBlock(section.title).toLowerCase();
+
+  const byTitleA = new Map();
+  for (const s of A) if (s.level && !byTitleA.has(keyOf(s))) byTitleA.set(keyOf(s), s);
+  const byTitleB = new Map();
+  for (const s of B) if (s.level && !byTitleB.has(keyOf(s))) byTitleB.set(keyOf(s), s);
+
+  const added = [];
+  const removed = [];
+  const changed = [];
+  for (const s of B) {
+    if (!s.level) continue;
+    const k = keyOf(s);
+    if (!byTitleA.has(k)) added.push(s);
+    else if (normalizeDocBlock(byTitleA.get(k).body) !== normalizeDocBlock(s.body)) {
+      changed.push({ from: byTitleA.get(k), to: s });
+    }
+  }
+  for (const s of A) {
+    if (s.level && !byTitleB.has(keyOf(s))) removed.push(s);
+  }
+
+  // text that sits outside any heading (an article without headings, a title page…)
+  const preambleA = A.filter((s) => !s.level).map((s) => s.body).join('\n\n');
+  const preambleB = B.filter((s) => !s.level).map((s) => s.body).join('\n\n');
+  const blocksA = docBlocks(preambleA);
+  const blocksB = docBlocks(preambleB);
+  const setA = new Set(blocksA);
+  const setB = new Set(blocksB);
+  const preAdded = blocksB.filter((b) => !setA.has(b));
+  const preRemoved = blocksA.filter((b) => !setB.has(b));
+
+  return {
+    added,
+    removed,
+    changed,
+    preAdded,
+    preRemoved,
+    sectionsA: A.filter((s) => s.level).length,
+    sectionsB: B.filter((s) => s.level).length,
+  };
+}
+
+function clipText(text, max) {
+  const s = String(text || '');
+  return s.length > max ? s.slice(0, max).trimEnd() + ' …[truncated]' : s;
+}
+
+function buildDocumentComparisonPrompt(older, newer, labelOld, labelNew) {
+  const diff = compareDocumentVersions(older, newer);
+  const lines = [];
+  lines.push('Compare version 1 (older) with version 2 (newer) of the same document and report what changed.');
+  lines.push('');
+  lines.push('Answer in Markdown with exactly these four parts, in this order:');
+  lines.push('## Added — topics that only exist in version 2.');
+  lines.push('## Removed — topics that existed in version 1 and are gone.');
+  lines.push('## Changed — topics present in both whose content changed.');
+  lines.push('## Summary — one or two lines on the overall direction of the change.');
+  lines.push('');
+  lines.push('Rules:');
+  lines.push('- Report changes by topic or section, never line by line; group small edits under the section they belong to.');
+  lines.push('- Each bullet starts with the topic in bold, then one short sentence saying what changed.');
+  lines.push('- If a part has nothing to report, write "- Nothing".');
+  lines.push('- Ignore formatting and whitespace noise; a section that only moved is reported as moved.');
+  lines.push('- Only report what the material below actually shows — never invent changes.');
+  lines.push('');
+  lines.push(`Version 1 (older): ${labelOld || 'text'} — ${countWords(older)} words, ${diff.sectionsA} sections`);
+  lines.push(`Version 2 (newer): ${labelNew || 'text'} — ${countWords(newer)} words, ${diff.sectionsB} sections`);
+  lines.push('');
+
+  const smallEnough = older.length + newer.length <= COMPARE_FULL_BUDGET;
+  if (smallEnough) {
+    lines.push('--- VERSION 1 (older) ---', older, '--- END VERSION 1 ---', '');
+    lines.push('--- VERSION 2 (newer) ---', newer, '--- END VERSION 2 ---');
+    return lines.join('\n');
+  }
+
+  lines.push('--- COMPUTED DIFFERENCES ---');
+  lines.push(`Sections added: ${diff.added.map((s) => s.title).join('; ') || 'none'}`);
+  lines.push(`Sections removed: ${diff.removed.map((s) => s.title).join('; ') || 'none'}`);
+  lines.push(`Sections changed: ${diff.changed.map((c) => c.to.title).join('; ') || 'none'}`);
+  lines.push('');
+  for (const s of diff.added.slice(0, 20)) {
+    lines.push(`=== ADDED SECTION: ${s.title} ===`, clipText(s.body, 900) || '(empty)', '');
+  }
+  for (const s of diff.removed.slice(0, 20)) {
+    lines.push(`=== REMOVED SECTION: ${s.title} ===`, clipText(s.body, 900) || '(empty)', '');
+  }
+  for (const c of diff.changed.slice(0, 20)) {
+    lines.push(`=== CHANGED SECTION: ${c.to.title} ===`);
+    lines.push('--- version 1 ---', clipText(c.from.body, 1600) || '(empty)');
+    lines.push('--- version 2 ---', clipText(c.to.body, 1600) || '(empty)', '');
+  }
+  if (diff.added.length > 20 || diff.removed.length > 20 || diff.changed.length > 20) {
+    lines.push('(More changed sections exist than are listed here.)');
+  }
+  if (diff.preAdded.length || diff.preRemoved.length) {
+    lines.push('=== UNTITLED TEXT ===');
+    for (const b of diff.preAdded.slice(0, 12)) lines.push(`+ ${clipText(b, 400)}`);
+    for (const b of diff.preRemoved.slice(0, 12)) lines.push(`- ${clipText(b, 400)}`);
+  }
+  lines.push('--- END COMPARISON ---');
+  return lines.join('\n');
+}
+
+// A .docx comes back as HTML: turn it into Markdown-ish text so the same
+// section comparison works for Word files too.
+// A .docx (or an .html note) comes in as markup: turn it into Markdown-ish text
+// so the same section comparison works for every kind of document.
+// The text the AI should read for "this document": the editor for a note, the
+// converted text of a preview-only file (a .docx or an .html page), nothing
+// otherwise. Every whole-document tool goes through here, so the model always
+// gets the document's content rather than its markup.
+function documentTextForAI() {
+  const live = els.editor.value || '';
+  if (live.trim()) {
+    // an HTML page is markup: the model should read the text, not the tags
+    if (state.currentFile && /\.html?$/i.test(state.currentFile)) return htmlToCompareText(live);
+    return live;
+  }
+  if (state.docxHtml) return htmlToCompareText(state.docxHtml);
+  return '';
+}
+
+function htmlToCompareText(html) {
+  const box = document.createElement('div');
+  box.innerHTML = String(html || '');
+  const lines = [];
+  const push = (text) => {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (clean) lines.push(clean);
+  };
+  for (const el of box.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, tr, blockquote, pre, table')) {
+    if (/^(SCRIPT|STYLE|NOSCRIPT)$/.test(el.tagName)) continue;
+    // only top-level blocks of their kind (a <p> inside a <td> is handled by the row)
+    if (el.closest('td, th') && el.tagName !== 'TR') continue;
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const heading = /^H([1-6])$/.exec(el.tagName);
+    if (heading) lines.push('#'.repeat(Number(heading[1])) + ' ' + text);
+    else if (el.classList.contains('docx-li') || el.tagName === 'LI') lines.push('- ' + text);
+    else if (el.tagName === 'TR') lines.push([...el.children].map((cell) => (cell.textContent || '').trim()).join(' | '));
+    else if (el.tagName === 'BLOCKQUOTE') lines.push('> ' + text);
+    else if (el.tagName === 'PRE') lines.push('```\n' + el.textContent.replace(/\n+$/, '') + '\n```');
+    else push(text);
+  }
+  if (!lines.length) push(box.textContent);
+  return lines.join('\n\n');
+}
+
+function renderCompareSlots() {
+  for (const n of [1, 2]) {
+    const slot = compareSlots[n];
+    const nameEl = $('compareV' + n + 'Name');
+    const metaEl = $('compareV' + n + 'Meta');
+    if (nameEl) {
+      nameEl.textContent = slot.label || t('No file chosen');
+      nameEl.classList.toggle('is-empty', !slot.label);
+      nameEl.title = slot.path || '';
+    }
+    if (metaEl) {
+      metaEl.textContent = slot.text.trim()
+        ? `${localizeNumber(countWords(slot.text))} ${t('words')}`
+        : '';
+    }
+  }
+  const submit = $('compareSubmit');
+  if (submit) submit.disabled = !(compareSlots[1].text.trim() && compareSlots[2].text.trim());
+}
+
+function openCompareDialog() {
+  const text = documentTextForAI();
+  // a preview-only document has no text to compare, so the slot is left empty
+  // instead of showing a file name with nothing behind it
+  compareSlots[1] = {
+    text,
+    label: text.trim() && state.currentFile ? humanPath(state.currentFile) : '',
+    path: text.trim() ? (state.currentFile || '') : '',
+  };
+  compareSlots[2] = { text: '', label: '', path: '' };
+  closeComparePicker();
+  renderCompareSlots();
+  openModal('compare');
+}
+
+async function pickCompareFile(slotNumber) {
+  try {
+    const res = await window.inkwell.openExternalFile();
+    if (!res || res.canceled) return;
+    if (!res.success) {
+      toast('Could not open file: ' + (res.error || 'unknown error'), 'error');
+      return;
+    }
+    const text = res.kind === 'docx' ? htmlToCompareText(res.html) : String(res.content || '');
+    if (!text.trim()) {
+      toast('That file has no readable text', 'info');
+      return;
+    }
+    compareSlots[slotNumber] = { text, label: res.name, path: res.path };
+    renderCompareSlots();
+  } catch (_) {
+    toast('Could not open file', 'error');
+  }
+}
+
+function useCurrentForCompare(slotNumber) {
+  const text = documentTextForAI();
+  if (!text.trim()) { toast('This document is empty', 'info'); return; }
+  compareSlots[slotNumber] = {
+    text,
+    label: state.currentFile ? humanPath(state.currentFile) : 'Current document',
+    path: state.currentFile || '',
+  };
+  renderCompareSlots();
+}
+
+function runDocumentComparison() {
+  const older = compareSlots[1].text;
+  const newer = compareSlots[2].text;
+  if (!older.trim() || !newer.trim()) { toast('Pick two versions first', 'info'); return; }
+  if (normalizeDocText(older) === normalizeDocText(newer)) {
+    toast('Both versions are identical', 'info');
+    return;
+  }
+  const labelOld = compareSlots[1].label || 'Version 1';
+  const labelNew = compareSlots[2].label || 'Version 2';
+  closeModal('compare');
+  openDocumentAIPanel('compare');
+  setAIQuestion(t('Compare %v1% with %v2%', { v1: labelOld, v2: labelNew }));
+  askAI(buildDocumentComparisonPrompt(older, newer, labelOld, labelNew));
+}
+
+/* ---- picking a version from the library ---- */
+const comparePicker = { slot: 1, query: '', expanded: new Set() };
+
+// The picker starts on the folder of the document on screen, so its siblings
+// are right there when a version has to be picked.
+function expandComparePickerToCurrent() {
+  const path = state.currentFile;
+  if (!path || isExternalPath(path)) return;
+  const parts = path.split('/');
+  let acc = '';
+  for (let i = 0; i < parts.length - 1; i++) {
+    acc = acc ? acc + '/' + parts[i] : parts[i];
+    comparePicker.expanded.add(acc);
+  }
+}
+
+function openComparePicker(slotNumber) {
+  comparePicker.slot = slotNumber;
+  comparePicker.query = '';
+  expandComparePickerToCurrent();
+  const search = $('comparePickerSearch');
+  if (search) search.value = '';
+  const title = $('comparePickerTitle');
+  if (title) {
+    title.textContent = t('Choose version %n% from the library', { n: localizeNumber(slotNumber) });
+  }
+  const picker = $('comparePicker');
+  if (picker) picker.classList.remove('hidden');
+  renderComparePickerList();
+  if (search) setTimeout(() => search.focus(), 20);
+}
+
+function closeComparePicker() {
+  const picker = $('comparePicker');
+  if (picker) picker.classList.add('hidden');
+}
+
+function compareFolderIcon() {
+  return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
+}
+
+function buildCompareFileRow(file, depth, showFolder) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'cv-file' + (state.currentFile === file.path ? ' is-current' : '');
+  row.style.paddingInlineStart = (8 + depth * 12) + 'px';
+  row.title = fullItemPath(file.path);
+  const folder = file.path.includes('/') ? file.path.split('/').slice(0, -1).join('/') : '';
+  row.innerHTML = '<span class="cv-icon">' + docIcon + '</span>'
+    + '<span class="cv-name">' + escapeHtml(baseName(file.path)) + '</span>'
+    + (showFolder || (depth === 0 && folder) ? '<span class="cv-meta">' + escapeHtml(folder || t('Library')) + '</span>' : '');
+  row.addEventListener('click', () => chooseVaultVersion(file.path));
+  return row;
+}
+
+function buildCompareFolderNode(folder, childrenOf, fileItems, depth, forceOpen) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cv-node';
+  const open = forceOpen || comparePicker.expanded.has(folder.path);
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'cv-folder';
+  row.style.paddingInlineStart = (8 + depth * 12) + 'px';
+  row.innerHTML = iconChevron(open)
+    + '<span class="cv-folder-icon">' + compareFolderIcon() + '</span>'
+    + '<span class="cv-name">' + escapeHtml(folder.path.split('/').pop()) + '</span>';
+  row.addEventListener('click', () => {
+    if (comparePicker.expanded.has(folder.path)) comparePicker.expanded.delete(folder.path);
+    else comparePicker.expanded.add(folder.path);
+    renderComparePickerList();
+  });
+  wrap.appendChild(row);
+  if (open) {
+    const children = document.createElement('div');
+    children.className = 'cv-children';
+    const subs = (childrenOf.get(folder.path) || []).sort((a, b) => a.path.localeCompare(b.path));
+    for (const sub of subs) children.appendChild(buildCompareFolderNode(sub, childrenOf, fileItems, depth + 1, forceOpen));
+    const own = (fileItems.get(folder.path) || []).sort((a, b) => b.modified - a.modified);
+    for (const f of own) children.appendChild(buildCompareFileRow(f, depth + 1, false));
+    wrap.appendChild(children);
+  }
+  return wrap;
+}
+
+function renderComparePickerList() {
+  const list = $('comparePickerList');
+  if (!list) return;
+  list.innerHTML = '';
+  const query = comparePicker.query.trim().toLowerCase();
+  const searching = !!query;
+  const files = (state.files || []).filter((f) => !searching || f.path.toLowerCase().includes(query));
+
+  if (!state.files.length) {
+    const empty = document.createElement('div');
+    empty.className = 'cv-empty';
+    empty.textContent = t('No files here yet');
+    list.appendChild(empty);
+    return;
+  }
+  if (!files.length) {
+    const empty = document.createElement('div');
+    empty.className = 'cv-empty';
+    empty.textContent = t('No files match your search');
+    list.appendChild(empty);
+    return;
+  }
+
+  if (searching) {
+    // flat results: each row says which folder it came from
+    for (const f of files) list.appendChild(buildCompareFileRow(f, 0, true));
+    return;
+  }
+
+  const fileItems = new Map();
+  for (const f of files) {
+    const parent = f.path.split('/').slice(0, -1).join('/');
+    if (!fileItems.has(parent)) fileItems.set(parent, []);
+    fileItems.get(parent).push(f);
+  }
+  const childrenOf = new Map();
+  for (const folder of state.folders || []) {
+    const parent = folder.path.split('/').slice(0, -1).join('/');
+    if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+    childrenOf.get(parent).push(folder);
+  }
+  for (const f of (fileItems.get('') || []).sort((a, b) => b.modified - a.modified)) {
+    list.appendChild(buildCompareFileRow(f, 0, false));
+  }
+  for (const folder of (childrenOf.get('') || []).sort((a, b) => a.path.localeCompare(b.path))) {
+    list.appendChild(buildCompareFolderNode(folder, childrenOf, fileItems, 0, false));
+  }
+}
+
+async function chooseVaultVersion(path) {
+  try {
+    const res = await window.inkwell.readFile(path);
+    if (!res || !res.success) {
+      toast('Could not open file: ' + ((res && res.error) || 'unknown error'), 'error');
+      return;
+    }
+    const text = /\.html?$/i.test(path) ? htmlToCompareText(res.content) : String(res.content || '');
+    if (!text.trim()) {
+      toast('That file has no readable text', 'info');
+      return;
+    }
+    compareSlots[comparePicker.slot] = { text, label: humanPath(path), path };
+    closeComparePicker();
+    renderCompareSlots();
+  } catch (_) {
+    toast('Could not open file', 'error');
+  }
+}
+
+function setupCompareDialog() {
+  const modal = modals.compare;
+  if (!modal) return;
+  modal.addEventListener('click', (e) => {
+    const vault = e.target.closest('[data-compare-vault]');
+    if (vault) { openComparePicker(Number(vault.dataset.compareVault)); return; }
+    const pick = e.target.closest('[data-compare-pick]');
+    if (pick) { pickCompareFile(Number(pick.dataset.comparePick)); return; }
+    const current = e.target.closest('[data-compare-current]');
+    if (current) { useCurrentForCompare(Number(current.dataset.compareCurrent)); return; }
+  });
+  const closeBtn = $('comparePickerClose');
+  if (closeBtn) closeBtn.addEventListener('click', closeComparePicker);
+  const search = $('comparePickerSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      comparePicker.query = search.value;
+      renderComparePickerList();
+    });
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        if (search.value) { search.value = ''; comparePicker.query = ''; renderComparePickerList(); }
+        else closeComparePicker();
+      }
+    });
+  }
+  const submit = $('compareSubmit');
+  if (submit) submit.addEventListener('click', runDocumentComparison);
+}
+
+/* ============ ASK ABOUT SEVERAL DOCUMENTS ============ */
+// One question across a folder or a hand-picked set: every chosen document is
+// read in full, then the model answers from all of them together.
+const askFilesPicker = { files: new Set(), query: '', expanded: new Set() };
+
+function askFilesPathsUnder(folderPath) {
+  const prefix = folderPath ? folderPath + '/' : '';
+  return (state.files || []).filter((f) => f.path.startsWith(prefix)).map((f) => f.path);
+}
+
+function askFilesSelected() {
+  // a file that no longer exists (renamed or deleted meanwhile) must not be sent
+  const alive = new Set((state.files || []).map((f) => f.path));
+  for (const path of [...askFilesPicker.files]) {
+    if (!alive.has(path)) askFilesPicker.files.delete(path);
+  }
+  return [...askFilesPicker.files].sort();
+}
+
+function askFilesFolderState(folderPath) {
+  const files = askFilesPathsUnder(folderPath);
+  if (!files.length) return 'none';
+  const picked = files.filter((path) => askFilesPicker.files.has(path)).length;
+  if (picked === files.length) return 'all';
+  return picked ? 'some' : 'none';
+}
+
+function toggleAskFilesFolder(folderPath) {
+  const files = askFilesPathsUnder(folderPath);
+  const add = askFilesFolderState(folderPath) !== 'all';
+  for (const path of files) {
+    if (add) askFilesPicker.files.add(path);
+    else askFilesPicker.files.delete(path);
+  }
+}
+
+function renderAskFilesCount() {
+  const count = askFilesSelected().length;
+  const label = $('askFilesCount');
+  if (label) {
+    label.textContent = count
+      ? t('%n% documents selected', { n: localizeNumber(count) })
+      : t('No documents selected');
+    label.classList.toggle('is-empty', !count);
+  }
+  const submit = $('askFilesSubmit');
+  if (submit) submit.disabled = !count;
+}
+
+function askFilesIcon() {
+  return '<span class="cv-icon">' + docIcon + '</span>';
+}
+
+function buildAskFilesRow(file, depth, showFolder) {
+  const row = document.createElement('div');
+  const picked = askFilesPicker.files.has(file.path);
+  row.className = 'cv-file' + (state.currentFile === file.path ? ' is-current' : '');
+  row.setAttribute('role', 'checkbox');
+  row.setAttribute('aria-checked', picked ? 'true' : 'false');
+  row.tabIndex = 0;
+  row.style.paddingInlineStart = (8 + depth * 12) + 'px';
+  row.title = fullItemPath(file.path);
+  const folder = file.path.includes('/') ? file.path.split('/').slice(0, -1).join('/') : '';
+  row.innerHTML = '<span class="cv-check' + (picked ? ' is-checked' : '') + '"></span>'
+    + askFilesIcon()
+    + '<span class="cv-name">' + escapeHtml(baseName(file.path)) + '</span>'
+    + (showFolder || (depth === 0 && folder) ? '<span class="cv-meta">' + escapeHtml(folder || t('Library')) + '</span>' : '');
+  const toggle = () => {
+    if (askFilesPicker.files.has(file.path)) askFilesPicker.files.delete(file.path);
+    else askFilesPicker.files.add(file.path);
+    renderAskFilesList();
+    renderAskFilesCount();
+  };
+  row.addEventListener('click', toggle);
+  row.addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); }
+  });
+  return row;
+}
+
+function buildAskFilesFolderNode(folder, childrenOf, fileItems, depth, forceOpen) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cv-node';
+  const open = forceOpen || askFilesPicker.expanded.has(folder.path);
+  const state_ = askFilesFolderState(folder.path);
+  const row = document.createElement('div');
+  row.className = 'cv-folder';
+  row.setAttribute('role', 'checkbox');
+  row.setAttribute('aria-checked', state_ === 'all' ? 'true' : (state_ === 'some' ? 'mixed' : 'false'));
+  row.tabIndex = 0;
+  row.style.paddingInlineStart = (8 + depth * 12) + 'px';
+  const checkClass = state_ === 'all' ? ' is-checked' : (state_ === 'some' ? ' is-partial' : '');
+  row.innerHTML = iconChevron(open)
+    + '<span class="cv-check' + checkClass + '"></span>'
+    + '<span class="cv-folder-icon">' + compareFolderIcon() + '</span>'
+    + '<span class="cv-name">' + escapeHtml(folder.path.split('/').pop()) + '</span>';
+  row.addEventListener('click', (e) => {
+    // the chevron area opens the folder, the row itself picks everything in it
+    if (e.target.closest('.chevron')) {
+      if (askFilesPicker.expanded.has(folder.path)) askFilesPicker.expanded.delete(folder.path);
+      else askFilesPicker.expanded.add(folder.path);
+      renderAskFilesList();
+      return;
+    }
+    toggleAskFilesFolder(folder.path);
+    askFilesPicker.expanded.add(folder.path);
+    renderAskFilesList();
+    renderAskFilesCount();
+  });
+  row.addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      toggleAskFilesFolder(folder.path);
+      renderAskFilesList();
+      renderAskFilesCount();
+    }
+  });
+  wrap.appendChild(row);
+  if (open) {
+    const children = document.createElement('div');
+    children.className = 'cv-children';
+    const subs = (childrenOf.get(folder.path) || []).sort((a, b) => a.path.localeCompare(b.path));
+    for (const sub of subs) children.appendChild(buildAskFilesFolderNode(sub, childrenOf, fileItems, depth + 1, forceOpen));
+    const own = (fileItems.get(folder.path) || []).sort((a, b) => b.modified - a.modified);
+    for (const f of own) children.appendChild(buildAskFilesRow(f, depth + 1, false));
+    wrap.appendChild(children);
+  }
+  return wrap;
+}
+
+function renderAskFilesList() {
+  const list = $('askFilesList');
+  if (!list) return;
+  list.innerHTML = '';
+  const query = askFilesPicker.query.trim().toLowerCase();
+  const searching = !!query;
+  const files = (state.files || []).filter((f) => !searching || f.path.toLowerCase().includes(query));
+
+  const empty = (text) => {
+    const box = document.createElement('div');
+    box.className = 'cv-empty';
+    box.textContent = text;
+    list.appendChild(box);
+  };
+  if (!state.files.length) return empty(t('No files here yet'));
+  if (!files.length) return empty(t('No files match your search'));
+
+  if (searching) {
+    for (const f of files) list.appendChild(buildAskFilesRow(f, 0, true));
+    return;
+  }
+
+  const fileItems = new Map();
+  for (const f of files) {
+    const parent = f.path.split('/').slice(0, -1).join('/');
+    if (!fileItems.has(parent)) fileItems.set(parent, []);
+    fileItems.get(parent).push(f);
+  }
+  const childrenOf = new Map();
+  for (const folder of state.folders || []) {
+    const parent = folder.path.split('/').slice(0, -1).join('/');
+    if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+    childrenOf.get(parent).push(folder);
+  }
+  for (const f of (fileItems.get('') || []).sort((a, b) => b.modified - a.modified)) {
+    list.appendChild(buildAskFilesRow(f, 0, false));
+  }
+  for (const folder of (childrenOf.get('') || []).sort((a, b) => a.path.localeCompare(b.path))) {
+    list.appendChild(buildAskFilesFolderNode(folder, childrenOf, fileItems, 0, false));
+  }
+}
+
+function openAskFilesPicker() {
+  askFilesPicker.query = '';
+  const search = $('askFilesSearch');
+  if (search) search.value = '';
+  // open the folder of the document on screen, so its siblings are right there
+  const current = state.currentFile;
+  if (current && !isExternalPath(current)) {
+    const parts = current.split('/');
+    let acc = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      acc = acc ? acc + '/' + parts[i] : parts[i];
+      askFilesPicker.expanded.add(acc);
+    }
+  }
+  const picker = $('askFilesPicker');
+  if (picker) picker.classList.remove('hidden');
+  renderAskFilesList();
+  renderAskFilesCount();
+  if (search) setTimeout(() => search.focus(), 20);
+}
+
+function closeAskFilesPicker() {
+  const picker = $('askFilesPicker');
+  if (picker) picker.classList.add('hidden');
+}
+
+function openAskFilesDialog() {
+  closeAskFilesPicker();
+  askFilesPicker.files.clear();
+  askFilesPicker.query = '';
+  const question = $('askFilesQuestion');
+  if (question) question.value = '';
+  fillAskFilesLanguages();
+  applyQuestionDirection();
+  renderAskFilesCount();
+  renderAskFilesList();
+  openModal('askFiles');
+  const search = $('askFilesSearch');
+  if (search) search.value = '';
+  if (question) setTimeout(() => question.focus(), 60);
+}
+
+// Each file gets an equal share of the budget, so a big document cannot crowd
+// the others out of the prompt.
+function buildDocumentsBundle(docs) {
+  const limit = AI_MAX_DOCUMENT;
+  const total = docs.reduce((sum, doc) => sum + doc.text.length, 0);
+  const perFile = total > limit ? Math.max(6000, Math.floor(limit / docs.length)) : limit;
+  let truncated = false;
+  const parts = docs.map((doc) => {
+    let text = doc.text.replace(/\r/g, '').trim();
+    if (text.length > perFile) {
+      text = text.slice(0, perFile).replace(/\s+$/, '') + '\n…[truncated]';
+      truncated = true;
+    }
+    return `--- FILE: ${doc.path} ---\n${text}\n--- END FILE ---`;
+  });
+  return { text: parts.join('\n\n'), truncated };
+}
+
+function buildDocumentsQuestionPrompt(question, bundleText, count, truncated) {
+  const lines = [
+    `You are answering one question about ${count} document${count === 1 ? '' : 's'}.`,
+    'Read all of them and answer only from their content. Name the file each part of the answer comes from.',
+    'If two documents disagree, point that out. If the answer is not in them, say what is missing instead of guessing.',
+  ];
+  if (truncated) lines.push('Some documents were too long and are cut short; mention it if something may be missing.');
+  lines.push('Reply with Markdown only — no preamble.');
+  lines.push('');
+  lines.push('--- DOCUMENTS ---');
+  lines.push(bundleText);
+  lines.push('--- END DOCUMENTS ---');
+  lines.push('');
+  lines.push('--- QUESTION ---');
+  lines.push(question);
+  lines.push('--- END QUESTION ---');
+  return lines.join('\n');
+}
+
+// Same panel as a document question, but the context is the bundle of chosen
+// files and never the note that happens to be open.
+function openBundleAIPanel(bundleText, files, language) {
+  aiContext = {
+    text: bundleText,
+    start: null,
+    end: null,
+    bundle: true,
+    files: (files || []).map((file) => ({ path: file.path })),
+    language: language == null ? undefined : language,
+  };
+  aiAnswerKind = 'answer';
+  aiThreadContext = { ...aiContext };
+  aiThreadKind = aiAnswerKind;
+  state.aiScope = 'document';
+  els.aiPanel.classList.remove('hidden');
+  hideAIFloat();
+  resetAIAnswer();
+  updateAIPanelChrome();
+  applyAIDirection();
+  positionAIPanel();
+}
+
+// The folders/files a bundle answer is built from, shown at the top of the
+// panel so it is always clear which documents the answer came from.
+function bundleFolderLabel(files) {
+  const folders = files.map((file) => {
+    const path = file.path || '';
+    return path.includes('/') ? path.slice(0, path.lastIndexOf('/')).split('/') : [];
+  });
+  if (!folders.length) return '';
+  // the deepest folder that contains every chosen file
+  const common = folders[0].filter((segment, index) => folders.every((parts) => parts[index] === segment));
+  return common.join('/');
+}
+
+function renderAIBundleContext() {
+  const files = (aiContext && aiContext.files) || [];
+  if (!files.length) return false;
+  if (els.aiContextLabel) {
+    const folder = bundleFolderLabel(files);
+    const count = t('%n% documents', { n: localizeNumber(files.length) });
+    els.aiContextLabel.textContent = folder ? `${count} · ${folder}` : count;
+  }
+  if (els.aiContextBody) {
+    els.aiContextBody.innerHTML = '<div class="ai-context-files">'
+      + files.map((file) => {
+        const path = file.path || '';
+        const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path;
+        const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : t('Library');
+        return '<div class="ai-context-file">'
+          + '<span class="ai-context-file-name" dir="auto">' + escapeHtml(name) + '</span>'
+          + '<span class="ai-context-file-dir" dir="auto">' + escapeHtml(folder) + '</span>'
+          + '</div>';
+      }).join('')
+      + '</div>';
+    els.aiContextBody.classList.remove('hidden');
+  }
+  return true;
+}
+
+// The languages offered in the question dialog come from the app setting, so
+// any language the user added there is available for a single question too.
+function fillAskFilesLanguages() {
+  const select = $('askFilesLanguage');
+  const source = $('settingsAiResponseLanguage');
+  if (!select || !source) return;
+  const keep = select.value;
+  select.innerHTML = '';
+  const appLanguage = getAIResponseLanguage();
+  const fallback = document.createElement('option');
+  fallback.value = '';
+  fallback.textContent = appLanguage
+    ? t('App default (%lang%)', { lang: appLanguage })
+    : t('App default (auto)');
+  select.appendChild(fallback);
+  [...source.options].forEach((option) => {
+    if (option.value === 'auto' || option.value === 'custom') return;
+    const copy = document.createElement('option');
+    copy.value = option.value;
+    copy.textContent = option.textContent;
+    select.appendChild(copy);
+  });
+  const known = [...select.options].some((option) => option.value === keep);
+  select.value = known ? keep : '';
+}
+
+async function runAskFilesQuestion() {
+  const paths = askFilesSelected();
+  if (!paths.length) { toast(t('Pick at least one document'), 'info'); return; }
+  const question = ($('askFilesQuestion').value || '').trim();
+  if (!question) { toast('Type a question first', 'info'); $('askFilesQuestion').focus(); return; }
+
+  const submit = $('askFilesSubmit');
+  const label = submit ? submit.textContent : '';
+  if (submit) { submit.disabled = true; submit.textContent = t('Reading documents…'); }
+
+  const docs = [];
+  let failed = 0;
+  for (const path of paths) {
+    try {
+      const res = await window.inkwell.readFile(path);
+      let text = res && res.success ? String(res.content || '') : '';
+      if (text && /\.html?$/i.test(path)) text = htmlToCompareText(text);
+      if (!text.trim()) { failed += 1; continue; }
+      docs.push({ path, text });
+    } catch (_) {
+      failed += 1;
+    }
+  }
+  if (submit) { submit.disabled = false; submit.textContent = label; }
+  if (!docs.length) { toast(t('Nothing to read in those documents'), 'error'); return; }
+  if (failed) toast(t('%n% documents could not be read', { n: localizeNumber(failed) }), 'info');
+
+  const bundle = buildDocumentsBundle(docs);
+  const languageSelect = $('askFilesLanguage');
+  const language = languageSelect ? languageSelect.value : '';
+  closeModal('askFiles');
+  openBundleAIPanel(bundle.text, docs, language);
+  setAIQuestion(question);
+  askAI(
+    buildDocumentsQuestionPrompt(question, bundle.text, docs.length, bundle.truncated),
+    { responseLanguage: language },
+  );
+}
+
+function setupAskFilesDialog() {
+  const modal = modals.askFiles;
+  if (!modal) return;
+  const pick = $('askFilesPick');
+  if (pick) pick.addEventListener('click', openAskFilesPicker);
+  const closePicker = $('askFilesPickerClose');
+  if (closePicker) closePicker.addEventListener('click', closeAskFilesPicker);
+  const done = $('askFilesDone');
+  if (done) done.addEventListener('click', closeAskFilesPicker);
+  const clear = $('askFilesClear');
+  if (clear) clear.addEventListener('click', () => {
+    askFilesPicker.files.clear();
+    renderAskFilesList();
+    renderAskFilesCount();
+  });
+  const search = $('askFilesSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      askFilesPicker.query = search.value;
+      renderAskFilesList();
+    });
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        if (search.value) { search.value = ''; askFilesPicker.query = ''; renderAskFilesList(); }
+        else closeAskFilesPicker();
+      }
+    });
+  }
+  const submit = $('askFilesSubmit');
+  if (submit) submit.addEventListener('click', runAskFilesQuestion);
+  const question = $('askFilesQuestion');
+  if (question) {
+    question.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runAskFilesQuestion();
+      }
+    });
+    question.addEventListener('input', () => {
+      question.style.height = 'auto';
+      question.style.height = Math.min(200, question.scrollHeight) + 'px';
+    });
+  }
 }
 
 function updateDocAiBar() {
@@ -6095,9 +7772,13 @@ function setupDocAiBar() {
     if (btn.dataset.doc === 'proofread') { proofreadDocument(); return; }
     if (btn.dataset.doc === 'flashcards') { makeFlashcards(); return; }
     if (btn.dataset.doc === 'glossary') { glossaryDocument(); return; }
+    if (btn.dataset.doc === 'compare') { openCompareDialog(); return; }
+    if (btn.dataset.doc === 'askfiles') { openAskFilesDialog(); return; }
     const prompt = getAIDocumentPrompt(btn.dataset.doc);
     if (prompt) askAboutDocument(prompt, btn.dataset.doc);
   });
+  setupCompareDialog();
+  setupAskFilesDialog();
 }
 
 /* ---- Explain code ---- */
@@ -6264,7 +7945,23 @@ function isDirectDeleteCommand(instruction) {
   return english || persian;
 }
 
+// A question is answered, never applied: "which change matters most?" or
+// "what changed in the pricing section?" must not become an edit proposal just
+// because they contain an editing verb.
+function isQuestionLike(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  // "can you make this shorter?" is a request wearing a question mark
+  if (/^(?:please|pls|can you|could you|would you|will you|i want you to|i'd like you to|لطفا|لطفاً|میشه|می‌تونی|می‌توانی)\b/i.test(s)) {
+    return false;
+  }
+  if (/[?？]\s*$/.test(s) || /؟\s*$/.test(s)) return true;
+  return /^(?:what|which|why|how|when|where|who|whose|is|are|was|were|do|does|did|can|could|should)\b/i.test(s)
+    || /^(?:چرا|چطور|چگونه|کدام|آیا|کجا|کی|چی|چه)\b/u.test(s);
+}
+
 function isDocumentChangeCommand(instruction) {
+  if (isQuestionLike(instruction)) return false;
   // polite wrappers ("please", "can you", "میشه") hide the verb from the regex
   const text = String(instruction || '')
     .trim()
@@ -6590,7 +8287,7 @@ function renderGlossary(container, terms) {
 // Whole-document glossary: the terms, names and acronyms with their meaning.
 function glossaryDocument() {
   if (!state.currentFile) { toast('Open a document first', 'info'); return; }
-  const text = els.editor.value || '';
+  const text = documentTextForAI();
   if (!text.trim()) { toast('This document is empty', 'info'); return; }
   const docText = openDocumentAIPanel('glossary');
   setAIQuestion(t('Build a glossary of terms and entities from this document.'));
@@ -6792,7 +8489,9 @@ function findDeleteTargetRange(originalContent, response, caret) {
 // becomes a reviewed edit; anything else is a message in the conversation.
 function routeAIRequest() {
   const text = els.aiQuestion.value.trim();
-  const canEditDocument = !!state.currentFile && aiScopeOf(aiContext) !== 'chat';
+  // a conversation about chosen files is not about the open note, so a command
+  // like "rewrite it" must never rewrite the document behind it
+  const canEditDocument = !!state.currentFile && aiScopeOf(aiContext) !== 'chat' && !aiContext.bundle;
   if (canEditDocument && text && isDocumentChangeCommand(text)) {
     suggestDocumentChange();
     return;
@@ -6897,7 +8596,7 @@ async function askAI(overridePrompt, options = {}) {
     if (!aiThread.length) {
       aiThreadContext = { ...aiContext };
       aiThreadKind = aiAnswerKind;
-      aiChatOwner = docChatKey();
+      aiChatOwner = aiContext.bundle ? '__files__' : docChatKey();
     }
     aiThread.push({ role: 'user', text: question.trim() || 'Explain, summarize, or improve the selected text.' });
     saveAIChatHistory();
@@ -6919,17 +8618,25 @@ async function askAI(overridePrompt, options = {}) {
   if (els.aiAnswerMeta) els.aiAnswerMeta.textContent = t('Thinking…');
 
   // A document conversation reads the live note, so edits made between two
-  // questions are part of the next answer.
+  // questions are part of the next answer. A bundle of chosen files is fixed:
+  // it is never swapped for whatever note happens to be on screen.
   const liveDocument = !!state.currentFile && els.editor.value ? els.editor.value : '';
-  const contextText = aiContext.doc && liveDocument ? liveDocument : aiContext.text;
-  const threadText = aiThreadContext.doc && liveDocument ? liveDocument : aiThreadContext.text;
+  const contextText = aiContext.doc && !aiContext.bundle && liveDocument ? liveDocument : aiContext.text;
+  const threadText = aiThreadContext.doc && !aiThreadContext.bundle && liveDocument ? liveDocument : aiThreadContext.text;
   const basePrompt = overridePrompt || buildAIPrompt(question, contextText, { full: !!aiContext.doc });
   // a follow-up needs the earlier turns; the first turn already carries them,
   // and a document conversation always carries the whole document
   const chatPrompt = followUp
-    ? buildAIChatPrompt(threadText, { full: !!aiThreadContext.doc })
+    ? buildAIChatPrompt(threadText, {
+      full: !!(aiThreadContext.doc || aiThreadContext.bundle),
+      bundle: !!aiThreadContext.bundle,
+    })
     : basePrompt;
-  const prompt = applyAIResponseLanguage(chatPrompt, options);
+  // a language chosen for this conversation outlives the single question
+  const threadLanguage = options.responseLanguage != null
+    ? options.responseLanguage
+    : (aiThreadContext && aiThreadContext.language);
+  const prompt = applyAIResponseLanguage(chatPrompt, { ...options, responseLanguage: threadLanguage });
   let res;
   try {
     const provCfg = getAIProviderById(provider);
@@ -7616,6 +9323,10 @@ function setupTopbarOverflow() {
   menu.addEventListener('click', (e) => {
     const external = e.target.closest('[data-open-external]');
     if (external) { close(); openExternalDocument(); return; }
+    const askFiles = e.target.closest('[data-ask-files]');
+    if (askFiles) { close(); openAskFilesDialog(); return; }
+    const duplicate = e.target.closest('[data-duplicate-note]');
+    if (duplicate) { close(); duplicateItem(state.currentFile); return; }
     const item = e.target.closest('[data-mirror]');
     if (!item) return;
     close();
@@ -7839,21 +9550,38 @@ function setupAI() {
 /* ============ CONTEXT MENU ============ */
 function showContextMenu(x, y) {
   const menu = els.contextMenu;
-  const isFolder = state.contextIsFolder;
-  $('ctxNewFileHere').classList.toggle('hidden', !isFolder);
-  $('ctxNewFolderHere').classList.toggle('hidden', !isFolder);
-  $('ctxFolderDivider').classList.toggle('hidden', !isFolder);
+  const isRoot = !!state.contextIsRoot;
+  const isFolder = state.contextIsFolder && !isRoot;
+  // a document from another folder can only be read and copied, never renamed,
+  // archived or deleted from here
+  const isExternal = !isFolder && !isRoot && isExternalPath(state.contextTarget);
+  const isNote = !state.contextIsFolder && !isRoot && !isExternal;
 
-  $('ctxPin').classList.toggle('hidden', isFolder);
-  if (!isFolder) {
+  $('ctxNewFileHere').classList.toggle('hidden', !(isFolder || isRoot));
+  $('ctxNewFolderHere').classList.toggle('hidden', !(isFolder || isRoot));
+  $('ctxPaste').classList.toggle('hidden', !(isFolder || isRoot));
+  $('ctxFolderDivider').classList.toggle('hidden', !(isFolder || isRoot));
+
+  $('ctxPin').classList.toggle('hidden', isFolder || isRoot || isExternal);
+  if (!isFolder && !isRoot) {
     $('ctxPinLabel').textContent = t(isPinned(state.contextTarget) ? 'Unpin from tabs' : 'Pin to tabs');
   }
 
-  $('ctxFav').classList.toggle('hidden', isFolder);
-  if (!isFolder) {
+  $('ctxFav').classList.toggle('hidden', isFolder || isRoot || isExternal);
+  if (!isFolder && !isRoot) {
     $('ctxFavLabel').textContent = t(isFavorite(state.contextTarget) ? 'Remove from favorites' : 'Add to favorites');
   }
+  // a copy only makes sense for a note that lives in the vault
+  $('ctxDuplicate').classList.toggle('hidden', !isNote);
+  // a path can be copied for anything that is not the library root itself
+  $('ctxCopyPath').classList.toggle('hidden', isRoot);
+  // and anything with a path on disk can be shown in the file manager
+  $('ctxReveal').classList.toggle('hidden', isRoot);
 
+  $('ctxArchive').classList.toggle('hidden', isRoot || isExternal);
+  $('ctxRename').classList.toggle('hidden', isRoot || isExternal);
+  $('ctxDelete').classList.toggle('hidden', isRoot || isExternal);
+  $('ctxDangerDivider').classList.toggle('hidden', isRoot || isExternal);
   $('ctxArchiveLabel').textContent = t(isFolder ? 'Archive folder' : 'Archive note');
 
   menu.classList.remove('hidden');
@@ -7866,14 +9594,62 @@ function showContextMenu(x, y) {
 
 function hideContextMenu() { els.contextMenu.classList.add('hidden'); }
 
+// right-clicking the empty part of the list targets the library root
+els.fileList.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('.file-item') || e.target.closest('.folder-item') || e.target.closest('.list-header')) return;
+  e.preventDefault();
+  state.contextTarget = '';
+  state.contextIsFolder = true;
+  state.contextIsRoot = true;
+  showContextMenu(e.clientX, e.clientY);
+});
+
 $('ctxNewFileHere').addEventListener('click', () => {
-  if (state.contextTarget) openNewFileModal(state.contextTarget);
+  const dir = state.contextIsRoot ? '' : state.contextTarget;
+  if (dir != null) openNewFileModal(dir || '');
   hideContextMenu();
 });
 
 $('ctxNewFolderHere').addEventListener('click', () => {
-  if (state.contextTarget) openNewFolderModal(state.contextTarget);
+  const dir = state.contextIsRoot ? '' : state.contextTarget;
+  if (dir != null) openNewFolderModal(dir || '');
   hideContextMenu();
+});
+
+$('ctxPaste').addEventListener('click', () => {
+  const dir = state.contextIsRoot ? '' : state.contextTarget;
+  hideContextMenu();
+  pasteIntoVault(dir || '');
+});
+
+$('ctxDuplicate').addEventListener('click', () => {
+  const target = state.contextTarget;
+  hideContextMenu();
+  if (target) duplicateItem(target);
+});
+
+$('ctxCopyPath').addEventListener('click', () => {
+  const target = state.contextTarget;
+  hideContextMenu();
+  if (!target) return;
+  const abs = isExternalPath(target) ? externalAbsOf(target) : fullItemPath(target);
+  copyText(abs).then((ok) => {
+    toast(ok ? t('Path copied') : t('Could not copy the path'), ok ? 'success' : 'error');
+  });
+});
+
+// Shows the item in the OS file manager, like "Reveal in File Explorer".
+$('ctxReveal').addEventListener('click', () => {
+  const target = state.contextTarget;
+  hideContextMenu();
+  if (!target) return;
+  const external = isExternalPath(target);
+  const payload = external
+    ? { path: externalAbsOf(target), external: true }
+    : { path: target, external: false };
+  Promise.resolve(window.inkwell.revealItem(payload)).then((res) => {
+    if (!res || !res.success) toast((res && res.error) || t('Could not open the folder'), 'error');
+  }).catch(() => toast(t('Could not open the folder'), 'error'));
 });
 
 $('ctxPin').addEventListener('click', () => {
@@ -7922,6 +9698,14 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.key === 'Escape') {
+    if (state.htmlPreviewFullscreen) {
+      toggleHTMLPreviewFullscreen();
+      return;
+    }
+    if (htmlPreviewMenuEl) {
+      closeHTMLPreviewMenu();
+      return;
+    }
     const anyModal = Object.values(modals).some((m) => !m.classList.contains('hidden'));
     closeAllModals();
     hideContextMenu();

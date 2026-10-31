@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('inkwell', {
   mkdir: (folderPath) => ipcRenderer.invoke('fs:mkdir', folderPath),
   rmdir: (folderPath) => ipcRenderer.invoke('fs:rmdir', folderPath),
   renameFolder: (oldPath, newPath) => ipcRenderer.invoke('fs:renameFolder', oldPath, newPath),
+  duplicateFile: (logicalPath) => ipcRenderer.invoke('fs:duplicate', logicalPath),
+  pasteFiles: (dirPath) => ipcRenderer.invoke('fs:paste', dirPath),
 
   // archive (hidden .inkwell/archive folder inside the vault)
   listArchive: () => ipcRenderer.invoke('archive:list'),
@@ -26,6 +28,8 @@ contextBridge.exposeInMainWorld('inkwell', {
   openExternalFile: () => ipcRenderer.invoke('file:openExternal'),
   readExternal: (absPath) => ipcRenderer.invoke('file:readExternal', absPath),
   writeExternal: (absPath, content) => ipcRenderer.invoke('file:writeExternal', absPath, content),
+  // show a note or folder in the OS file manager
+  revealItem: (payload) => ipcRenderer.invoke('shell:reveal', payload),
   // window chrome (frameless) controls
   minimize: () => ipcRenderer.invoke('win:minimize'),
   toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),

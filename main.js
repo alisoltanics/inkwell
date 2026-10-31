@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -162,6 +162,9 @@ function createWindow() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
+  // warm the probe that decides which isolation flags the installed Claude CLI
+  // understands, so the first answer is not delayed by it
+  getClaudeIsolationFlags().catch(() => {});
 });
 
 app.on('window-all-closed', () => {
@@ -450,6 +453,134 @@ ipcMain.handle('fs:writeBinary', async (event, logicalPath, base64) => {
   }
 });
 
+/* ================= DUPLICATE / PASTE INTO THE VAULT ================= */
+// A free name next to the original: "note copy.md", then "note copy 2.md".
+function uniquePathIn(dirAbs, base, ext) {
+  let n = 1;
+  let candidate = path.join(dirAbs, base + ext);
+  while (fs.existsSync(candidate)) {
+    n += 1;
+    if (n > 500) throw new Error('Could not find a free name');
+    candidate = path.join(dirAbs, `${base} ${n}${ext}`);
+  }
+  return candidate;
+}
+
+function logicalFromAbs(abs) {
+  return path.relative(NOTES_DIR, abs).split(path.sep).join('/');
+}
+
+ipcMain.handle('fs:duplicate', async (event, logicalPath) => {
+  try {
+    const res = resolveLogical(logicalPath);
+    if (!fs.existsSync(res.abs)) throw new Error('File not found');
+    if (!fs.statSync(res.abs).isFile()) throw new Error('Not a file');
+    const dir = path.dirname(res.abs);
+    const ext = path.extname(res.abs);
+    const base = path.basename(res.abs, ext);
+    const target = uniquePathIn(dir, base + ' copy', ext);
+    fs.copyFileSync(res.abs, target);
+    return { success: true, path: logicalFromAbs(target) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Files copied in the system file manager: every platform exposes them under a
+// different clipboard format, so all known ones are tried.
+function clipboardFilePaths() {
+  const found = [];
+  const add = (value) => {
+    const s = String(value || '').trim();
+    if (!s || found.includes(s)) return;
+    try {
+      if (fs.statSync(s).isFile()) found.push(s);
+    } catch (_) {}
+  };
+  const fromUri = (line) => {
+    const s = String(line || '').trim();
+    if (!s || s.startsWith('#') || s === 'copy' || s === 'cut') return;
+    if (/^file:\/\//i.test(s)) {
+      try { add(decodeURIComponent(new URL(s).pathname)); } catch (_) {}
+      return;
+    }
+    if (path.isAbsolute(s)) add(s);
+  };
+
+  if (process.platform === 'win32') {
+    try {
+      const buf = clipboard.readBuffer('FileNameW');
+      if (buf && buf.length) {
+        const text = buf.toString('ucs2').replace(/\0+$/, '');
+        for (const part of text.split('\0')) add(part);
+      }
+    } catch (_) {}
+  }
+  for (const format of ['text/uri-list', 'public.file-url', 'x-special/gnome-copied-files']) {
+    try {
+      const text = clipboard.read(format);
+      if (text) String(text).split(/\r?\n/).forEach(fromUri);
+    } catch (_) {}
+  }
+  if (!found.length) {
+    // plain text that is nothing but absolute paths, one per line
+    try {
+      const lines = String(clipboard.readText() || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      if (lines.length && lines.every((l) => path.isAbsolute(l))) lines.forEach(fromUri);
+    } catch (_) {}
+  }
+  return found;
+}
+
+// What belongs in a Markdown library: notes and the images a note can link.
+const PASTEABLE_RE = /\.(?:md|markdown|txt|html?|png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+
+ipcMain.handle('fs:paste', async (event, dirPath) => {
+  try {
+    if (!NOTES_DIR) throw new Error('Choose a vault folder first');
+    const dirAbs = String(dirPath || '') ? resolveDir(dirPath).abs : NOTES_DIR;
+    if (!fs.existsSync(dirAbs) || !fs.statSync(dirAbs).isDirectory()) throw new Error('Folder not found');
+
+    const sources = clipboardFilePaths();
+    const copied = [];
+    let skipped = 0;
+    for (const src of sources.slice(0, 50)) {
+      if (!PASTEABLE_RE.test(src)) { skipped += 1; continue; }
+      try {
+        const st = fs.statSync(src);
+        if (!st.isFile() || st.size > 512 * 1024 * 1024) { skipped += 1; continue; }
+        const ext = path.extname(src);
+        const base = path.basename(src, ext);
+        const target = uniquePathIn(dirAbs, base, ext);
+        fs.copyFileSync(src, target);
+        copied.push(logicalFromAbs(target));
+      } catch (_) {
+        skipped += 1;
+      }
+    }
+
+    // a screenshot on the clipboard pastes as an image file
+    if (!copied.length && !skipped) {
+      try {
+        const image = clipboard.readImage();
+        if (image && !image.isEmpty()) {
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const target = uniquePathIn(dirAbs, 'pasted image ' + stamp, '.png');
+          fs.writeFileSync(target, image.toPNG());
+          copied.push(logicalFromAbs(target));
+        }
+      } catch (_) {}
+    }
+
+    if (!copied.length) {
+      return { success: false, skipped, empty: !sources.length, error: 'The clipboard holds nothing that can be added' };
+    }
+    return { success: true, files: copied, skipped };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 /* ================= DOCUMENTS OUTSIDE THE VAULT ================= */
 // A document opened from any other folder on disk is read-only outside the
 // vault: it keeps its own absolute path and is never moved or copied into the
@@ -525,6 +656,22 @@ ipcMain.handle('file:writeExternal', async (event, absPath, content) => {
     if (kind !== 'markdown' && kind !== 'text') throw new Error('This document is read-only');
     if (!externalOpened.has(abs)) throw new Error('Open the file before saving it');
     fs.writeFileSync(abs, String(content ?? ''), 'utf8');
+    return { success: true, path: abs };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// "Open containing folder": show the item in the OS file manager the way an
+// editor does. A vault path is resolved inside the vault; an outside document
+// keeps its own path, and only something that exists can be revealed.
+ipcMain.handle('shell:reveal', async (event, payload) => {
+  try {
+    const target = String((payload && payload.path) || '');
+    if (!target) throw new Error('No path');
+    const abs = payload && payload.external ? path.resolve(target) : resolveLogical(target).abs;
+    if (!fs.existsSync(abs)) throw new Error('Not found');
+    shell.showItemInFolder(abs);
     return { success: true, path: abs };
   } catch (e) {
     return { success: false, error: e.message };
@@ -1261,19 +1408,22 @@ async function askApiProvider(providerConfig, prompt, model, senderId) {
   }
 }
 
-function buildAICommand(provider, prompt, model, providerConfig) {
+function buildAICommand(provider, prompt, model, providerConfig, isolationArgs = []) {
   if (providerConfig && providerConfig.command && providerConfig.type) {
     const cmd = providerConfig.command;
     const type = providerConfig.type;
     // HTTP providers never spawn a process; askApiProvider handles them.
     if (type === 'api') return null;
     if (type === 'claude' || cmd === 'claude') {
-      const args = providerConfig.args ? providerConfig.args.map((a) => String(a)) : ['-p'];
+      const custom = Array.isArray(providerConfig.args) && providerConfig.args.length;
+      const args = custom ? providerConfig.args.map((a) => String(a)) : ['-p'];
       if (model && providerConfig.useModel !== false) {
         if (!args.includes('--model') && !args.includes('-m')) {
           args.push('--model', model);
         }
       }
+      // custom args mean the user knows what they want: never inject ours
+      if (!custom) args.push(...isolationArgs);
       return { cmd, args, stdin: providerConfig.stdin !== false ? prompt : null, parse: providerConfig.parse || 'text', env: providerConfig.useClaudeEnv !== false ? readClaudeEnv() : {} };
     }
     if (type === 'codex' || cmd === 'codex') {
@@ -1325,6 +1475,7 @@ function buildAICommand(provider, prompt, model, providerConfig) {
     case 'claude': {
       const args = ['-p'];
       if (model) args.push('--model', model);
+      args.push(...isolationArgs);
       return { cmd: 'claude', args, stdin: prompt, parse: 'text', env: readClaudeEnv() };
     }
     case 'codex': {
@@ -1345,6 +1496,45 @@ function buildAICommand(provider, prompt, model, providerConfig) {
 }
 
 const aiProcs = new Map();
+
+/* ---- one-shot isolation for the built-in CLIs ---- */
+// A coding CLI carries its own instructions: CLAUDE.md files, skills, hooks and
+// a toolbox. Inheriting them turns a simple "explain this document" into a task
+// the assistant finishes with side work (notifications, file edits, shell
+// commands) instead of an answer. These flags reduce the call to a plain
+// completion. They are probed from the installed CLI, so older versions keep
+// working unchanged.
+const AI_ONE_SHOT_SYSTEM = [
+  'You are a writing assistant embedded in a desktop Markdown editor.',
+  'Answer only the request in the user message, using the document text it contains.',
+  'Never mention tools, shell commands, environment variables, notifications, sessions or your own setup, and never append notes about what you did.',
+].join(' ');
+
+let claudeIsolationFlags;
+
+async function getClaudeIsolationFlags() {
+  if (claudeIsolationFlags !== undefined) return claudeIsolationFlags;
+  claudeIsolationFlags = [];
+  const res = await captureAICommand('claude', ['--help'], { timeout: 12000 });
+  if (!res.ok) return claudeIsolationFlags;
+  const help = res.stdout || '';
+  const flags = [];
+  // no tools at all: the answer must be text, never a command run
+  if (/--tools\b/.test(help)) flags.push('--tools', '');
+  // no CLAUDE.md / skills / plugins / hooks / MCP servers
+  if (/--safe-mode\b/.test(help)) flags.push('--safe-mode');
+  if (/--strict-mcp-config\b/.test(help)) flags.push('--strict-mcp-config');
+  if (/--append-system-prompt\b/.test(help)) flags.push('--append-system-prompt', AI_ONE_SHOT_SYSTEM);
+  claudeIsolationFlags = flags;
+  return flags;
+}
+
+function claudeRequested(provider, providerConfig) {
+  if (provider === 'claude') return true;
+  if (!providerConfig) return false;
+  if (providerConfig.useIsolation === false) return false;
+  return providerConfig.type === 'claude' || providerConfig.command === 'claude';
+}
 
 ipcMain.handle('ai:listModels', async (_event, payload) => {
   try {
@@ -1417,7 +1607,11 @@ ipcMain.handle('ai:ask', async (event, payload) => {
     killAIFor(event.sender.id);
     return await askApiProvider(withStoredAICredentials(providerConfig), prompt, model, event.sender.id);
   }
-  const spec = buildAICommand(provider, prompt, model, providerConfig);
+  let isolation = [];
+  if (claudeRequested(provider, providerConfig)) {
+    try { isolation = await getClaudeIsolationFlags(); } catch (_) { isolation = []; }
+  }
+  const spec = buildAICommand(provider, prompt, model, providerConfig, isolation);
   if (!spec) return { ok: false, error: 'Unknown provider: ' + provider };
   if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };
 
