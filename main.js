@@ -135,6 +135,17 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
 
+  // a click that would replace the app with a web page opens the browser instead
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url === mainWindow.webContents.getURL()) return;
+    event.preventDefault();
+    openExternalUrl(url);
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.maximize();
     mainWindow.show();
@@ -677,6 +688,21 @@ ipcMain.handle('shell:reveal', async (event, payload) => {
     return { success: false, error: e.message };
   }
 });
+
+// A link in a note belongs to the system browser. The app is a single page with
+// no address bar, so a navigation away from it leaves a blank window behind.
+function openExternalUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || ''));
+    if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return false;
+    shell.openExternal(parsed.toString());
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+ipcMain.handle('shell:openExternal', async (event, url) => ({ success: openExternalUrl(url) }));
 
 /* ================= WINDOW CHROME ================= */
 

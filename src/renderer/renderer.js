@@ -2263,18 +2263,26 @@ function buildHTMLPreviewSource(source, zoomPercent) {
   setTimeout(report, 1200);
   window.addEventListener('load', function () { setTimeout(report, 300); });
   // The frame has an opaque origin, so a plain "#anchor" link would try to load
-  // the app's own URL and be blocked. Scroll inside the frame instead.
+  // the app's own URL and be blocked. Scroll inside the frame instead, and hand
+  // every other link to the app, which opens it in the browser.
   document.addEventListener('click', function (e) {
     var node = e.target;
     var link = node && node.closest ? node.closest('a[href]') : null;
     if (!link) return;
     var href = link.getAttribute('href') || '';
-    if (href.charAt(0) !== '#' || href.length < 2) return;
-    var id = href.slice(1);
-    var target = document.getElementById(id) || document.querySelector('[name="' + id.replace(/"/g, '\\\\"') + '"]');
-    if (!target) return;
+    if (href.charAt(0) === '#') {
+      if (href.length < 2) return;
+      var id = href.slice(1);
+      var target = document.getElementById(id) || document.querySelector('[name="' + id.replace(/"/g, '\\\\"') + '"]');
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView();
+      return;
+    }
+    if (!href) return;
+    // a link must never replace the preview with the page it points at
     e.preventDefault();
-    target.scrollIntoView();
+    try { parent.postMessage({ inkwellHtmlLink: 1, href: href }, '*'); } catch (err) {}
   }, true);
   // Right-click belongs to the app, not to the frame's default menu.
   document.addEventListener('contextmenu', function (e) {
@@ -2346,6 +2354,10 @@ function handleHTMLPreviewMessage(event) {
   const entry = htmlPreviewFrames.get(event.source);
   if (!entry) return;
   const data = event.data;
+  if (data && data.inkwellHtmlLink === 1) {
+    if (!openExternalLinkInBrowser(data.href)) toast(t('Only web links open in the browser'), 'info');
+    return;
+  }
   if (data && data.inkwellHtmlContextMenu === 1) {
     const frame = entry.frame;
     const rect = frame && frame.isConnected ? frame.getBoundingClientRect() : null;
@@ -3901,6 +3913,31 @@ function closeAllModals() {
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-close]');
   if (btn) closeModal(btn.dataset.close);
+});
+
+// A link in a note, an AI answer or a comment opens in the system browser. The
+// window *is* the app: letting the click navigate replaces Inkwell with a blank
+// page, and there is no address bar to come back from.
+function openExternalLinkInBrowser(url) {
+  const href = String(url || '').trim();
+  if (!/^(?:https?|mailto):/i.test(href)) return false;
+  try {
+    window.inkwell.openExternalLink(href);
+  } catch (_) {
+    return false;
+  }
+  return true;
+}
+
+document.addEventListener('click', (e) => {
+  if (e.defaultPrevented || e.button !== 0) return;
+  const link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+  if (!link) return;
+  const href = link.getAttribute('href') || '';
+  // "#anchor" is a jump inside the page, not another page
+  if (!href || href.charAt(0) === '#') return;
+  e.preventDefault();
+  if (!openExternalLinkInBrowser(href)) toast(t('Only web links open in the browser'), 'info');
 });
 
 Object.values(modals).forEach(overlay => {
