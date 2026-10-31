@@ -45,6 +45,11 @@
                         </svg>
                         <span class="btn-new-label">New folder</span>
                     </button>
+                    <button id="openExternalBtn" class="btn-new btn-new-ghost btn-new-icon" title="Open a document from any folder (Ctrl+O)" aria-label="Open a document from any folder">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 11h18"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
@@ -74,13 +79,15 @@
                         </svg>
                     </button>
                     <div class="breadcrumb">
-                        <span class="breadcrumb-vault">Library</span>
+                        <span class="breadcrumb-vault" id="breadcrumbVault">Library</span>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
                         <span class="breadcrumb-file" id="currentFileName">Welcome</span>
+                        <span class="breadcrumb-badge hidden" id="breadcrumbBadge"></span>
                     </div>
                     <button class="doc-act ai-header-ask" id="aiHeaderSelectionBtn" type="button" title="Open Ask AI">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
                         <span>Ask AI</span>
+                        <span class="ai-min-badge hidden" id="aiMinBadge" aria-hidden="true"></span>
                     </button>
                     <div class="ai-tools-menu-wrap" id="aiToolsMenuWrap">
                         <button class="btn-icon ai-tools-menu-trigger hidden" id="aiToolsMenuBtn" type="button" title="Document AI tools" aria-label="Document AI tools" aria-haspopup="true" aria-expanded="false">
@@ -184,6 +191,19 @@
                             <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                         </svg>
                     </button>
+                    <div class="topbar-more" id="topbarMore">
+                        <button id="topbarMoreBtn" class="btn-icon" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                        </button>
+                        <div class="topbar-more-menu hidden" id="topbarMoreMenu" role="menu">
+                            <button type="button" role="menuitem" class="narrow-only" data-mirror="commentsToolbarBtn">Comments</button>
+                            <button type="button" role="menuitem" data-open-external>Open file…</button>
+                            <button type="button" role="menuitem" data-mirror="exportBtn">Export as HTML</button>
+                            <button type="button" role="menuitem" data-mirror="printBtn">Print</button>
+                            <button type="button" role="menuitem" data-mirror="telegramBtn">Send to Telegram</button>
+                            <button type="button" role="menuitem" class="danger" data-mirror="deleteFileBtn">Delete note</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -247,12 +267,6 @@
                     </button>
                 </div>
                 <div class="toolbar-spacer"></div>
-                <button class="tb-btn" id="explainCodeToolbarBtn" title="Explain a piece of code (Ctrl+Shift+K)">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7 4 12l4 5M16 7l4 5-4 5M13 5l-2 14"/></svg>
-                </button>
-                <button class="tb-btn tb-ai" id="aiToolbarBtn" title="Ask AI about selection (Ctrl+J)">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
-                </button>
                 <div class="direction-control" id="directionControl" title="Text direction">
                     <button class="dir-btn active" data-dir="auto">Auto</button>
                     <button class="dir-btn" data-dir="ltr">LTR</button>
@@ -457,7 +471,7 @@
             <div class="modal-body">
                 <div class="selection-edit-quote" id="selectionEditQuote"></div>
                 <label for="selectionEditPrompt">What would you like to change?</label>
-                <textarea id="selectionEditPrompt" class="selection-edit-input" placeholder="For example: Make this clearer and shorter…" rows="3"></textarea>
+                <textarea id="selectionEditPrompt" class="selection-edit-input" dir="auto" placeholder="For example: Make this clearer and shorter…" rows="3"></textarea>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" data-close="modalSelectionEdit" type="button">Cancel</button>
@@ -817,6 +831,9 @@
                 <span id="aiPanelTitle">Ask AI</span>
             </div>
             <div class="ai-head-actions">
+                <button class="ai-history-btn" id="aiHistoryBtn" type="button" title="Chat history" aria-label="Chat history" aria-expanded="false">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg>
+                </button>
                 <div class="ai-dock" id="aiDock">
                     <button class="ai-dock-btn" data-dock="left" type="button" title="Dock left">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
@@ -828,8 +845,34 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
                     </button>
                 </div>
+                <button class="ai-min" id="aiMin" type="button" title="Minimize" aria-label="Minimize">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
                 <button class="ai-close" id="aiClose" type="button" title="Close (Esc)">&times;</button>
             </div>
+        </div>
+
+        <div class="ai-history hidden" id="aiHistory">
+            <div class="ai-history-heading">Chat history</div>
+            <div class="ai-history-list" id="aiHistoryList"></div>
+            <div class="ai-history-foot" id="aiHistoryFoot">
+                <button type="button" class="ai-history-clear" id="aiHistoryClear">Clear all chats</button>
+            </div>
+        </div>
+
+        <div class="ai-scopes" id="aiScopes" role="tablist" aria-label="Conversation context">
+            <button class="ai-scope" type="button" role="tab" data-scope="document" title="Ask about the open document">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>
+                <span>Document</span>
+            </button>
+            <button class="ai-scope" type="button" role="tab" data-scope="selection" title="Ask about the selected text">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M8 12h8"/></svg>
+                <span>Selection</span>
+            </button>
+            <button class="ai-scope" type="button" role="tab" data-scope="chat" title="Chat without the document">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></svg>
+                <span>Chat</span>
+            </button>
         </div>
 
         <div class="ai-context">
@@ -840,27 +883,15 @@
             <div class="ai-context-body" id="aiContextBody"></div>
         </div>
 
-        <div class="ai-controls">
-            <select id="aiProvider" title="AI provider"></select>
-            <select id="aiModel" title="AI model"><option value="">Provider default</option></select>
-            <input type="text" id="aiModelCustom" class="hidden" placeholder="Model ID" autocomplete="off" spellcheck="false">
-        </div>
-
-        <textarea id="aiQuestion" class="ai-question" placeholder="Ask something about the selected text…" rows="3"></textarea>
-
-        <div class="ai-prompts" id="aiPrompts"></div>
-
-        <div class="ai-actions">
-            <button class="ai-ask" id="aiAskBtn" type="button">Ask</button>
-            <button class="ai-suggest" id="aiSuggestChangeBtn" type="button" title="Generate a proposed edit for this document. You can review it before applying it.">Suggest document change</button>
-            <button class="ai-stop hidden" id="aiStopBtn" type="button">Stop</button>
-        </div>
-
         <div class="ai-answer-wrap">
             <div class="ai-answer-card">
                 <div class="ai-answer-head">
                     <span class="ai-answer-badge" id="aiAnswerBadge">AI</span>
                     <span class="ai-answer-meta" id="aiAnswerMeta">Ready</span>
+                    <button class="ai-answer-newchat hidden" id="aiAnswerNewChat" type="button" title="New chat" aria-label="New chat">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+                        New chat
+                    </button>
                 </div>
                 <div class="ai-answer empty" id="aiAnswer">Select some text, then ask a question.</div>
                 <div class="ai-answer-actions hidden" id="aiAnswerActions">
@@ -883,6 +914,45 @@
                 </div>
             </div>
         </div>
+
+        <div class="ai-prompts" id="aiPrompts"></div>
+
+        <div class="ai-composer" id="aiComposer">
+            <textarea id="aiQuestion" class="ai-question" dir="auto" rows="1" placeholder="Ask something about the selected text…"></textarea>
+            <div class="ai-composer-bar">
+                <span class="ai-composer-hint" id="aiComposerHint">Ctrl+Enter to send</span>
+                <button class="ai-composer-clear hidden" id="aiComposerClear" type="button" title="Clear" aria-label="Clear">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="ai-foot">
+            <div class="ai-controls">
+                <select id="aiProvider" title="AI provider"></select>
+                <select id="aiModel" title="AI model"><option value="">Provider default</option></select>
+                <input type="text" id="aiModelCustom" class="hidden" placeholder="Model ID" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="ai-actions">
+                <button class="ai-stop hidden" id="aiStopBtn" type="button">Stop</button>
+                <button class="ai-ask" id="aiAskBtn" type="button">Ask</button>
+            </div>
+        </div>
+
+        <div class="ai-turn-menu hidden" id="aiTurnMenu" role="menu">
+            <button type="button" role="menuitem" data-turn-action="insert">Insert into document</button>
+            <button type="button" role="menuitem" data-turn-action="replace">Replace selection</button>
+            <button type="button" role="menuitem" data-turn-action="copy">Copy</button>
+            <button type="button" role="menuitem" data-turn-action="page">View as page</button>
+            <button type="button" role="menuitem" data-turn-action="save">Save as .md</button>
+            <button type="button" role="menuitem" data-turn-action="telegram">Send to Telegram</button>
+            <div class="ai-turn-menu-sep"></div>
+            <div class="ai-turn-menu-heading">Document AI tools</div>
+            <button type="button" role="menuitem" data-turn-action="summary">Summary of this answer</button>
+            <button type="button" role="menuitem" data-turn-action="flashcards">Flashcards from this answer</button>
+            <button type="button" role="menuitem" data-turn-action="glossary">Glossary of this answer</button>
+        </div>
+
     </aside>
 
     <!-- Comments panel -->

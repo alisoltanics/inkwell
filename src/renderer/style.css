@@ -1324,6 +1324,12 @@ button { font-family: inherit; }
 
 .editor-toolbar.hidden-toolbar { display: none; }
 
+/* Preview mode: the formatting buttons do not apply, but the text direction
+   does — the bar stays with a single control on the right. */
+.editor-toolbar.preview-toolbar .toolbar-group,
+.editor-toolbar.preview-toolbar .toolbar-sep,
+.editor-toolbar.preview-toolbar > .tb-btn { display: none; }
+
 .toolbar-group { display: flex; align-items: center; gap: 2px; }
 
 .toolbar-sep {
@@ -2869,6 +2875,29 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .doc-act.ai-header-ask:active { transform: scale(0.98); }
 .ai-header-ask:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* a folded AI chat stays visible in the header instead of disappearing */
+.ai-header-ask.is-minimized {
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+    box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.doc-act.ai-header-ask .ai-min-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-radius: 999px;
+    box-shadow: 0 1px 4px -1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
 .doc-cmt .tb-badge { top: -5px; right: -5px; }
 .doc-cmt.has-comments { color: var(--success, #15803d); }
 .doc-cmt.has-comments svg { color: var(--success, #15803d); }
@@ -3068,42 +3097,106 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
     box-shadow: 0 0 40px -18px rgba(0, 0, 0, 0.7);
     animation: aiPanelIn 0.16s ease-out;
     font-family: inherit;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .ai-panel.dock-right { border-left: 1px solid var(--border-strong); }
 .ai-panel.dock-left { border-right: 1px solid var(--border-strong); }
 .ai-panel.dock-bottom { border-top: 1px solid var(--border-strong); }
 
+/* Bottom dock: left column is the set-up (scope, context, pickers, prompts),
+   right column is the conversation (composer, actions, answer), so the answer
+   is never pushed below the fold. */
 .ai-panel.dock-bottom {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-content: flex-start;
+    display: grid;
+    grid-template-columns: minmax(190px, 0.8fr) minmax(300px, 1.2fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+    grid-template-areas:
+        "head     head"
+        "scopes   answer"
+        "context  answer"
+        "prompts  answer"
+        "composer composer"
+        "foot     foot";
+    gap: 10px 14px;
+    align-content: start;
     overflow: auto;
 }
 
-.ai-panel.dock-bottom .ai-head { flex: 1 0 100%; }
-.ai-panel.dock-bottom .ai-context { flex: 1 1 260px; min-width: 220px; }
-.ai-panel.dock-bottom .ai-context-body { max-height: 100px; }
-.ai-panel.dock-bottom .ai-controls { flex: 1 1 220px; }
-.ai-panel.dock-bottom .ai-question { flex: 1 1 320px; min-height: 44px; max-height: 80px; }
-.ai-panel.dock-bottom .ai-actions { flex: 0 0 auto; align-items: flex-start; }
-.ai-panel.dock-bottom .ai-answer-wrap { flex: 1 1 100%; }
-.ai-panel.dock-bottom .ai-answer { max-height: 150px; }
+.ai-panel.dock-bottom .ai-head { grid-area: head; align-self: start; }
+.ai-panel.dock-bottom .ai-scopes { grid-area: scopes; align-self: start; }
+.ai-panel.dock-bottom .ai-context { grid-area: context; align-self: start; min-width: 0; }
+.ai-panel.dock-bottom .ai-context-body { max-height: 84px; }
+.ai-panel.dock-bottom .ai-prompts { grid-area: prompts; align-self: start; }
+.ai-panel.dock-bottom .ai-answer-wrap { grid-area: answer; min-height: 120px; }
+.ai-panel.dock-bottom .ai-answer { max-height: none; }
+.ai-panel.dock-bottom .ai-composer { grid-area: composer; align-self: stretch; }
+.ai-panel.dock-bottom .ai-question { min-height: 44px; max-height: 120px; }
+.ai-panel.dock-bottom .ai-foot { grid-area: foot; }
+/* one scrollable row of actions keeps the answer itself readable in a short dock */
+.ai-panel.dock-bottom .ai-answer-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 6px 8px;
+}
+.ai-panel.dock-bottom .ai-answer-actions button { flex: 0 0 auto; padding: 5px 9px; }
+.ai-panel.dock-bottom .ai-answer-actions::-webkit-scrollbar { height: 0; }
+.ai-panel.dock-bottom .ai-answer-actions .ai-review-change { margin-left: 0; }
+/* the shortcut hint is not worth a whole row in the compact dock */
+.ai-panel.dock-bottom .ai-composer-hint { display: none; }
+.ai-panel.dock-bottom .ai-composer-bar {
+    min-height: 0;
+    padding: 0 2px;
+    justify-content: flex-end;
+}
 
 @keyframes aiPanelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
+/* the grip is fixed to the viewport: it stays reachable even when the panel
+   content itself has to scroll */
 .ai-resizer {
-    position: absolute;
-    z-index: 5;
+    position: fixed;
+    z-index: 1001;
     background: transparent;
 }
 
-.ai-panel.dock-right .ai-resizer { top: 0; bottom: 0; left: 0; width: 6px; cursor: col-resize; }
-.ai-panel.dock-left .ai-resizer { top: 0; bottom: 0; right: 0; width: 6px; cursor: col-resize; }
-.ai-panel.dock-bottom .ai-resizer { top: 0; left: 0; right: 0; height: 6px; cursor: row-resize; }
+.ai-panel.dock-left .ai-resizer,
+.ai-panel.dock-right .ai-resizer { cursor: col-resize; }
+.ai-panel.dock-bottom .ai-resizer { cursor: row-resize; }
 
-.ai-resizer:hover { background: var(--accent-glow); }
+/* a handle that shows itself when the pointer comes close */
+.ai-resizer::after {
+    content: '';
+    position: absolute;
+    border-radius: 3px;
+    background: var(--resizer-ink, var(--border-strong));
+    opacity: var(--resizer-ink-opacity, .45);
+    transition: opacity .12s, background .12s;
+}
+.ai-panel.dock-bottom .ai-resizer::after { left: 50%; top: 5px; width: 46px; height: 3px; margin-left: -23px; }
+.ai-panel.dock-left .ai-resizer::after { top: 50%; left: 0; width: 3px; height: 46px; margin-top: -23px; }
+.ai-panel.dock-right .ai-resizer::after { top: 50%; left: 5px; width: 3px; height: 46px; margin-top: -23px; }
+.ai-resizer:hover { --resizer-ink: var(--accent); --resizer-ink-opacity: 1; }
+
+.ai-min {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    padding: 0;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background .12s, color .12s;
+}
+.ai-min:hover { background: var(--bg-hover); color: var(--text); }
+.ai-min:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .ai-head-actions { display: flex; align-items: center; gap: 6px; }
 
@@ -3212,9 +3305,10 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
     font-family: inherit;
 }
 
-.ai-controls select { flex: 0 0 42%; cursor: pointer; }
-.ai-controls.custom-model-selected select { flex-basis: 31%; }
-.ai-controls.custom-model-selected input:not(.hidden) { flex: 1 1 auto; min-width: 80px; }
+.ai-controls select { flex: 0 0 34%; cursor: pointer; }
+.ai-controls select + select { flex: 1 1 auto; min-width: 0; }
+.ai-controls.custom-model-selected select { flex-basis: 27%; }
+.ai-controls.custom-model-selected select + select { flex-basis: 27%; flex-grow: 0; }.ai-controls.custom-model-selected input:not(.hidden) { flex: 1 1 auto; min-width: 80px; }
 .ai-controls input:focus,
 .ai-controls select:focus { outline: none; border-color: var(--accent); }
 
@@ -3288,7 +3382,7 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 
 .ai-answer-wrap {
     flex: 1;
-    min-height: 0;
+    min-height: 140px;
     display: flex;
     flex-direction: column;
 }
@@ -3343,6 +3437,281 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .ai-answer.markdown-body { font-size: 13.5px; white-space: normal; }
 .ai-answer.markdown-body > *:first-child { margin-top: 0; }
 .ai-answer.markdown-body > *:last-child { margin-bottom: 0; }
+
+/* ============ ASK AI CONVERSATION ============ */
+.ai-answer.ai-chat {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    white-space: normal;
+}
+.ai-chat-turn { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ai-chat-who {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.ai-chat-turn.user .ai-chat-body {
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 8px 11px;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.ai-chat-turn.assistant .ai-chat-body { font-size: 13.5px; line-height: 1.7; word-break: break-word; }
+/* the markdown stylesheet is written for a full page: drop its page padding
+   and width so a chat bubble stays a bubble */
+.ai-chat-turn .ai-chat-body.markdown-body {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    font-size: 13.5px;
+    line-height: 1.7;
+}
+.ai-chat-turn .ai-chat-body.markdown-body > *:first-child { margin-top: 0; }
+.ai-chat-turn .ai-chat-body.markdown-body > *:last-child { margin-bottom: 0; }
+.ai-chat-turn.is-thinking {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.ai-chat-error {
+    padding: 8px 10px;
+    border-radius: 9px;
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    font-size: 12.5px;
+    white-space: pre-wrap;
+}
+
+.ai-answer-newchat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: color .12s, border-color .12s, background .12s;
+}
+.ai-answer-newchat:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
+.ai-answer-newchat:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* ---- composer footer: model pickers and the send button on one line ---- */
+.ai-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+.ai-foot .ai-controls { flex: 1 1 auto; min-width: 0; }
+.ai-foot .ai-actions { flex: 0 0 auto; }
+.ai-foot .ai-ask { min-width: 78px; }
+
+/* ---- per answer menu ---- */
+/* the answer's actions sit on their own row under the message, at its start and
+   always visible: a hover-only icon was too easy to miss */
+.ai-chat-foot {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 2px;
+}
+.ai-turn-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-panel);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+}
+.ai-turn-menu-btn svg { opacity: .7; }
+.ai-turn-menu-btn:hover,
+.ai-turn-menu-btn:focus-visible,
+.ai-turn-menu-btn[aria-expanded="true"] {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: var(--accent-glow);
+}
+.ai-turn-menu-btn:hover svg,
+.ai-turn-menu-btn[aria-expanded="true"] svg { opacity: 1; }
+
+.ai-turn-menu {
+    position: fixed;
+    z-index: 1400;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 210px;
+    max-width: 260px;
+    padding: 5px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 11px;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .6);
+}
+.ai-turn-menu.hidden { display: none; }
+.ai-turn-menu button {
+    display: block;
+    width: 100%;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    text-align: start;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ai-turn-menu button:hover,
+.ai-turn-menu button:focus-visible { background: var(--accent-glow); color: var(--accent); outline: none; }
+.ai-turn-menu button.hidden { display: none; }
+.ai-turn-menu-sep { height: 1px; margin: 4px 4px; background: var(--border); }
+.ai-turn-menu-heading {
+    padding: 4px 10px 2px;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* ---- saved conversations ---- */
+.ai-history-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background .12s, color .12s;
+}
+.ai-history-btn:hover,
+.ai-history-btn[aria-expanded="true"] { background: var(--accent-glow); color: var(--accent); }
+
+.ai-history {
+    position: fixed;
+    z-index: 1300;
+    display: flex;
+    flex-direction: column;
+    max-height: 60vh;
+    padding: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 11px;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .6);
+    overflow: auto;
+}
+.ai-history.hidden { display: none; }
+.ai-history-heading {
+    padding: 6px 8px;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.ai-history-row { display: flex; align-items: stretch; gap: 2px; border-radius: 8px; }
+.ai-history-row:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.ai-history-row.active { background: var(--accent-glow); }
+.ai-history-open {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 7px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+.ai-history-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ai-history-meta { font-size: 10px; color: var(--text-muted); }
+.ai-history-delete {
+    flex: 0 0 auto;
+    width: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+.ai-history-delete:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.ai-history-empty { padding: 10px; font-size: 11.5px; color: var(--text-muted); text-align: center; }
+.ai-history-foot {
+    margin-top: 4px;
+    padding: 6px 2px 2px;
+    border-top: 1px solid var(--border);
+}
+.ai-history-foot.hidden { display: none; }
+.ai-history-clear {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    transition: color .12s, background .12s, border-color .12s;
+}
+.ai-history-clear:hover { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 32%, transparent); }
+.ai-history-clear.armed {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+/* decks and glossaries keep their look inside a chat bubble */
+.ai-chat-body.flashdeck-view,
+.ai-chat-body.glossary-view { padding: 0; white-space: normal; }
 
 /* ============ FLASHCARD DECK (Ask AI answer) ============ */
 .ai-answer.flashdeck-view {
@@ -4182,51 +4551,6 @@ mark.cmt-mark.cmt-flash {
 
 [data-theme="light"] .comments-panel { box-shadow: 0 0 40px -18px rgba(15, 23, 42, 0.28); }
 
-/* ============ PAGINATED PREVIEW (PAGE DIVIDERS) ============ */
-/* Content keeps its normal width/padding; blocks are grouped into A4-height
-   pages, each footed with its page number and separated by a dashed seam. */
-#preview.paged .pages { display: block; }
-#preview.paged .page { display: block; }
-
-/* flow-root keeps child margins inside the group so page-fit measurement is exact */
-#preview.paged .page-inner {
-    display: flow-root;
-    min-height: 1px;
-}
-
-#preview.paged .page-inner > *:first-child { margin-top: 0; }
-#preview.paged .page-inner > *:last-child { margin-bottom: 0; }
-
-/* number printed at the foot of the page it labels */
-#preview.paged .page-footer {
-    margin-top: 14px;
-    color: var(--text-muted);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-align: center;
-    user-select: none;
-    pointer-events: none;
-}
-
-/* page seam — fine dashed cut line, deliberately unlike the solid content
-   rules (hr, heading underlines, code-head borders) */
-#preview.paged .page-break {
-    height: 1px;
-    margin: 9px 0 22px;
-    background: repeating-linear-gradient(
-        to right,
-        var(--text-muted) 0 5px,
-        transparent 5px 11px
-    );
-    opacity: 0.5;
-    user-select: none;
-    pointer-events: none;
-}
-
-@media print {
-    .ai-panel, .sel-float, .tb-ai, .doc-actions, .doc-cmt, .ai-header-ask, #explainCodeBtn, .answer-doc-view, .comments-panel, .cmt-composer { display: none !important; }
-}
-
 /* ============ TOPBAR RESPONSIVE ============ */
 /* Placed last so these win by source order over the base rules above.
    The topbar shares its row with the sidebar, so it sheds button labels first
@@ -4259,6 +4583,70 @@ mark.cmt-mark.cmt-flash {
     .breadcrumb-file { flex-basis: 96px; min-width: 48px; }
     /* Save becomes an icon button so the row still fits on one line */
     .btn-save { padding: 8px 9px; gap: 0; font-size: 0; }
+}
+
+/* One clean row at any width: the bar never wraps, the secondary document
+   actions collapse into a "more" menu and the breadcrumb gives up space first. */
+.topbar-more { display: none; position: relative; flex: 0 0 auto; }
+.topbar-more-menu {
+    position: fixed;
+    z-index: 1300;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 11px;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .6);
+}
+.topbar-more-menu.hidden { display: none; }
+.topbar-more-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: start;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.topbar-more-menu button:hover { background: var(--accent-glow); color: var(--accent); }
+.topbar-more-menu button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+
+@media (max-width: 1240px) {
+    .topbar { flex-wrap: nowrap; }
+    .topbar-left, .topbar-right { flex-wrap: nowrap; }
+    .topbar-more { display: inline-flex; }
+    #exportBtn, #printBtn, #telegramBtn, #deleteFileBtn { display: none; }
+}
+
+/* comments live in the "more" menu as soon as the bar gets tight */
+.topbar-more-menu button.narrow-only { display: none; }
+
+@media (max-width: 1120px) {
+    .doc-act.ai-header-ask span { display: none; }
+    .doc-act.ai-header-ask { padding: 0 9px; }
+    .doc-act.doc-cmt { display: none; }
+    .topbar { padding-right: 122px; }
+    .topbar-left { overflow: hidden; }
+    .topbar-more-menu button.narrow-only { display: block; }
+}
+
+@media (max-width: 980px) {
+    .breadcrumb { display: none; }
+    .save-status { display: none; }
+}
+
+@media (max-width: 820px) {
+    /* keep the row readable: the primary AI action becomes an icon */
+    .doc-act.ai-header-ask span { display: none; }
+    .doc-act.ai-header-ask { padding: 0 9px; }
+    .doc-act.doc-cmt span { display: none; }
 }
 
 /* ============ AI TOOLS MENU (topbar) ============ */
@@ -4342,14 +4730,61 @@ mark.cmt-mark.cmt-flash {
 .ai-dock { padding: 3px; border-radius: 9px; }
 .ai-dock-btn { border-radius: 6px; transition: background .12s, color .12s; }
 
-.ai-panel.dock-bottom .ai-head { margin: 0 -14px; flex: 1 0 calc(100% + 28px); }
+.ai-panel.dock-bottom .ai-head {
+    margin: 0;
+    padding: 10px 2px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Context scope switcher: Document / Selection / Chat */
+.ai-scopes {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-panel);
+    flex: 0 0 auto;
+}
+.ai-scope {
+    flex: 1 1 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+    height: 26px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color .12s, background .12s;
+}
+.ai-scope svg { flex: 0 0 auto; opacity: .85; }
+.ai-scope span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-scope:hover:not(:disabled) { color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); }
+.ai-scope.active {
+    color: var(--accent);
+    background: var(--accent-glow);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.ai-scope:disabled { opacity: .38; cursor: default; }
+.ai-scope:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Context card with accent rail */
 .ai-context {
     position: relative;
     border-radius: 10px;
     background: var(--bg-panel);
+    flex: 0 0 auto;
+    min-width: 0;
 }
+.ai-context.hidden { display: none; }
 .ai-context::before {
     content: "";
     position: absolute;
@@ -4373,12 +4808,58 @@ mark.cmt-mark.cmt-flash {
 .ai-controls select:focus { box-shadow: 0 0 0 3px var(--accent-glow); }
 
 /* Composer */
+.ai-composer { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
 .ai-question {
+    min-height: 64px;
+    max-height: 220px;
     padding: 11px 12px;
     border-radius: 10px;
+    line-height: 1.55;
+    resize: none;
+    overflow-y: auto;
+    /* each line keeps its own direction, so a Persian question stays right to
+       left inside an English interface and a pasted snippet stays left to right */
+    unicode-bidi: plaintext;
+    text-align: start;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
     transition: border-color .12s, box-shadow .12s;
 }
 .ai-question:focus { box-shadow: 0 0 0 3px var(--accent-glow); }
+.ai-question::-webkit-scrollbar { width: 8px; }
+.ai-question::-webkit-scrollbar-track { background: transparent; }
+.ai-question::-webkit-scrollbar-thumb { background: var(--border-strong); border: 2px solid transparent; background-clip: padding-box; border-radius: 6px; }
+.ai-question::-webkit-scrollbar-thumb:hover { background: var(--text-muted); background-clip: padding-box; }
+.ai-composer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 16px;
+    padding: 0 3px;
+}
+.ai-composer-hint {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    user-select: none;
+}
+.ai-composer-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background .12s, color .12s;
+}
+.ai-composer-clear:hover { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.ai-composer-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .ai-chip { padding: 5px 11px; transition: background .12s, color .12s, border-color .12s, transform .08s; }
 .ai-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
@@ -4801,4 +5282,266 @@ html.rtl .topbar { padding-left: 138px; padding-right: 14px; }
     color: var(--accent);
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.92em;
+}
+
+/* ============ DOCUMENTS OUTSIDE THE VAULT ============ */
+/* a compact third sidebar action: open a document from any folder */
+.btn-new-icon {
+    flex: 0 0 34px;
+    min-width: 34px;
+    padding-inline: 0;
+}
+
+/* the header says where the document really lives */
+.breadcrumb-vault.is-external { color: var(--accent); }
+
+.breadcrumb-badge {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--star, #d3a24b) 45%, transparent);
+    border-radius: 5px;
+    color: var(--star, #d3a24b);
+    background: color-mix(in srgb, var(--star, #d3a24b) 14%, transparent);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.6;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.list-header-ext .list-header-icon { color: var(--accent); }
+
+.file-item.external-item .file-item-icon.external {
+    color: var(--star, #d3a24b);
+    opacity: .85;
+}
+
+.file-item.external-item .file-item-meta {
+    color: color-mix(in srgb, var(--text-muted) 92%, var(--accent));
+}
+
+.file-item.external-item .file-type-badge {
+    border-color: color-mix(in srgb, var(--star, #d3a24b) 40%, transparent);
+    color: var(--star, #d3a24b);
+    background: color-mix(in srgb, var(--star, #d3a24b) 12%, var(--bg-elevated));
+}
+
+.file-item.external-item.active {
+    background: color-mix(in srgb, var(--star, #d3a24b) 12%, transparent);
+}
+
+.file-item.external-item.active .file-item-name { color: var(--text); }
+
+.ext-remove {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.file-item.external-item:hover .ext-remove,
+.file-item.external-item:focus-within .ext-remove { display: inline-flex; }
+.ext-remove:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+/* ============ WORD (.docx) PREVIEW ============ */
+.docx-shell { background: var(--bg); }
+.docx-shell .html-preview-topbar { background: var(--bg-elevated); }
+.html-preview-indicator.docx { background: var(--star, #d3a24b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--star, #d3a24b) 22%, transparent); }
+
+.docx-preview-badge {
+    padding: 1px 7px;
+    border-radius: 5px;
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.docx-preview {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 34px clamp(18px, 6%, 64px) 48px;
+    color: var(--md-text, var(--text-secondary));
+    background: var(--bg);
+    font-size: 14.5px;
+    line-height: 1.72;
+}
+
+.docx-preview > *:first-child { margin-top: 0; }
+.docx-preview h1,
+.docx-preview h2,
+.docx-preview h3,
+.docx-preview h4,
+.docx-preview h5,
+.docx-preview h6 {
+    margin: 1.5em 0 0.6em;
+    color: var(--md-heading, var(--text));
+    font-weight: 700;
+    line-height: 1.28;
+}
+.docx-preview h1 { font-size: 1.85em; letter-spacing: -0.015em; }
+.docx-preview h2 { font-size: 1.45em; }
+.docx-preview h3 { font-size: 1.2em; }
+.docx-preview h4 { font-size: 1.05em; }
+.docx-preview p { margin: 0 0 0.85em; }
+.docx-preview strong { color: var(--md-heading, var(--text)); font-weight: 700; }
+.docx-preview a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.docx-preview blockquote {
+    margin: 0 0 1em;
+    padding: 6px 14px;
+    border-inline-start: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    background: var(--md-quote-bg);
+    color: var(--md-quote-color, var(--text-secondary));
+    border-radius: 0 8px 8px 0;
+}
+.docx-preview hr.docx-page-break {
+    height: 0;
+    margin: 1.6em 0;
+    border: none;
+    border-top: 1px dashed var(--border-strong);
+}
+
+.docx-li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0 0 0.35em;
+}
+.docx-marker {
+    flex: 0 0 auto;
+    min-width: 1.1em;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+}
+.docx-li-decimal .docx-marker { color: var(--accent); font-weight: 600; }
+.docx-li-body { min-width: 0; }
+
+.docx-table {
+    width: 100%;
+    margin: 0 0 1em;
+    border-collapse: collapse;
+    font-size: 0.95em;
+}
+.docx-table td {
+    padding: 7px 11px;
+    border: 1px solid var(--border-strong);
+    vertical-align: top;
+}
+.docx-table tr:first-child td {
+    background: var(--bg-panel);
+    color: var(--md-heading, var(--text));
+    font-weight: 600;
+}
+.docx-table td > p { margin: 0; }
+
+.docx-image {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.8em 0;
+    border-radius: 6px;
+}
+
+.docx-empty { color: var(--text-muted); font-style: italic; }
+
+/* right-to-left documents keep their bullets on the correct side */
+html.rtl .docx-li { flex-direction: row-reverse; }
+
+/* ============ AI PANEL — DARK MODE ============ */
+/* The panel floats over the editor, so in dark mode it needs its own depth,
+   clearer separators and readable secondary text (the muted grey that works
+   on a page is nearly invisible on a dark surface). */
+[data-theme="dark"] .ai-panel {
+    background:
+        radial-gradient(120% 96px at 50% 0, color-mix(in srgb, var(--accent) 10%, transparent), transparent 72%),
+        color-mix(in srgb, var(--bg-elevated) 84%, #000);
+    border-color: color-mix(in srgb, var(--text) 14%, transparent);
+    box-shadow: 0 22px 60px -28px #000, 0 0 0 1px color-mix(in srgb, #000 45%, transparent);
+}
+
+[data-theme="dark"] .ai-head { border-bottom-color: color-mix(in srgb, var(--text) 11%, transparent); }
+
+[data-theme="dark"] .ai-dock {
+    background: color-mix(in srgb, var(--bg-panel) 90%, #000);
+    border-color: color-mix(in srgb, var(--text) 12%, transparent);
+}
+[data-theme="dark"] .ai-dock-btn { color: var(--text-secondary); }
+
+[data-theme="dark"] .ai-scopes {
+    background: color-mix(in srgb, var(--bg-panel) 78%, #000);
+    border-color: color-mix(in srgb, var(--text) 11%, transparent);
+}
+[data-theme="dark"] .ai-scope { color: var(--text-secondary); }
+[data-theme="dark"] .ai-scope:disabled { color: color-mix(in srgb, var(--text-muted) 75%, transparent); }
+
+[data-theme="dark"] .ai-context,
+[data-theme="dark"] .ai-answer-card {
+    background: color-mix(in srgb, var(--bg-panel) 96%, #000);
+    border-color: color-mix(in srgb, var(--text) 12%, transparent);
+}
+[data-theme="dark"] .ai-context-head { color: var(--text-secondary); }
+[data-theme="dark"] .ai-context-body { color: color-mix(in srgb, var(--text-secondary) 90%, transparent); }
+
+[data-theme="dark"] .ai-answer-head {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 88%, #000), color-mix(in srgb, var(--bg) 78%, #000));
+    border-bottom-color: color-mix(in srgb, var(--text) 11%, transparent);
+}
+
+[data-theme="dark"] .ai-answer-meta,
+[data-theme="dark"] .ai-chat-who,
+[data-theme="dark"] .ai-composer-hint { color: var(--text-secondary); }
+[data-theme="dark"] .ai-answer.empty { color: var(--text-secondary); }
+
+[data-theme="dark"] .ai-chat-turn.user .ai-chat-body {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+}
+
+[data-theme="dark"] .ai-question {
+    background: color-mix(in srgb, var(--bg-panel) 88%, #000);
+    border-color: color-mix(in srgb, var(--text) 15%, transparent);
+    color: var(--text);
+}
+[data-theme="dark"] .ai-question::placeholder { color: color-mix(in srgb, var(--text-secondary) 78%, transparent); }
+
+[data-theme="dark"] .ai-controls select,
+[data-theme="dark"] .ai-controls input {
+    background: color-mix(in srgb, var(--bg-panel) 82%, #000);
+    border-color: color-mix(in srgb, var(--text) 13%, transparent);
+    color: var(--text);
+}
+
+[data-theme="dark"] .ai-chip {
+    background: color-mix(in srgb, var(--bg-panel) 80%, #000);
+    border-color: color-mix(in srgb, var(--text) 11%, transparent);
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .ai-answer-newchat {
+    color: var(--text-secondary);
+    border-color: color-mix(in srgb, var(--text) 15%, transparent);
+}
+
+[data-theme="dark"] .ai-turn-menu-btn {
+    background: color-mix(in srgb, var(--bg-panel) 88%, #000);
+    border-color: color-mix(in srgb, var(--text) 14%, transparent);
+    color: var(--text-secondary);
+}
+[data-theme="dark"] .ai-turn-menu-btn:hover,
+[data-theme="dark"] .ai-turn-menu-btn[aria-expanded="true"] {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    background: var(--accent-glow);
 }

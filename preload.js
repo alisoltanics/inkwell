@@ -22,7 +22,10 @@ contextBridge.exposeInMainWorld('inkwell', {
   getNotesDir: () => ipcRenderer.invoke('fs:getNotesDir'),
   setNotesDir: (dirPath) => ipcRenderer.invoke('fs:setNotesDir', dirPath),
   chooseNotesDir: () => ipcRenderer.invoke('fs:chooseNotesDir'),
-
+  // documents opened from outside the vault (absolute paths, never copied in)
+  openExternalFile: () => ipcRenderer.invoke('file:openExternal'),
+  readExternal: (absPath) => ipcRenderer.invoke('file:readExternal', absPath),
+  writeExternal: (absPath, content) => ipcRenderer.invoke('file:writeExternal', absPath, content),
   // window chrome (frameless) controls
   minimize: () => ipcRenderer.invoke('win:minimize'),
   toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),

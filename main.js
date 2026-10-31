@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const os = require('os');
 const Store = require('electron-store');
+const { docxToHtml } = require('./src/docx');
 
 app.setName('Inkwell');
 
@@ -444,6 +445,87 @@ ipcMain.handle('fs:writeBinary', async (event, logicalPath, base64) => {
     const buf = Buffer.from(String(base64 || ''), 'base64');
     fs.writeFileSync(res.abs, buf);
     return { success: true, path: res.segments.join('/') };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+/* ================= DOCUMENTS OUTSIDE THE VAULT ================= */
+// A document opened from any other folder on disk is read-only outside the
+// vault: it keeps its own absolute path and is never moved or copied into the
+// vault. Writes are only allowed for files the user actually opened here.
+
+const EXTERNAL_KINDS = {
+  md: 'markdown',
+  markdown: 'markdown',
+  txt: 'text',
+  html: 'html',
+  htm: 'html',
+  docx: 'docx',
+};
+const externalOpened = new Set();
+
+function externalKind(abs) {
+  return EXTERNAL_KINDS[path.extname(abs).slice(1).toLowerCase()] || 'unknown';
+}
+
+function loadExternalDocument(absPath) {
+  const abs = path.resolve(String(absPath || ''));
+  const kind = externalKind(abs);
+  if (kind === 'unknown') throw new Error('Unsupported file type');
+  const st = fs.statSync(abs);
+  if (!st.isFile()) throw new Error('Not a file');
+  if (st.size > 40 * 1024 * 1024) throw new Error('File is too large to open (40 MB limit)');
+  externalOpened.add(abs);
+  if (kind === 'docx') {
+    const { html } = docxToHtml(fs.readFileSync(abs));
+    return { success: true, path: abs, name: path.basename(abs), kind, content: '', html };
+  }
+  return {
+    success: true,
+    path: abs,
+    name: path.basename(abs),
+    kind,
+    content: fs.readFileSync(abs, 'utf8'),
+    size: st.size,
+    modified: st.mtimeMs,
+  };
+}
+
+ipcMain.handle('file:openExternal', async (event) => {
+  try {
+    const win = windowFrom(event);
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Open a document',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Documents', extensions: ['md', 'markdown', 'txt', 'html', 'htm', 'docx'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (!res || res.canceled || !res.filePaths.length) return { success: false, canceled: true };
+    return loadExternalDocument(res.filePaths[0]);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('file:readExternal', async (event, absPath) => {
+  try {
+    return loadExternalDocument(absPath);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('file:writeExternal', async (event, absPath, content) => {
+  try {
+    const abs = path.resolve(String(absPath || ''));
+    const kind = externalKind(abs);
+    if (kind !== 'markdown' && kind !== 'text') throw new Error('This document is read-only');
+    if (!externalOpened.has(abs)) throw new Error('Open the file before saving it');
+    fs.writeFileSync(abs, String(content ?? ''), 'utf8');
+    return { success: true, path: abs };
   } catch (e) {
     return { success: false, error: e.message };
   }
