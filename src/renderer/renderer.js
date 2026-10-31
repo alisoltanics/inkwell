@@ -8566,6 +8566,17 @@ function capturedPassage() {
   return text;
 }
 
+// "summarize", "explain", "what are the key points": these ask for an answer,
+// not for a different note. With a passage selected the same words can still
+// mean "rewrite this passage", which routeAIRequest() decides.
+function isAnswerOnlyRequest(instruction) {
+  const text = String(instruction || '');
+  return /\b(?:summari[sz]e|summari[sz]ation|explain|describe|analy[sz]e|outline|critique|evaluate|assess|compare|clarify|interpret|review)\b/i.test(text)
+    || /\b(?:what|which|who|when|where|why|how)\b[^.\n]{0,40}\b(?:key|main|important|points?|ideas?|takeaways?|steps?|topics?|meaning)\b/i.test(text)
+    || /(?:خلاصه|توضیح|تحلیل|بررسی|مقایسه|شرح|تفسیر|نقد)\s*(?:کن|بده|بکن)/u.test(text)
+    || /(?:نکات|مهم‌ترین|ایده‌های|موضوعات)\s*(?:اصلی|کلیدی)?\s*(?:چیست|چیه|چیا|کدام|چیند)/u.test(text);
+}
+
 // One button, two outcomes: a request that asks for a change in the document
 // becomes a reviewed edit; anything else is a message in the conversation.
 function routeAIRequest() {
@@ -8573,7 +8584,10 @@ function routeAIRequest() {
   // a conversation about chosen files is not about the open note, so a command
   // like "rewrite it" must never rewrite the document behind it
   const canEditDocument = !!state.currentFile && aiScopeOf(aiContext) !== 'chat' && !aiContext.bundle;
-  if (canEditDocument && text && isDocumentChangeCommand(text)) {
+  // with nothing selected there is no passage to rewrite, so "summarize" or
+  // "explain" is a question about the document: it belongs in the conversation
+  const hasPassage = els.editor.selectionStart !== els.editor.selectionEnd || !!capturedPassage();
+  if (canEditDocument && text && isDocumentChangeCommand(text) && (hasPassage || !isAnswerOnlyRequest(text))) {
     suggestDocumentChange();
     return;
   }
@@ -9581,10 +9595,11 @@ function setupAI() {
   setupAIComposer();
   if (els.aiAnswerNewChat) {
     els.aiAnswerNewChat.addEventListener('click', () => {
-      // same context, brand new conversation
+      // the reset clears the thread context, so the conversation that starts here
+      // takes the context the panel is pointed at right now
+      resetAIAnswer(true);
       aiThreadContext = { ...aiContext };
       aiThreadKind = aiAnswerKind;
-      resetAIAnswer(true);
       els.aiQuestion.focus();
     });
   }
