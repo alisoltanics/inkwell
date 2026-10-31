@@ -9087,11 +9087,18 @@ function appendToDocument(text) {
   ed.selectionStart = ed.selectionEnd = ed.value.length;
 }
 
+// These actions can be wired straight to a DOM event, so anything that is not
+// answer text (a click event, for instance) falls back to the last answer
+// instead of being written out as "[object PointerEvent]".
+function answerTextOf(value) {
+  return typeof value === 'string' ? value : aiAnswer;
+}
+
 // Insert always appends: the answer belongs to the note that was asked about,
 // so it lands at the very end of that document instead of at whatever caret
 // position the editor happened to keep.
 function insertAIAnswer(text = aiAnswer) {
-  const body = String(text || '');
+  const body = String(answerTextOf(text) || '');
   if (!body.trim()) { toast(t('There is no answer to insert'), 'info'); return; }
   const value = els.editor.value || '';
   const sep = value.length === 0 ? '' : (/(\n\s*\n)$/.test(value) ? '' : /\n$/.test(value) ? '\n' : '\n\n');
@@ -9117,7 +9124,7 @@ function replaceAISelection(text = aiAnswer) {
 }
 
 async function copyAIAnswer(text = aiAnswer) {
-  const body = String(text || '');
+  const body = String(answerTextOf(text) || '');
   if (!body) return;
   try {
     await navigator.clipboard.writeText(body);
@@ -9155,7 +9162,7 @@ function aiAnswerTitle(kind = aiAnswerKind) {
 }
 
 function openAnswerDoc(text = aiAnswer, kind = aiAnswerKind) {
-  const body = String(text || '');
+  const body = String(answerTextOf(text) || '');
   if (!body.trim()) { toast('No answer to show yet', 'info'); return; }
   answerDocReopenPanel = els.aiPanel && !els.aiPanel.classList.contains('hidden');
   setAnswerDocReviewMode(false);
@@ -9189,7 +9196,7 @@ function backFromAnswerDoc() {
 }
 
 function saveAIAnswerAsFile(text = aiAnswer, kind = aiAnswerKind) {
-  const body = String(text || '');
+  const body = String(answerTextOf(text) || '');
   if (!body.trim()) { toast('No answer to save', 'info'); return; }
   state.saveAnswerText = body;
   state.saveAnswerKind = kind;
@@ -9208,7 +9215,7 @@ function saveAIAnswerAsFile(text = aiAnswer, kind = aiAnswerKind) {
 // document: the same builder an exported note uses, including the flashcard
 // deck (with every answer visible, since a document cannot be flipped open).
 function buildAIAnswerPayload(text = aiAnswer, kind = aiAnswerKind) {
-  const body = String(text || '');
+  const body = String(answerTextOf(text) || '');
   const holder = document.createElement('div');
   holder.className = 'markdown-body';
   holder.innerHTML = md.render(body);
@@ -9525,7 +9532,8 @@ function setupAI() {
     els.answerDocCopy.addEventListener('click', async () => { await copyAIAnswer(); });
     els.answerDocInsert.addEventListener('click', insertAIAnswerIntoDoc);
     if (els.answerDocTelegram) els.answerDocTelegram.addEventListener('click', () => sendAIAnswerToTelegram(els.answerDocTelegram));
-    els.answerDocSave.addEventListener('click', saveAIAnswerAsFile);
+    // never pass the click event as the text: it would be saved as [object PointerEvent]
+    els.answerDocSave.addEventListener('click', () => saveAIAnswerAsFile());
   }
 
   if (els.aiDock) {
