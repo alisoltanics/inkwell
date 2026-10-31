@@ -6727,6 +6727,15 @@ function getAIResponseLanguage() {
   return language.toLowerCase() === 'auto' ? '' : language;
 }
 
+// "translate to English", "answer in Persian", "به انگلیسی ترجمه کن": the
+// question names the language it wants, so the panel's answer-language setting
+// must not be layered on top of it — the two would contradict each other.
+function languageNamedIn(text) {
+  const s = String(text || '');
+  if (/\b(?:in|to|into)\s+(?:english|persian|farsi|arabic|french|german|spanish|russian|turkish|chinese|japanese|korean|italian|portuguese|dutch|hindi|urdu|hebrew)\b/i.test(s)) return true;
+  return /(?:به|با)\s*(?:انگلیسی|فارسی|عربی|فرانسه|آلمانی|اسپانیایی|روسی|ترکی|چینی|ژاپنی|کره‌ای|ایتالیایی|هلندی|هندی|اردو|عبری)/u.test(s);
+}
+
 function applyAIResponseLanguage(prompt, options = {}) {
   // a single question can ask for another language than the app default
   const language = String(options.responseLanguage != null
@@ -7945,6 +7954,35 @@ function isDirectDeleteCommand(instruction) {
   return english || persian;
 }
 
+// "don't change it", "just give me the translation": the request itself says
+// the document must stay as it is, so it can never become an edit proposal —
+// whatever editing verbs it happens to contain.
+function isReadOnlyRequest(instruction) {
+  const s = String(instruction || '');
+  return /\b(?:do not|don'?t|dont|never)\s+(?:(?:want|wanna|need)\s+to\s+|to\s+)?(?:change|modify|edit|touch|rewrite|alter|update|replace)\b/i.test(s)
+    || /\b(?:do not|don'?t|dont|no need to)\s+(?:suggest|propose|show|offer)\b[^.\n]{0,24}\b(?:change|edit|diff|modification|rewrite)/i.test(s)
+    || /\bwithout\s+(?:changing|modifying|editing|touching|rewriting|altering)\b/i.test(s)
+    || /\b(?:just|only)\s+(?:give|show|tell|answer|translate|the translation|output)\b/i.test(s)
+    || /\b(?:answer|reply|respond|output)\s+only\b/i.test(s)
+    || /\bno\s+changes?\s+(?:to\s+(?:the|my|this)\s+(?:document|note|file)|needed|please)\b/i.test(s)
+    || /(?:تغییر\s*ند|عوض\s*نکن|ویرایش\s*نکن|اصلاح\s*نکن|دست\s*نزن|بدون\s*(?:تغییر|ویرایش|دست)|فقط\s*(?:ترجمه|جواب|پاسخ)|ترجمه\s*(?:رو|را)\s*بده|هیچی\s*رو\s*تغییر)/u.test(s);
+}
+
+// A translation is an answer, not an edit: the translated text lands in the
+// conversation, where Copy / Insert / Replace can still put it in the note.
+function isTranslationRequest(instruction) {
+  return /\btranslat(?:e|es|ed|ing|ion)\b/i.test(String(instruction || ''))
+    || /(?:ترجمه|برگردان|ترجمه\s*کن)/u.test(String(instruction || ''));
+}
+
+// …unless the same request also says to write it into the document.
+function isApplyToDocumentRequest(instruction) {
+  const s = String(instruction || '');
+  return /\b(?:replace|overwrite|apply|paste|insert|put)\b[^.\n]{0,40}\b(?:document|note|text|selection|passage|it|this)\b/i.test(s)
+    || /\b(?:rewrite|translate)\b[^.\n]{0,40}\b(?:whole|entire)\b[^.\n]{0,20}\b(?:document|note)\b/i.test(s)
+    || /(?:جایگزین|بازنویسی|اعمال\s*کن|جای(?:ش|\s*متن)\s*(?:بذار|بنویس)|داخل\s*(?:سند|نوت)\s*بنویس)/u.test(s);
+}
+
 // A question is answered, never applied: "which change matters most?" or
 // "what changed in the pricing section?" must not become an edit proposal just
 // because they contain an editing verb.
@@ -7962,6 +8000,10 @@ function isQuestionLike(text) {
 
 function isDocumentChangeCommand(instruction) {
   if (isQuestionLike(instruction)) return false;
+  // "don't change it, just show me the translation" asks for an answer
+  if (isReadOnlyRequest(instruction)) return false;
+  // a translation is spoken in the chat unless it is also meant to be written
+  if (isTranslationRequest(instruction) && !isApplyToDocumentRequest(instruction)) return false;
   // polite wrappers ("please", "can you", "میشه") hide the verb from the regex
   const text = String(instruction || '')
     .trim()
@@ -8632,11 +8674,15 @@ async function askAI(overridePrompt, options = {}) {
       bundle: !!aiThreadContext.bundle,
     })
     : basePrompt;
-  // a language chosen for this conversation outlives the single question
+  // a language chosen for this conversation outlives the single question, but a
+  // question that says which language it wants is never translated back
   const threadLanguage = options.responseLanguage != null
     ? options.responseLanguage
     : (aiThreadContext && aiThreadContext.language);
-  const prompt = applyAIResponseLanguage(chatPrompt, { ...options, responseLanguage: threadLanguage });
+  const prompt = applyAIResponseLanguage(chatPrompt, {
+    ...options,
+    responseLanguage: languageNamedIn(question) ? '' : threadLanguage,
+  });
   let res;
   try {
     const provCfg = getAIProviderById(provider);
