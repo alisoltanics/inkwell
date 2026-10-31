@@ -918,7 +918,9 @@ ipcMain.handle('telegram:sendHTML', async (event, suggestedName, payload) => {
 // provider id + prompt text; the command itself is fixed here so the renderer
 // can never inject arbitrary shell/cmd arguments.
 
-const AI_TIMEOUT = 180000;
+// A model is allowed to take its time: a slow answer is better than an error the
+// user has to work around, so this only stops a truly stuck process.
+const AI_TIMEOUT = 300000;
 const ANSI_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 const THINK_RE = /<\/?think(?:ing)?>/gi;
 
@@ -1592,48 +1594,30 @@ function killAIFor(id) {
   aiProcs.delete(id);
 }
 
+// Stop must really stop: a request the user cancelled must not be retried.
+const aiCancelled = new Set();
+
 ipcMain.handle('ai:cancel', (event) => {
+  aiCancelled.add(event.sender.id);
   killAIFor(event.sender.id);
   return { ok: true };
 });
 
-ipcMain.handle('ai:ask', async (event, payload) => {
-  const provider = payload && payload.provider;
-  const prompt = payload && typeof payload.prompt === 'string' ? payload.prompt : '';
-  const model = payload && typeof payload.model === 'string' ? payload.model.trim() : '';
-  const providerConfig = payload && payload.providerConfig;
-  if (providerConfig && providerConfig.type === 'api') {
-    if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };
-    killAIFor(event.sender.id);
-    return await askApiProvider(withStoredAICredentials(providerConfig), prompt, model, event.sender.id);
-  }
-  let isolation = [];
-  if (claudeRequested(provider, providerConfig)) {
-    try { isolation = await getClaudeIsolationFlags(); } catch (_) { isolation = []; }
-  }
-  const spec = buildAICommand(provider, prompt, model, providerConfig, isolation);
-  if (!spec) return { ok: false, error: 'Unknown provider: ' + provider };
-  if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };
+// A model CLI can fail for reasons that have nothing to do with the app: the
+// provider's endpoint times out on connect, a proxy hiccups, or the service is
+// briefly rate limited. Those are worth another try before the user ever sees
+// an error, so a request waits longer instead of failing on the first blip.
+const AI_ATTEMPTS = 3;
+const AI_RETRY_DELAYS = [2000, 6000];
+const AI_TRANSIENT_RE = /UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|UND_ERR_SOCKET|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ECONNABORTED|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH|socket hang up|fetch failed|network|temporarily unavailable|timed out|timeout|rate limit|too many requests|overloaded|try again|connection (?:reset|closed|refused|terminated)/i;
 
-  const cmdPath = resolveExecutable(spec.cmd);
-  if (!cmdPath) {
-    return {
-      ok: false,
-      error: 'Could not find "' + spec.cmd + '". Make sure it is installed and on your PATH.',
-    };
-  }
+function isTransientAIError(message) {
+  return AI_TRANSIENT_RE.test(String(message || ''));
+}
 
-  let outputFile = null;
-  if (spec.parse === 'file') {
-    outputFile = path.join(
-      os.tmpdir(),
-      'inkwell-ai-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.txt'
-    );
-    spec.args = spec.args.map((a) => (a === AI_OUTPUT_TOKEN ? outputFile : a));
-  }
-
-  killAIFor(event.sender.id);
-
+// The CLI run itself, with no retry logic: resolves with the parsed answer or
+// the failure the process produced.
+function runAIProcess(spec, cmdPath, event, outputFile, providerConfig) {
   return new Promise((resolve) => {
     let proc;
     try {
@@ -1691,7 +1675,7 @@ ipcMain.handle('ai:ask', async (event, payload) => {
       done({ ok: true, text });
     });
 
-    if (spec.stdin != null) {
+    if (typeof spec.stdin === 'string' && spec.stdin.length) {
       proc.stdin.on('error', () => {});
       proc.stdin.write(spec.stdin);
       proc.stdin.end();
@@ -1699,4 +1683,66 @@ ipcMain.handle('ai:ask', async (event, payload) => {
       proc.stdin.end();
     }
   });
+}
+
+ipcMain.handle('ai:ask', async (event, payload) => {
+  const provider = payload && payload.provider;
+  const prompt = payload && typeof payload.prompt === 'string' ? payload.prompt : '';
+  const model = payload && typeof payload.model === 'string' ? payload.model.trim() : '';
+  const providerConfig = payload && payload.providerConfig;
+
+  if (providerConfig && providerConfig.type === 'api') {
+    if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };
+    aiCancelled.delete(event.sender.id);
+    killAIFor(event.sender.id);
+    let last = { ok: false, error: 'No response' };
+    for (let attempt = 1; attempt <= AI_ATTEMPTS; attempt += 1) {
+      if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
+      last = await askApiProvider(withStoredAICredentials(providerConfig), prompt, model, event.sender.id);
+      if (last && last.ok) return last;
+      if (attempt >= AI_ATTEMPTS || !isTransientAIError(last && last.error)) break;
+      await new Promise((resolve) => setTimeout(resolve, AI_RETRY_DELAYS[attempt - 1] || 6000));
+    }
+    return last;
+  }
+
+  let isolation = [];
+  if (claudeRequested(provider, providerConfig)) {
+    try { isolation = await getClaudeIsolationFlags(); } catch (_) { isolation = []; }
+  }
+  const spec = buildAICommand(provider, prompt, model, providerConfig, isolation);
+  if (!spec) return { ok: false, error: 'Unknown provider: ' + provider };
+  if (!prompt.trim()) return { ok: false, error: 'Empty prompt' };
+
+  const cmdPath = resolveExecutable(spec.cmd);
+  if (!cmdPath) {
+    return {
+      ok: false,
+      error: 'Could not find "' + spec.cmd + '". Make sure it is installed and on your PATH.',
+    };
+  }
+
+  let outputFile = null;
+  if (spec.parse === 'file') {
+    outputFile = path.join(
+      os.tmpdir(),
+      'inkwell-ai-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.txt'
+    );
+    spec.args = spec.args.map((a) => (a === AI_OUTPUT_TOKEN ? outputFile : a));
+  }
+
+  aiCancelled.delete(event.sender.id);
+  killAIFor(event.sender.id);
+
+  let last = { ok: false, error: 'No response' };
+  for (let attempt = 1; attempt <= AI_ATTEMPTS; attempt += 1) {
+    if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
+    last = await runAIProcess(spec, cmdPath, event, outputFile, providerConfig);
+    if (last && last.ok) return last;
+    if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
+    if (attempt >= AI_ATTEMPTS || !isTransientAIError(last && last.error)) break;
+    // a blip on the provider's side should not reach the user as an error
+    await new Promise((resolve) => setTimeout(resolve, AI_RETRY_DELAYS[attempt - 1] || 6000));
+  }
+  return last;
 });
