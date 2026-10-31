@@ -7,8 +7,8 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 | Reading and previewing | Asking the AI about a document |
 | --- | --- |
 | ![A Markdown note in preview, with the diagram drawn as a figure](docs/screenshots/editor.png) | ![The Ask AI panel answering about the open document](docs/screenshots/ai-tools.png) |
-| **Split view in the light theme** | **The whole app mirrored for Persian** |
-| ![Markdown source and its preview side by side](docs/screenshots/split-view.png) | ![Right-to-left interface with a Persian note](docs/screenshots/right-to-left.png) |
+| **Split view in the light theme** | **Flashcards built from a document** |
+| ![Markdown source and its preview side by side](docs/screenshots/split-view.png) | ![A deck of flashcards in the AI panel](docs/screenshots/flashcards.png) |
 
 ## What Inkwell does
 
