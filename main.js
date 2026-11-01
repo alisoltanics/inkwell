@@ -2202,16 +2202,19 @@ const aiProcs = new Map();
 const AI_ONE_SHOT_SYSTEM = [
   'You are a writing assistant embedded in a desktop Markdown editor.',
   'Answer only the request in the user message, using the document text it contains.',
+  'The user message is the whole input: never read, list or search files, and never look for context outside it.',
   'Never mention tools, shell commands, environment variables, notifications, sessions or your own setup, and never append notes about what you did.',
 ].join(' ');
 
 let claudeIsolationFlags;
+// the probe itself is cached, not only its result: the startup warm-up and the
+// first request must wait for the same probe instead of seeing an empty list
+// while it is still running (that would send the request without isolation).
+let claudeIsolationProbe;
 
-async function getClaudeIsolationFlags() {
-  if (claudeIsolationFlags !== undefined) return claudeIsolationFlags;
-  claudeIsolationFlags = [];
+async function probeClaudeIsolationFlags() {
   const res = await captureAICommand('claude', ['--help'], { timeout: 12000 });
-  if (!res.ok) return claudeIsolationFlags;
+  if (!res.ok) return [];
   const help = res.stdout || '';
   const flags = [];
   // no tools at all: the answer must be text, never a command run
@@ -2220,8 +2223,20 @@ async function getClaudeIsolationFlags() {
   if (/--safe-mode\b/.test(help)) flags.push('--safe-mode');
   if (/--strict-mcp-config\b/.test(help)) flags.push('--strict-mcp-config');
   if (/--append-system-prompt\b/.test(help)) flags.push('--append-system-prompt', AI_ONE_SHOT_SYSTEM);
-  claudeIsolationFlags = flags;
   return flags;
+}
+
+async function getClaudeIsolationFlags() {
+  if (claudeIsolationFlags) return claudeIsolationFlags;
+  if (!claudeIsolationProbe) {
+    claudeIsolationProbe = probeClaudeIsolationFlags()
+      .catch(() => [])
+      .then((flags) => {
+        claudeIsolationFlags = flags;
+        return flags;
+      });
+  }
+  return claudeIsolationProbe;
 }
 
 function claudeRequested(provider, providerConfig) {
@@ -2318,21 +2333,61 @@ function isTransientAIError(message) {
   return AI_TRANSIENT_RE.test(String(message || ''));
 }
 
+// A one-shot request already carries the document it is about inside the
+// prompt, so the CLI never needs the vault. Running it in an empty scratch
+// folder means "explain this document" cannot read a different note: there is
+// nothing else in the working directory, and no AGENTS.md/CLAUDE.md of the
+// vault is picked up either. The folder is removed when the process ends.
+const AI_WORK_DIR_NOTE = [
+  'Apart from this instruction file, this folder is intentionally empty:',
+  'there is no code here and there are no other documents.',
+  'Answer only from the text in the user message; do not read, list or search files.',
+].join(' ');
+
+function createAIWorkDir() {
+  try {
+    const base = path.join(os.tmpdir(), 'inkwell-ai-work');
+    fs.mkdirSync(base, { recursive: true });
+    // a killed process cannot clean up after itself: drop day-old leftovers
+    try {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      for (const entry of fs.readdirSync(base)) {
+        const full = path.join(base, entry);
+        try { if (fs.statSync(full).mtimeMs < cutoff) fs.rmSync(full, { recursive: true, force: true }); } catch (_) {}
+      }
+    } catch (_) {}
+    const dir = fs.mkdtempSync(path.join(base, 'run-'));
+    for (const name of ['AGENTS.md', 'CLAUDE.md']) {
+      try { fs.writeFileSync(path.join(dir, name), AI_WORK_DIR_NOTE + '\n'); } catch (_) {}
+    }
+    return dir;
+  } catch (_) {
+    return null;
+  }
+}
+
+function removeAIWorkDir(dir) {
+  if (!dir) return;
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+}
+
 // The CLI run itself, with no retry logic: resolves with the parsed answer or
 // the failure the process produced. waitMs is the per-request timeout the
 // caller resolved (a translation asks for a longer one than a short question).
 function runAIProcess(spec, cmdPath, event, outputFile, providerConfig, waitMs) {
   const timeoutMs = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : AI_TIMEOUT;
+  const workDir = createAIWorkDir();
   return new Promise((resolve) => {
     let proc;
     try {
       proc = spawnExecutable(cmdPath, spec.args, {
-        cwd: NOTES_DIR,
+        cwd: workDir || NOTES_DIR,
         env: { ...process.env, ...(spec.env || {}), ...providerCredentialEnv(providerConfig), PATH: aiSearchDirs().join(path.delimiter) },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (e) {
       if (outputFile) { try { fs.unlinkSync(outputFile); } catch (_) {} }
+      removeAIWorkDir(workDir);
       return resolve({ ok: false, error: e.message });
     }
 
@@ -2345,6 +2400,7 @@ function runAIProcess(spec, cmdPath, event, outputFile, providerConfig, waitMs) 
       finished = true;
       clearTimeout(timer);
       if (outputFile) { try { fs.unlinkSync(outputFile); } catch (_) {} }
+      removeAIWorkDir(workDir);
       const rec = aiProcs.get(event.sender.id);
       if (rec && rec.proc === proc) aiProcs.delete(event.sender.id);
       resolve(result);

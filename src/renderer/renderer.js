@@ -8628,6 +8628,10 @@ function askAboutDocument(promptText, kind) {
     '--- DOCUMENT ---',
     docText,
     '--- END DOCUMENT ---',
+    '',
+    // The open note is the whole input: a coding CLI in the background must not
+    // go and read the other notes of the folder to answer this.
+    'The document above is the only source for this request. Do not read, list or search other files or notes, and do not ask for more context.',
   ].join('\n');
   askAI(overridePrompt);
 }
