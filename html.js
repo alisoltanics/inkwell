@@ -80,15 +80,16 @@ function buildStandaloneHtml(payload) {
     box-sizing: border-box;
     background: #ffffff;
   }
-  /* Header and body form one sheet: no gap between them on screen. */
+  /* Header and body form one sheet: no gap between them on screen.
+     The 0 auto margin keeps the horizontal centering from the rule above. */
   .doc-header {
-    margin: 0;
+    margin: 0 auto;
     padding: 30px 44px 14px;
     border-radius: 14px 14px 0 0;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
   }
   .markdown-body {
-    margin: 0;
+    margin: 0 auto;
     padding: 22px 44px 64px;
     border-radius: 0 0 14px 14px;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
