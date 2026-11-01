@@ -380,6 +380,7 @@ const els = {
   trSource: $('trSource'),
   trResult: $('trResult'),
   trSave: $('trSave'),
+  trSaveFile: $('trSaveFile'),
   trCopy: $('trCopy'),
   trRetry: $('trRetry'),
   trPop: $('trPop'),
@@ -3537,6 +3538,7 @@ function showTranslateHint() {
   }
   if (els.trSave) els.trSave.disabled = true;
   if (els.trSave) els.trSave.classList.add('hidden');
+  if (els.trSaveFile) els.trSaveFile.classList.add('hidden');
   if (els.trCopy) els.trCopy.classList.add('hidden');
   if (els.trRetry) els.trRetry.classList.add('hidden');
   if (els.trGo) els.trGo.classList.remove('hidden');
@@ -4059,6 +4061,8 @@ async function runTranslate() {
     els.trResult.innerHTML = md.render(trState.result);
   }
   if (els.trSave) els.trSave.disabled = !trState.result.trim();
+  // a whole note gets a file of its own; a passage keeps its highlight
+  if (els.trSaveFile) els.trSaveFile.classList.toggle('hidden', trState.mode !== 'document' || !trState.result.trim());
 }
 
 async function translateWithAI(text, from, to) {
@@ -4083,6 +4087,33 @@ async function translateWithAI(text, from, to) {
   } catch (e) {
     return { ok: false, error: e.message || t('The AI request failed.') };
   }
+}
+
+// The translation written as its own note next to the one it came from, so it
+// can be searched, linked and edited like any other note.
+async function saveTranslationAsFile() {
+  const text = String(trState.result || '').trim();
+  if (!text) return;
+  if (!state.currentFile) { toast(t('Open a note first'), 'info'); return; }
+  const source = state.currentFile.replace(/\.(?:md|markdown)$/i, '');
+  const taken = new Set((state.files || []).map((file) => file.path));
+  let target = `${source}-${trState.to}.md`;
+  for (let n = 2; taken.has(target) && n < 200; n += 1) target = `${source}-${trState.to}-${n}.md`;
+  const res = await window.inkwell.writeFile(target, text);
+  if (!res || res.success === false) {
+    toast(t('Could not save the translation as a file'), 'error');
+    return;
+  }
+  closeModal('translate');
+  expandAncestors(target);
+  await refreshFiles();
+  const row = Array.from(els.fileList.querySelectorAll('.file-item')).find((el) => el.dataset.name === target);
+  if (row) {
+    row.scrollIntoView({ block: 'nearest' });
+    row.classList.add('just-exported');
+    setTimeout(() => row.classList.remove('just-exported'), 1800);
+  }
+  toast(t('Saved as %name%', { name: displayNotePath(target) }), 'success');
 }
 
 function saveTranslation() {
@@ -4166,6 +4197,7 @@ if (els.trTo) {
 if (els.trGo) els.trGo.addEventListener('click', () => runTranslate());
 if (els.trRetry) els.trRetry.addEventListener('click', () => runTranslate());
 if (els.trSave) els.trSave.addEventListener('click', saveTranslation);
+if (els.trSaveFile) els.trSaveFile.addEventListener('click', saveTranslationAsFile);
 if (els.trCopy) {
   els.trCopy.addEventListener('click', async () => {
     if (!trState.result) return;

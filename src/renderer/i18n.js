@@ -3431,6 +3431,8 @@
     "No AI provider is set up, and no offline translator was found.": "هیچ AI تنظیم نشده و مترجم آفلاین هم پیدا نشد.",
     "The AI returned nothing.": "AI چیزی برنگرداند.",
     "The AI request failed.": "درخواست AI انجام نشد.",
+    "Could not save the translation as a file": "ذخیرهٔ ترجمه به‌عنوان فایل انجام نشد",
+    "Saved as %name%": "ذخیره شد: %name%",
   });
 
   Object.assign(ar, {
@@ -3464,6 +3466,8 @@
     "No AI provider is set up, and no offline translator was found.": "لا يوجد مزوّد ذكاء اصطناعي مُعدّ ولم يُعثر على مترجم محلي.",
     "The AI returned nothing.": "لم يُرجِع الذكاء الاصطناعي شيئاً.",
     "The AI request failed.": "فشل طلب الذكاء الاصطناعي.",
+    "Could not save the translation as a file": "تعذّر حفظ الترجمة كملف",
+    "Saved as %name%": "تم الحفظ: %name%",
   });
 
   Object.assign(fr, {
@@ -3497,6 +3501,8 @@
     "No AI provider is set up, and no offline translator was found.": "Aucune IA n’est configurée et aucun traducteur hors ligne n’a été trouvé.",
     "The AI returned nothing.": "L’IA n’a rien renvoyé.",
     "The AI request failed.": "La requête IA a échoué.",
+    "Could not save the translation as a file": "Impossible d’enregistrer la traduction comme fichier",
+    "Saved as %name%": "Enregistré : %name%",
   });
 
   Object.assign(de, {
@@ -3530,6 +3536,8 @@
     "No AI provider is set up, and no offline translator was found.": "Es ist keine KI eingerichtet und kein Offline-Übersetzer gefunden.",
     "The AI returned nothing.": "Die KI hat nichts zurückgegeben.",
     "The AI request failed.": "Die KI-Anfrage ist fehlgeschlagen.",
+    "Could not save the translation as a file": "Die Übersetzung konnte nicht als Datei gespeichert werden",
+    "Saved as %name%": "Gespeichert: %name%",
   });
 
   Object.assign(it, {
@@ -3563,6 +3571,8 @@
     "No AI provider is set up, and no offline translator was found.": "Nessuna AI è configurata e nessun traduttore offline è stato trovato.",
     "The AI returned nothing.": "L’AI non ha restituito nulla.",
     "The AI request failed.": "La richiesta AI è fallita.",
+    "Could not save the translation as a file": "Impossibile salvare la traduzione come file",
+    "Saved as %name%": "Salvato: %name%",
   });
 
   Object.assign(tr, {
@@ -3596,6 +3606,8 @@
     "No AI provider is set up, and no offline translator was found.": "Ayarlı bir AI yok ve çevrimdışı çevirmen bulunamadı.",
     "The AI returned nothing.": "AI bir şey döndürmedi.",
     "The AI request failed.": "AI isteği başarısız oldu.",
+    "Could not save the translation as a file": "Çeviri dosya olarak kaydedilemedi",
+    "Saved as %name%": "Kaydedildi: %name%",
   });
 
   Object.assign(es, {
@@ -3629,6 +3641,8 @@
     "No AI provider is set up, and no offline translator was found.": "No hay ninguna IA configurada y no se encontró un traductor sin conexión.",
     "The AI returned nothing.": "La IA no devolvió nada.",
     "The AI request failed.": "La petición a la IA falló.",
+    "Could not save the translation as a file": "No se pudo guardar la traducción como archivo",
+    "Saved as %name%": "Guardado: %name%",
   });
 
   Object.assign(zh, {
@@ -3662,6 +3676,8 @@
     "No AI provider is set up, and no offline translator was found.": "没有配置 AI，也没找到离线翻译器。",
     "The AI returned nothing.": "AI 没有返回内容。",
     "The AI request failed.": "AI 请求失败。",
+    "Could not save the translation as a file": "无法将译文保存为文件",
+    "Saved as %name%": "已保存：%name%",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

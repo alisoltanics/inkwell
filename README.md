@@ -62,6 +62,7 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - While a translation is on screen the direction buttons lay out the translation only, so picking LTR for the translated text leaves the note's own direction alone.
 - Comments stay usable in both views: a comment written on the note is marked on the same paragraph of the translation, and a comment added while reading the translation is stored against the original passage, so it appears in both.
 - Selecting text while reading the translation acts on that text — Ask AI, Explain and Translate take exactly what was selected — while comments and saved answers are stored against the matching paragraph of the note, so they show up in both views.
+- **Save as file** writes the translation as its own note beside the one it came from (`flow-en.md`), so it can be opened, searched and edited like any other note. Saving a second time keeps both (`flow-en-2.md`).
 - Printing, exporting and sending to Telegram use whatever the preview is showing, so a note left in translation view is printed, exported and sent as the translation (the sent file is named after the target language).
 
 ### Ask AI
