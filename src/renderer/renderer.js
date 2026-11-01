@@ -2151,7 +2151,7 @@ function setupEditorEvents() {
       // a translation is shown: the note-side anchor is the matching source
       // block, while the selected (translated) text stays the passage itself
       const previewAt = previewTextOffsetOf(node, range.startOffset);
-      const mapped = mapTranslatedSelection(text, previewAt);
+      const mapped = mapTranslatedSelection(text);
       showAIFloat(rect.right, rect.bottom + 4, {
         text,
         start: unique ? idx : null,
@@ -3711,12 +3711,12 @@ function saveAnswerToPassage(text, kind) {
 function locateSavedPassage(text, needle, hints = {}) {
   const matches = previewMatches(text, needle);
   if (!matches.length) return previewFind(text, needle);
-  const hint = Number(hints.previewAt);
+  const hint = previewHint(hints.previewAt);
   if (matches.length > 1 && Number.isFinite(hint)) {
     const best = matches.reduce((a, b) => (Math.abs(b - hint) < Math.abs(a - hint) ? b : a), matches[0]);
     return { index: best, length: needle.length };
   }
-  const start = Number(hints.start);
+  const start = previewHint(hints.start);
   if (matches.length > 1 && Number.isFinite(start)) {
     const blocks = mdBlocks(els.editor.value);
     const at = blocks.findIndex((b) => start >= b.start && start < b.end);
@@ -3754,12 +3754,13 @@ function decoratePreviewAnswers() {
         if (!mapped) continue;
         const at = Number.isFinite(Number(item.start))
           ? srcBlocks.findIndex((b) => Number(item.start) >= b.start && Number(item.start) < b.end)
-          : srcBlocks.findIndex((b) => blockPlainText(b.text).includes(mdPlain(item.quote || '').trim()));
+          : srcBlocks.findIndex((b) => matchKey(b.text).includes(matchKey(item.quote)));
         needle = at >= 0 && dstBlocks[at] ? blockPlainText(dstBlocks[at].text) : '';
       }
     } else if (item.fromTranslation) {
       // saved from the translation: the note holds the matching passage instead
       needle = blockPlainText(item.anchorText || '');
+      if (/^[-*_=\s]*$/.test(needle)) needle = '';
       hints = { previewAt: null, start: item.anchorStart };
       if (needle.length < 2) needle = mdPlain(item.quote || '').trim();
     } else {
@@ -6021,21 +6022,44 @@ function previewTextItems() {
 // remembered by position rather than only by what it says.
 function previewTextOffsetOf(node, offset = 0) {
   if (!node) return null;
-  const { items } = previewTextItems();
-  for (const item of items) {
-    if (item.node === node) return item.start + offset;
+  let target = node;
+  let at = Number(offset) || 0;
+  if (target.nodeType !== 3) {
+    // a selection can start on an element boundary — the number of a list item
+    // or the edge of a paragraph — so point at the text just inside it
+    const child = target.childNodes[at] || target.firstChild;
+    if (!child) return null;
+    if (child.nodeType === 3) {
+      target = child;
+    } else {
+      const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT, null);
+      target = walker.nextNode();
+      if (!target) return null;
+    }
+    at = 0;
   }
-  return null;
+  const { items } = previewTextItems();
+  const found = items.find((item) => item.node === target);
+  return found ? found.start + at : null;
+}
+
+// A position that was not recorded is not position zero.
+function previewHint(value) {
+  if (value == null || value === '') return NaN;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 // Every exact occurrence of a passage in the preview text.
 function previewMatches(text, needle) {
   const out = [];
   if (!needle) return out;
-  let at = text.indexOf(needle);
+  const hay = normalizePunct(text);
+  const pin = normalizePunct(needle);
+  let at = hay.indexOf(pin);
   while (at !== -1 && out.length < 100) {
     out.push(at);
-    at = text.indexOf(needle, at + 1);
+    at = hay.indexOf(pin, at + 1);
   }
   return out;
 }
@@ -6073,12 +6097,32 @@ function blockPlainText(md) {
     .join(' ');
 }
 
+// Typographic quotes and dashes are made by the Markdown renderer, not by the
+// note, so they must not decide whether two texts are the same. Every
+// replacement is one character for one, which keeps positions in the normalised
+// text valid in the original.
+function normalizePunct(text) {
+  return String(text || '')
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/\u2026/g, '.')
+    .replace(/\u00A0/g, ' ');
+}
+
+// The two sides of a comparison, ready to be matched.
+function matchKey(text) {
+  return normalizePunct(mdPlain(text)).replace(/\s+/g, ' ').trim();
+}
+
 function previewFind(text, needle) {
   if (!needle) return null;
-  const i = text.indexOf(needle);
-  if (i !== -1) return { index: i, length: needle.length };
-  const pattern = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-  const m = new RegExp(pattern).exec(text);
+  const hay = normalizePunct(text);
+  const pin = normalizePunct(needle);
+  const i = hay.indexOf(pin);
+  if (i !== -1) return { index: i, length: pin.length };
+  const pattern = pin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const m = new RegExp(pattern).exec(hay);
   return m ? { index: m.index, length: m[0].length } : null;
 }
 
@@ -6178,15 +6222,22 @@ function mdBlocks(text) {
 // the quote cannot be found in a translated document. The note and its
 // translation share their block order, so the same block is marked instead and
 // the comment stays readable in both views.
-function mapTranslatedSelection(text, previewAt) {
+// A rule or an empty line is not a passage: only real blocks take part in the
+// mapping between a note and its translation.
+function isContentBlock(block) {
+  const plain = blockPlainText(block.text).trim();
+  return plain.length > 1 && !/^[-*_=\s]+$/.test(plain);
+}
+
+function mapTranslatedSelection(text) {
   const tr = docTranslationActive() ? docTranslationFor() : null;
   if (!tr || !String(tr.text || '').trim()) return null;
-  const src = mdBlocks(els.editor.value);
-  const dst = mdBlocks(String(tr.text || ''));
+  const src = mdBlocks(els.editor.value).filter(isContentBlock);
+  const dst = mdBlocks(String(tr.text || '')).filter(isContentBlock);
   if (!src.length || !dst.length) return null;
-  const needle = mdPlain(text || '').trim();
-  if (needle.length < 2) return null;
-  const hit = dst.findIndex((block) => mdPlain(block.text).includes(needle));
+  const key = matchKey(text);
+  if (key.length < 2) return null;
+  const hit = dst.findIndex((block) => matchKey(block.text).includes(key));
   if (hit < 0) return null;
   let at = -1;
   if (src.length === dst.length) {
@@ -6194,21 +6245,10 @@ function mapTranslatedSelection(text, previewAt) {
     // the translation is block n of the note
     at = hit;
   } else {
-    // an AI translation may merge or split paragraphs: follow how far into the
-    // document the passage sits instead
-    const hint = Number(previewAt);
-    if (Number.isFinite(hint)) {
-      const { text: preview } = previewTextItems();
-      const total = preview.length || 1;
-      const ratio = hint / total;
-      const docLength = els.editor.value.length || 1;
-      let best = Infinity;
-      src.forEach((block, i) => {
-        const middle = ((block.start + block.end) / 2) / docLength;
-        const distance = Math.abs(middle - ratio);
-        if (distance < best) { best = distance; at = i; }
-      });
-    }
+    // an AI translation may merge or split paragraphs: scale the block position
+    // instead of asking for an exact match
+    const scale = (src.length - 1) / Math.max(1, dst.length - 1);
+    at = Math.min(src.length - 1, Math.max(0, Math.round(hit * scale)));
   }
   if (at < 0 || !src[at]) return null;
   return {
@@ -6229,9 +6269,9 @@ function decorateTranslatedComments(list) {
     const at = Number(c.start);
     let idx = Number.isFinite(at) ? src.findIndex((b) => at >= b.start && at < b.end) : -1;
     if (idx < 0) {
-      const plain = mdPlain(c.quote || '').trim();
+      const plain = matchKey(c.quote);
       if (!plain) continue;
-      idx = src.findIndex((b) => mdPlain(b.text).includes(plain));
+      idx = src.findIndex((b) => matchKey(b.text).includes(plain));
     }
     if (idx < 0 || !dst[idx]) continue;
     // the block's own text, then its first line: a wrapped paragraph or a table
@@ -7136,6 +7176,7 @@ function showAIFloat(x, y, ctx) {
     start: ctx.start == null ? null : ctx.start,
     end: ctx.end == null ? null : ctx.end,
     anchor: ctx.anchor || null,
+    fromTranslation: !!ctx.fromTranslation,
     previewAt: ctx.previewAt == null ? null : ctx.previewAt,
   };
   // A conversation in progress owns the panel: highlighting something else must
