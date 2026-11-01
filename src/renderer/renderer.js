@@ -344,6 +344,7 @@ const els = {
   settingsTtsSave: $('settingsTtsSave'),
   settingsTtsBadge: $('settingsTtsBadge'),
   settingsTtsHint: $('settingsTtsHint'),
+  settingsTtsEngine: $('settingsTtsEngine'),
   settingsAiModeBadge: $('settingsAiModeBadge'),
   findBar: $('findBar'),
   findInput: $('findInput'),
@@ -3698,10 +3699,19 @@ async function updateTtsSettingsBadge() {
   try { voice = await window.inkwell.ttsStatus(); } catch (_) { voice = null; }
   const badge = els.settingsTtsBadge;
   const hint = els.settingsTtsHint;
+  if (els.settingsTtsEngine && voice && voice.ok && voice.mode) {
+    els.settingsTtsEngine.value = voice.mode;
+  }
   const system = !!(voice && voice.ok && voice.system);
   const api = !!(voice && voice.ok && voice.api);
+  const engine = (voice && voice.engine) || '';
   if (badge) {
-    badge.textContent = system ? `System voice${voice.engine && voice.engine !== 'system' ? ' · ' + voice.engine : ''}`
+    const label = engine === 'piper' ? `piper${voice.piperModel ? ' · ' + voice.piperModel : ''}`
+      : engine === 'pico2wave' ? 'pico2wave'
+        : engine === 'say' ? 'macOS say'
+          : engine === 'sapi' ? 'Windows SAPI'
+            : engine || '';
+    badge.textContent = system ? `System voice · ${label}`
       : api ? 'AI voice' : 'Offline voice';
     badge.classList.toggle('is-muted', !system && !api);
   }
@@ -3718,7 +3728,12 @@ if (els.settingsTtsSave) {
     const apiKey = els.settingsTtsKey ? els.settingsTtsKey.value.trim() : '';
     const baseUrl = els.settingsTtsBaseUrl ? els.settingsTtsBaseUrl.value.trim() : '';
     try {
-      const res = await window.inkwell.saveAIKey({ id: 'tts', apiKey, baseUrl });
+      const res = await window.inkwell.saveAIKey({
+        id: 'tts',
+        apiKey,
+        baseUrl,
+        engine: els.settingsTtsEngine ? els.settingsTtsEngine.value : 'auto',
+      });
       if (res && res.ok) {
         toast('Voice settings saved', 'success');
         if (els.settingsTtsKey) els.settingsTtsKey.value = '';

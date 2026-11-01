@@ -745,43 +745,132 @@ function ttsLanguage(text) {
 }
 
 function runCommand(command, args, options = {}) {
+  const { input, ...spawnOptions } = options;
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(command, args, { windowsHide: true, ...options });
+      child = spawn(command, args, { windowsHide: true, ...spawnOptions });
     } catch (e) {
       resolve({ ok: false, error: e.message });
       return;
     }
+    // a voice engine that reads its text from stdin (piper) gets it here
+    if (child.stdin) {
+      child.stdin.on('error', () => {});
+      child.stdin.end(input == null ? '' : input);
+    }
     let stderr = '';
+    let stdout = '';
     if (child.stderr) child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    if (child.stdout) child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     child.on('error', (e) => resolve({ ok: false, error: e.message }));
-    child.on('close', (code) => resolve({ ok: code === 0, code, error: code === 0 ? '' : (stderr.trim() || `exit ${code}`) }));
+    child.on('close', (code) => resolve({ ok: code === 0, code, stdout, stderr, error: code === 0 ? '' : (stderr.trim() || `exit ${code}`) }));
   });
 }
 
 // Each platform ships a voice engine that can write a file: espeak on Linux,
 // say on macOS, SAPI on Windows. Nothing is installed by the app.
-async function systemTtsToFile(text, outFile, tempText, language) {
-  if (process.platform === 'darwin') {
-    const res = await runCommand('say', ['-o', outFile, '--file-format=WAVE', '--data-format=LEI16@22050', '-f', tempText]);
-    return res.ok && fs.existsSync(outFile) ? { ok: true } : { ok: false, error: res.error };
+// Which offline voices exist on this machine, best quality first. espeak is
+// the last choice on purpose: it is the one that sounds robotic.
+function piperModels() {
+  const dirs = [
+    process.env.PIPER_MODEL ? path.dirname(process.env.PIPER_MODEL) : '',
+    path.join(os.homedir(), '.local', 'share', 'piper'),
+    path.join(os.homedir(), '.piper'),
+    NOTES_DIR ? path.join(NOTES_DIR, '.inkwell', 'voices') : '',
+  ].filter(Boolean);
+  const found = [];
+  if (process.env.PIPER_MODEL && fs.existsSync(process.env.PIPER_MODEL)) found.push(process.env.PIPER_MODEL);
+  for (const dir of dirs) {
+    try {
+      for (const entry of fs.readdirSync(dir)) {
+        if (entry.toLowerCase().endsWith('.onnx')) found.push(path.join(dir, entry));
+      }
+    } catch (_) {}
   }
+  return [...new Set(found)];
+}
+
+function piperModelFor(language) {
+  const models = piperModels();
+  if (!models.length) return '';
+  const wanted = String(language || 'en').toLowerCase();
+  return models.find((file) => path.basename(file).toLowerCase().includes(wanted)) || models[0];
+}
+
+// Which voices this espeak build really has: a voice that is not installed
+// would silently fall back to the default robot.
+const espeakVoiceCache = new Map();
+async function espeakVoices(bin) {
+  if (espeakVoiceCache.has(bin)) return espeakVoiceCache.get(bin);
+  const res = await runCommand(bin, ['--voices']);
+  const names = new Set();
+  for (const line of String(res.stdout || '').split('\n').slice(1)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length >= 4) names.add(cols[3].toLowerCase());
+  }
+  espeakVoiceCache.set(bin, names);
+  return names;
+}
+
+// espeak with the settings that sound least mechanical: MBROLA first (a
+// different synthesiser), then a slower rate and a lower pitch.
+async function espeakToFile(bin, text, outFile, tempText, language) {
+  const available = await espeakVoices(bin);
+  const preferred = language === 'en' ? 'en-us' : language === 'fa' ? 'fa' : language;
+  const order = [`mb-${language}1`, preferred, language].filter((voice, i, list) => voice && list.indexOf(voice) === i);
+  for (const voice of order) {
+    if (available.size && !available.has(voice.toLowerCase())) continue;
+    const res = await runCommand(bin, ['-v', voice, '-s', '160', '-p', '42', '-g', '4', '-w', outFile, '-f', tempText]);
+    if (res.ok && fs.existsSync(outFile)) return { ok: true, engine: `${bin} · ${voice}` };
+  }
+  const res = await runCommand(bin, ['-v', language, '-s', '160', '-p', '42', '-w', outFile, '-f', tempText]);
+  if (res.ok && fs.existsSync(outFile)) return { ok: true, engine: bin };
+  return { ok: false, error: res.error };
+}
+
+async function systemTtsToFile(text, outFile, tempText, language) {
+  const mode = String((storedAIKeys().tts || {}).engine || 'auto');
+
+  if (process.platform === 'darwin') {
+    if (mode === 'api') return { ok: false, error: 'system voice disabled' };
+    // the built-in voices are natural; 175 words a minute reads like a person
+    const res = await runCommand('say', ['-r', '175', '-o', outFile, '--file-format=WAVE', '--data-format=LEI16@22050', '-f', tempText]);
+    return res.ok && fs.existsSync(outFile) ? { ok: true, engine: 'say' } : { ok: false, error: res.error };
+  }
+
   if (process.platform === 'win32') {
+    if (mode === 'api') return { ok: false, error: 'system voice disabled' };
     const script = [
       'Add-Type -AssemblyName System.Speech;',
       '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
+      '$s.Rate = -1;',
       `$s.SetOutputToWaveFile('${outFile.replace(/'/g, "''")}');`,
       `$s.Speak([System.IO.File]::ReadAllText('${tempText.replace(/'/g, "''")}'));`,
       '$s.Dispose();',
     ].join(' ');
     const res = await runCommand('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
-    return res.ok && fs.existsSync(outFile) ? { ok: true } : { ok: false, error: res.error };
+    return res.ok && fs.existsSync(outFile) ? { ok: true, engine: 'sapi' } : { ok: false, error: res.error };
   }
-  // Linux: espeak-ng writes a wav; espeak (older) does the same
+
+  if (mode === 'api') return { ok: false, error: 'system voice disabled' };
+
+  // 1) piper: a neural voice, close to a real speaker
+  const model = piperModelFor(language);
+  if (model) {
+    const res = await runCommand('piper', ['-m', model, '-f', outFile], { input: await fs.promises.readFile(tempText) });
+    if (res.ok && fs.existsSync(outFile)) return { ok: true, engine: 'piper · ' + path.basename(model, '.onnx') };
+  }
+
+  // 2) pico2wave: small and clearly better than espeak
+  const picoLang = language === 'fa' ? 'fa-IR' : language === 'ar' ? 'ar-SA' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const pico = await runCommand('pico2wave', ['-w', outFile, '-l', picoLang, String(text || '')]);
+  if (pico.ok && fs.existsSync(outFile)) return { ok: true, engine: 'pico2wave' };
+
+  // 3) espeak-ng / espeak
   for (const bin of ['espeak-ng', 'espeak']) {
-    const res = await runCommand(bin, ['-v', language, '-w', outFile, '-f', tempText]);
-    if (res.ok && fs.existsSync(outFile)) return { ok: true, engine: bin };
+    const res = await espeakToFile(bin, text, outFile, tempText, language);
+    if (res.ok) return res;
   }
   return { ok: false, error: 'no system voice' };
 }
@@ -791,6 +880,7 @@ async function apiTtsToFile(text, outFile) {
   const key = apiProviderKey({ id: 'tts', apiKey: saved.apiKey, apiKeyEnv: saved.apiKeyEnv || 'OPENAI_API_KEY' });
   if (!key) return { ok: false, error: 'no key' };
   const base = normalizeApiBase(saved.baseUrl) || 'https://api.openai.com/v1';
+  // the HD model is the one that sounds like a person reading
   const model = String(saved.model || '').trim() || 'gpt-4o-mini-tts';
   const res = await fetch(base + '/audio/speech', {
     method: 'POST',
@@ -807,28 +897,44 @@ async function apiTtsToFile(text, outFile) {
   return { ok: fs.existsSync(outFile), engine: 'openai' };
 }
 
+function commandOnPath(bin) {
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const file = path.join(dir, bin + ext);
+      try { if (fs.existsSync(file)) return file; } catch (_) {}
+    }
+  }
+  return '';
+}
+
 // Which voice the app can use right now: a system engine that writes a file, an
 // AI voice with a saved key, or neither (the renderer then speaks offline).
-async function systemVoiceAvailable() {
-  if (process.platform === 'darwin') return (await runCommand('say', ['-v', '?'])).ok;
-  if (process.platform === 'win32') {
-    return (await runCommand('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])).ok;
-  }
-  for (const bin of ['espeak-ng', 'espeak']) {
-    if ((await runCommand(bin, ['--version'])).ok) return bin;
-  }
-  return false;
+// The same order systemTtsToFile() uses, so the badge tells the truth.
+function detectSystemVoice(language = 'en') {
+  if (process.platform === 'darwin') return commandOnPath('say') ? 'say' : '';
+  if (process.platform === 'win32') return commandOnPath('powershell.exe') ? 'sapi' : '';
+  const model = piperModelFor(language);
+  if (model && commandOnPath('piper')) return 'piper';
+  if (commandOnPath('pico2wave')) return 'pico2wave';
+  if (commandOnPath('espeak-ng')) return 'espeak-ng';
+  if (commandOnPath('espeak')) return 'espeak';
+  return '';
 }
 
 ipcMain.handle('tts:status', async () => {
-  const system = await systemVoiceAvailable();
+  const system = detectSystemVoice();
   const saved = storedAIKeys().tts || {};
   const hasKey = !!apiProviderKey({ id: 'tts', apiKey: saved.apiKey, apiKeyEnv: saved.apiKeyEnv || 'OPENAI_API_KEY' });
+  const saved2 = storedAIKeys().tts || {};
   return {
     ok: true,
     system: !!system,
-    engine: typeof system === 'string' ? system : (system ? 'system' : ''),
+    engine: system,
+    piperModel: system === 'piper' ? path.basename(piperModelFor('en'), '.onnx') : '',
     api: hasKey,
+    mode: String(saved2.engine || 'auto'),
     platform: process.platform,
   };
 });
@@ -850,9 +956,15 @@ ipcMain.handle('tts:generate', async (event, payload) => {
     fs.writeFileSync(tempText, text, 'utf8');
     const language = ttsLanguage(text);
     const wavOut = path.join(dir, base + '.wav');
-    const system = await systemTtsToFile(text, wavOut, tempText, language);
+    const mode = String((storedAIKeys().tts || {}).engine || 'auto');
+    const system = mode === 'api'
+      ? { ok: false, error: 'system voice disabled' }
+      : await systemTtsToFile(text, wavOut, tempText, language);
     let engine = system.ok ? (system.engine || 'system') : '';
     if (!system.ok) {
+      if (mode === 'system') {
+        return { ok: false, error: 'no-engine', system: system.error, api: 'disabled' };
+      }
       const apiOut = path.join(dir, base + '.mp3');
       const api = await apiTtsToFile(text, apiOut);
       if (!api.ok) {
@@ -1842,10 +1954,15 @@ ipcMain.handle('ai:saveKey', (_event, payload) => {
     const entry = { ...(keys[id] || {}) };
     if (apiKey) entry.apiKey = apiKey;
     if (baseUrl) entry.baseUrl = baseUrl;
+    // the voice section also remembers which engine to prefer
+    if (payload && typeof payload.engine === 'string') {
+      const engine = payload.engine.trim();
+      if (['auto', 'system', 'api'].includes(engine)) entry.engine = engine;
+    }
     if (Object.keys(entry).length) keys[id] = entry;
     else delete keys[id];
     store.set('aiKeys', keys);
-    return { ok: true, hasKey: !!(keys[id] && keys[id].apiKey) };
+    return { ok: true, hasKey: !!(keys[id] && keys[id].apiKey), engine: (keys[id] && keys[id].engine) || 'auto' };
   } catch (error) {
     return { ok: false, error: error.message || String(error) };
   }

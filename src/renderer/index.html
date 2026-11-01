@@ -811,6 +811,15 @@
                                 <span class="settings-badge" id="settingsTtsBadge">Offline voice</span>
                             </div>
                             <p class="settings-desc" id="settingsTtsHint">Inkwell reads a note with the system voice and saves the audio in the vault. Without a system voice it still reads offline — without saving.</p>
+                            <div class="settings-field">
+                                <label for="settingsTtsEngine">Voice engine</label>
+                                <select id="settingsTtsEngine">
+                                    <option value="auto">Best available (natural first, then AI)</option>
+                                    <option value="system">System voice only (offline, free)</option>
+                                    <option value="api">AI voice only (needs a key)</option>
+                                </select>
+                                <p class="settings-desc">For a natural offline voice install <code>piper</code> with a voice model (<code>.onnx</code>) in <code>~/.local/share/piper</code>; <code>pico2wave</code> is the next best. Nothing installed means the robotic <code>espeak</code> voice.</p>
+                            </div>
                         <div class="settings-field">
                             <label for="settingsTtsKey">Read aloud — AI voice key <span class="settings-opt">optional</span></label>
                             <input type="password" id="settingsTtsKey" placeholder="sk-… (OpenAI)" autocomplete="off" spellcheck="false">
