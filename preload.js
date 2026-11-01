@@ -53,6 +53,12 @@ contextBridge.exposeInMainWorld('inkwell', {
     ipcRenderer.on('win:state', handler);
     return () => ipcRenderer.removeListener('win:state', handler);
   },
+  // notes that appeared, changed or disappeared outside the app
+  onVaultChanged: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('vault:changed', handler);
+    return () => ipcRenderer.removeListener('vault:changed', handler);
+  },
 
   // export / share (self-contained HTML)
   exportHTML: (sourcePath, payload) => ipcRenderer.invoke('dialog:exportHTML', sourcePath, payload),

@@ -646,6 +646,39 @@ function setupWindowChrome() {
 initTheme();
 setupWindowChrome();
 
+// Notes can arrive from outside the app (another editor, a sync folder, the VS
+// Code extension): the list follows the folder instead of waiting for a restart.
+function setupVaultWatch() {
+  const api = window.inkwell;
+  if (!api || !api.onVaultChanged) return;
+  let pending = null;
+  api.onVaultChanged((payload) => {
+    const paths = payload && Array.isArray(payload.paths) ? payload.paths : [];
+    if (!paths.length) return;
+    clearTimeout(pending);
+    pending = setTimeout(() => {
+      const known = new Set((state.files || []).map((file) => file.path));
+      const notes = paths.filter((item) => /\.(?:md|markdown)$/i.test(item));
+      const fresh = notes.filter((item) => !known.has(item));
+      // a note that just arrived should be visible, not hidden in a closed folder
+      fresh.forEach((item) => expandAncestors(item));
+      refreshFiles().then(() => {
+        if (!fresh.length) return;
+        const first = fresh[0];
+        const row = Array.from(els.fileList.querySelectorAll('.file-item'))
+          .find((el) => el.dataset.name === first);
+        if (row) {
+          row.scrollIntoView({ block: 'nearest' });
+          row.classList.add('just-exported');
+          setTimeout(() => row.classList.remove('just-exported'), 1800);
+        }
+        setStatus(t('Added from outside: %name%', { name: displayNotePath(first) }));
+      }).catch(() => {});
+    }, 180);
+  });
+}
+setupVaultWatch();
+
 function formatRelative(ms) {
   const diff = Date.now() - ms;
   const min = 60 * 1000, hour = 60 * min, day = 24 * hour;

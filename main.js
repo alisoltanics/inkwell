@@ -35,6 +35,133 @@ function setNotesDir(newDir) {
   }
 }
 
+/* ================= WATCHING THE VAULT ================= */
+// Notes also arrive from outside the app — another editor, a sync folder, the
+// VS Code extension — so the folder is watched and the window is told to
+// refresh its list instead of waiting for a restart.
+let vaultWatcher = null;
+let vaultWatchTimer = null;
+let vaultPollTimer = null;
+const vaultWatchPending = new Set();
+
+function watchableChange(relativePath) {
+  const clean = String(relativePath || '').replace(/\\/g, '/');
+  if (!clean) return '';
+  // internal folders (.inkwell keeps audio, exports and preferences) and editor
+  // scratch files are not notes
+  if (clean.split('/').some((part) => part.startsWith('.'))) return '';
+  if (/(^|\/)(node_modules|__pycache__)(\/|$)/.test(clean)) return '';
+  if (/\.(swp|swx|tmp|crdownload|part|download)$/i.test(clean)) return '';
+  if (clean === '.DS_Store') return '';
+  return clean;
+}
+
+function flushVaultChanges() {
+  vaultWatchTimer = null;
+  const paths = [...vaultWatchPending];
+  vaultWatchPending.clear();
+  if (!paths.length) return;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('vault:changed', { paths });
+  }
+}
+
+function queueVaultChange(relativePath, delay = 350) {
+  const rel = watchableChange(relativePath);
+  if (!rel) return;
+  vaultWatchPending.add(rel);
+  if (vaultWatchTimer) clearTimeout(vaultWatchTimer);
+  vaultWatchTimer = setTimeout(flushVaultChanges, delay);
+}
+
+// A note and its time and size, so a plain folder scan can spot what changed.
+function vaultSnapshot(root) {
+  const seen = new Map();
+  const walk = (dir, prefix, depth) => {
+    if (depth > 12 || seen.size > 20000) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const relative = prefix ? prefix + '/' + entry.name : entry.name;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        seen.set(relative + '/', 'dir');
+        walk(absolute, relative, depth + 1);
+        continue;
+      }
+      try {
+        const stat = fs.statSync(absolute);
+        seen.set(relative, stat.mtimeMs + ':' + stat.size);
+      } catch (_) {
+        // the file vanished between readdir and stat
+      }
+    }
+  };
+  walk(root, '', 0);
+  return seen;
+}
+
+function stopVaultWatch() {
+  if (vaultWatcher) {
+    try { vaultWatcher.close(); } catch (_) {}
+    vaultWatcher = null;
+  }
+  if (vaultPollTimer) {
+    clearInterval(vaultPollTimer);
+    vaultPollTimer = null;
+  }
+  if (vaultWatchTimer) {
+    clearTimeout(vaultWatchTimer);
+    vaultWatchTimer = null;
+  }
+  vaultWatchPending.clear();
+}
+
+function watchVault() {
+  stopVaultWatch();
+  if (!NOTES_DIR) return;
+
+  // A recursive watch is the cheap way, and what Electron's Node supports on
+  // every platform; older runtimes do not have it on Linux.
+  try {
+    vaultWatcher = fs.watch(NOTES_DIR, { recursive: true }, (event, filename) => {
+      queueVaultChange(filename);
+    });
+    vaultWatcher.on('error', () => {
+      try { vaultWatcher.close(); } catch (_) {}
+      vaultWatcher = null;
+      watchVaultByPolling();
+    });
+    return;
+  } catch (_) {
+    vaultWatcher = null;
+  }
+  watchVaultByPolling();
+}
+
+// The fallback: look at the folder every couple of seconds and report what
+// appeared, changed or went away. Slow but always available.
+function watchVaultByPolling() {
+  if (vaultPollTimer || !NOTES_DIR) return;
+  let previous = vaultSnapshot(NOTES_DIR);
+  vaultPollTimer = setInterval(() => {
+    const next = vaultSnapshot(NOTES_DIR);
+    for (const [key, stamp] of next) {
+      if (previous.get(key) !== stamp) queueVaultChange(key.replace(/\/$/, ''), 60);
+    }
+    for (const key of previous.keys()) {
+      if (!next.has(key)) queueVaultChange(key.replace(/\/$/, ''), 60);
+    }
+    previous = next;
+  }, 2000);
+  if (vaultPollTimer.unref) vaultPollTimer.unref();
+}
+
 /* ================= PLAIN FILE STORAGE ================= */
 // Notes are ordinary .md files with ordinary folder names. Paths that come
 // from the renderer are validated and must stay inside the notes directory.
@@ -174,10 +301,13 @@ function createWindow() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
+  watchVault();
   // warm the probe that decides which isolation flags the installed Claude CLI
   // understands, so the first answer is not delayed by it
   getClaudeIsolationFlags().catch(() => {});
 });
+
+app.on('will-quit', () => stopVaultWatch());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -407,6 +537,7 @@ ipcMain.handle('archive:delete', async (event, archivedPath) => {
 ipcMain.handle('fs:setNotesDir', async (event, dirPath) => {
   try {
     const dir = setNotesDir(dirPath);
+    watchVault();
     return { success: true, path: dir };
   } catch (e) {
     return { success: false, error: e.message };

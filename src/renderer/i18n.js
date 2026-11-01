@@ -3420,6 +3420,7 @@
     "%n% words": "%n% واژه",
     "Translation saved · showing %lang%": "ترجمه ذخیره شد · نمایش %lang%",
     "Translation replaced · showing %lang%": "ترجمه جایگزین شد · نمایش %lang%",
+    "Added from outside: %name%": "از بیرون اضافه شد: %name%",
   });
 
   Object.assign(ar, {
@@ -3442,6 +3443,7 @@
     "%n% words": "%n% كلمة",
     "Translation saved · showing %lang%": "تم حفظ الترجمة · عرض %lang%",
     "Translation replaced · showing %lang%": "تم استبدال الترجمة · عرض %lang%",
+    "Added from outside: %name%": "أُضيف من الخارج: %name%",
   });
 
   Object.assign(fr, {
@@ -3464,6 +3466,7 @@
     "%n% words": "%n% mots",
     "Translation saved · showing %lang%": "Traduction enregistrée · affichage %lang%",
     "Translation replaced · showing %lang%": "Traduction remplacée · affichage %lang%",
+    "Added from outside: %name%": "Ajouté de l’extérieur : %name%",
   });
 
   Object.assign(de, {
@@ -3486,6 +3489,7 @@
     "%n% words": "%n% Wörter",
     "Translation saved · showing %lang%": "Übersetzung gespeichert · Anzeige %lang%",
     "Translation replaced · showing %lang%": "Übersetzung ersetzt · Anzeige %lang%",
+    "Added from outside: %name%": "Von außen hinzugefügt: %name%",
   });
 
   Object.assign(it, {
@@ -3508,6 +3512,7 @@
     "%n% words": "%n% parole",
     "Translation saved · showing %lang%": "Traduzione salvata · visualizzazione %lang%",
     "Translation replaced · showing %lang%": "Traduzione sostituita · visualizzazione %lang%",
+    "Added from outside: %name%": "Aggiunto dall’esterno: %name%",
   });
 
   Object.assign(tr, {
@@ -3530,6 +3535,7 @@
     "%n% words": "%n% kelime",
     "Translation saved · showing %lang%": "Çeviri kaydedildi · %lang% gösteriliyor",
     "Translation replaced · showing %lang%": "Çeviri değiştirildi · %lang% gösteriliyor",
+    "Added from outside: %name%": "Dışarıdan eklendi: %name%",
   });
 
   Object.assign(es, {
@@ -3552,6 +3558,7 @@
     "%n% words": "%n% palabras",
     "Translation saved · showing %lang%": "Traducción guardada · mostrando %lang%",
     "Translation replaced · showing %lang%": "Traducción reemplazada · mostrando %lang%",
+    "Added from outside: %name%": "Añadido desde fuera: %name%",
   });
 
   Object.assign(zh, {
@@ -3574,6 +3581,7 @@
     "%n% words": "%n% 个词",
     "Translation saved · showing %lang%": "译文已保存 · 显示 %lang%",
     "Translation replaced · showing %lang%": "译文已替换 · 显示 %lang%",
+    "Added from outside: %name%": "已从外部添加：%name%",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };
