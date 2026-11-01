@@ -58,6 +58,8 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Pick **Translate** in the header's AI tools menu to translate the entire note. It asks which language to translate into first; change the picker and it translates again straight away.
 - **Save translation** keeps the result with the note and switches the preview to the translated text, laid out in the direction of the target language. The editor keeps the original.
 - A translation button then appears in the toolbar next to the direction buttons: click it to switch the preview between the note and its saved translation, and back. It only shows for notes that have a saved translation, and only the translation turns right-to-left when its language needs it — the note and the editor keep the direction you chose for them.
+- While a translation is on screen the direction buttons lay out the translation only, so picking LTR for the translated text leaves the note's own direction alone.
+- Comments stay usable in both views: a comment written on the note is marked on the same paragraph of the translation, and a comment added while reading the translation is stored against the original passage, so it appears in both.
 - Printing, exporting and sending to Telegram use whatever the preview is showing, so a note left in translation view is printed, exported and sent as the translation (the sent file is named after the target language).
 
 ### Ask AI

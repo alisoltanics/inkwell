@@ -255,6 +255,8 @@ let state = {
   // a whole-document translation, kept per note so it can be toggled
   docTranslations: {},
   docTranslationView: {},
+  // LTR/RTL picked while reading a translation; the note keeps its own
+  docTranslationDir: {},
   lastFile: null,
   lastOpenFromFavorites: false,
   scrollByFile: {},
@@ -771,6 +773,7 @@ function loadPreferences() {
       if (p.translationsByFile && typeof p.translationsByFile === 'object') state.translationsByFile = p.translationsByFile;
       if (p.docTranslations && typeof p.docTranslations === 'object') state.docTranslations = p.docTranslations;
       if (p.docTranslationView && typeof p.docTranslationView === 'object') state.docTranslationView = p.docTranslationView;
+      if (p.docTranslationDir && typeof p.docTranslationDir === 'object') state.docTranslationDir = p.docTranslationDir;
       if (typeof p.lastFile === 'string') state.lastFile = p.lastFile;
       if (typeof p.lastOpenFromFavorites === 'boolean') state.lastOpenFromFavorites = p.lastOpenFromFavorites;
       if (p.scrollByFile && typeof p.scrollByFile === 'object') state.scrollByFile = p.scrollByFile;
@@ -819,6 +822,7 @@ function savePreferences() {
       translationsByFile: state.translationsByFile,
       docTranslations: state.docTranslations,
       docTranslationView: state.docTranslationView,
+      docTranslationDir: state.docTranslationDir,
       lastFile: state.lastFile,
       lastOpenFromFavorites: state.lastOpenFromFavorites,
       scrollByFile: state.scrollByFile,
@@ -2126,6 +2130,13 @@ function setupEditorEvents() {
       if (!text.trim() || !node || !els.previewContent.contains(node)) return;
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
+      // a selection made while reading the translation belongs to the original
+      // block, so the comment stays readable in both views
+      const mapped = mapTranslatedSelection(text);
+      if (mapped) {
+        showAIFloat(rect.right, rect.bottom + 4, { text: mapped.quote, start: mapped.start, end: mapped.end });
+        return;
+      }
       const idx = els.editor.value.indexOf(text);
       const unique = idx !== -1 && idx === els.editor.value.lastIndexOf(text);
       showAIFloat(rect.right, rect.bottom + 4, {
@@ -4548,6 +4559,18 @@ function setupDirection() {
   els.directionControl.addEventListener('click', (e) => {
     const btn = e.target.closest('.dir-btn');
     if (!btn) return;
+    // reading a translation: the buttons lay out the translated text, and the
+    // note keeps the direction the user chose for it
+    if (docTranslationActive()) {
+      const key = state.currentFile;
+      if (btn.dataset.dir === 'auto') delete state.docTranslationDir[key];
+      else state.docTranslationDir[key] = btn.dataset.dir;
+      syncDirectionButtons();
+      applyDirection();
+      savePreferences();
+      setStatus('Translation direction: ' + btn.dataset.dir.toUpperCase());
+      return;
+    }
     state.direction = btn.dataset.dir;
     if (state.currentFile) state.dirByFile[state.currentFile] = state.direction;
     syncDirectionButtons();
@@ -4558,8 +4581,12 @@ function setupDirection() {
 }
 
 function syncDirectionButtons() {
+  // while a translation is on screen the buttons describe it, not the note
+  const active = docTranslationActive()
+    ? state.docTranslationDir[state.currentFile] || 'auto'
+    : state.direction;
   els.directionControl.querySelectorAll('.dir-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.dir === state.direction);
+    btn.classList.toggle('active', btn.dataset.dir === active);
   });
 }
 
@@ -4604,7 +4631,8 @@ function applyDirection() {
   const translation = docTranslationActive() ? docTranslationFor() : null;
   let effective;
   if (translation) {
-    effective = directionOfLanguage(translation.to)
+    effective = state.docTranslationDir[state.currentFile]
+      || directionOfLanguage(translation.to)
       || detectDirection(String(translation.text || ''))
       || 'ltr';
   } else {
@@ -4615,6 +4643,7 @@ function applyDirection() {
   els.previewContent.setAttribute('dir', effective);
   applyBidiBlocks();
   applyQuestionDirection();
+  syncDirectionButtons();
 }
 
 // Languages written right-to-left, so a translation can be laid out correctly
@@ -5081,7 +5110,7 @@ $('deleteFileConfirm').addEventListener('click', async () => {
     if (state.dirByFile[path] !== undefined) { delete state.dirByFile[path]; savePreferences(); }
     if (state.commentsByFile[path] !== undefined) { delete state.commentsByFile[path]; savePreferences(); }
     if (state.translationsByFile[path] !== undefined) { delete state.translationsByFile[path]; savePreferences(); }
-    if (state.docTranslations[path] !== undefined) { delete state.docTranslations[path]; delete state.docTranslationView[path]; savePreferences(); }
+    if (state.docTranslations[path] !== undefined) { delete state.docTranslations[path]; delete state.docTranslationView[path]; delete state.docTranslationDir[path]; savePreferences(); }
     if (state.currentFile === path) {
       state.currentFile = null;
       state.dirty = false;
@@ -5218,6 +5247,10 @@ async function doRename() {
       if (state.docTranslationView[oldPath] !== undefined) {
         state.docTranslationView[newPath] = state.docTranslationView[oldPath];
         delete state.docTranslationView[oldPath];
+      }
+      if (state.docTranslationDir[oldPath] !== undefined) {
+        state.docTranslationDir[newPath] = state.docTranslationDir[oldPath];
+        delete state.docTranslationDir[oldPath];
       }
       savePreferences();
     }
@@ -5710,6 +5743,16 @@ function mdPlain(s) {
     .replace(/~~(.+?)~~/g, '$1');
 }
 
+// The text a markdown block shows in the preview: no heading hashes, list
+// bullets or quote markers, and its lines joined into one run of text.
+function blockPlainText(md) {
+  return String(md || '')
+    .split('\n')
+    .map((line) => mdPlain(line).replace(/^\s*(?:#{1,6}\s+|>\s?|(?:[-*+]|\d+[.)])\s+)/, '').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
 function previewFind(text, needle) {
   if (!needle) return null;
   const i = text.indexOf(needle);
@@ -5766,9 +5809,106 @@ function commentSearchParts(quote) {
   return parts;
 }
 
+// Top-level blocks of a note in the order the preview renders them: a heading,
+// a list item, a quote line or a paragraph is one block, a fenced code block is
+// one. A translation keeps the structure, so block n of the note is block n of
+// the translated text.
+function mdBlocks(text) {
+  const lines = String(text || '').split('\n');
+  const blocks = [];
+  let start = 0;
+  let offset = 0;
+  let current = '';
+  let fence = '';
+  const flush = () => {
+    if (current.trim()) blocks.push({ start, end: offset, text: current });
+    current = '';
+  };
+  for (const line of lines) {
+    const lineStart = offset;
+    offset += line.length + 1;
+    const t = line.trim();
+    if (fence) {
+      current += line + '\n';
+      if (t.startsWith(fence)) fence = '';
+      continue;
+    }
+    if (!t) { flush(); continue; }
+    if (/^(```|~~~)/.test(t)) {
+      flush();
+      start = lineStart;
+      current = line + '\n';
+      fence = t.slice(0, 3);
+      continue;
+    }
+    if (/^#{1,6}\s/.test(t) || /^([-*+]|\d+[.)])\s/.test(t) || /^>/.test(t)) {
+      flush();
+      start = lineStart;
+      current = line + '\n';
+      continue;
+    }
+    if (!current.trim()) start = lineStart;
+    current += line + '\n';
+  }
+  flush();
+  return blocks;
+}
+
+// A comment remembers the passage it was written on, in the note's language, so
+// the quote cannot be found in a translated document. The note and its
+// translation share their block order, so the same block is marked instead and
+// the comment stays readable in both views.
+function mapTranslatedSelection(text) {
+  const tr = docTranslationActive() ? docTranslationFor() : null;
+  if (!tr || !String(tr.text || '').trim()) return null;
+  const src = mdBlocks(els.editor.value);
+  const dst = mdBlocks(tr.text);
+  if (!src.length || src.length !== dst.length) return null;
+  const needle = mdPlain(text || '').trim();
+  if (needle.length < 2) return null;
+  const at = dst.findIndex((b) => mdPlain(b.text).includes(needle));
+  if (at < 0 || !src[at]) return null;
+  return {
+    quote: blockPlainText(src[at].text),
+    start: src[at].start,
+    end: src[at].end,
+  };
+}
+
+function decorateTranslatedComments(list) {
+  const tr = docTranslationFor();
+  if (!tr || !String(tr.text || '').trim()) return false;
+  const src = mdBlocks(els.editor.value);
+  const dst = mdBlocks(tr.text);
+  if (!src.length || src.length !== dst.length) return false;
+  let placed = 0;
+  for (const c of list) {
+    const at = Number(c.start);
+    let idx = Number.isFinite(at) ? src.findIndex((b) => at >= b.start && at < b.end) : -1;
+    if (idx < 0) {
+      const plain = mdPlain(c.quote || '').trim();
+      if (!plain) continue;
+      idx = src.findIndex((b) => mdPlain(b.text).includes(plain));
+    }
+    if (idx < 0 || !dst[idx]) continue;
+    // the block's own text, then its first line: a wrapped paragraph or a table
+    // cell may line up only on the smaller piece
+    const candidates = [blockPlainText(dst[idx].text), blockPlainText(dst[idx].text.split('\n')[0])]
+      .filter((s, i, arr) => s.length >= 2 && arr.indexOf(s) === i);
+    for (const candidate of candidates) {
+      const { text, items } = previewTextItems();
+      const found = previewFind(text, candidate);
+      if (found && wrapPreviewRange(c.id, found.index, found.length, items)) { placed++; break; }
+    }
+  }
+  return placed > 0;
+}
+
 function decoratePreviewComments() {
   const list = commentsFor(state.currentFile);
   if (!list.length) return;
+  // in translation view the quoted passage is in the other language
+  if (docTranslationActive() && decorateTranslatedComments(list)) return;
   for (const c of list) {
     if (!c.quote || !c.quote.trim()) continue;
     const { text, items } = previewTextItems();
