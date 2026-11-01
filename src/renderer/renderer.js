@@ -3622,22 +3622,19 @@ function answersFor(path = state.currentFile) {
 function answerAnchorContext() {
   for (const ctx of [aiThreadContext, aiContext]) {
     if (!ctx) continue;
-    // a selection made in the translation view points at the source block
+    // a selection made in the translation view carries the matching block of
+    // the note beside the translated words that were selected
     const anchor = ctx.anchor && String(ctx.anchor.text || '').trim() ? ctx.anchor : null;
-    if (anchor) {
-      return {
-        text: String(anchor.text).trim(),
-        start: anchor.start == null ? null : anchor.start,
-        end: anchor.end == null ? null : anchor.end,
-        previewAt: null,
-      };
-    }
     if (ctx.text && String(ctx.text).trim()) {
       return {
-        text: String(ctx.text).trim(),
+        quote: String(ctx.text).trim(),
         start: ctx.start == null ? null : ctx.start,
         end: ctx.end == null ? null : ctx.end,
         previewAt: ctx.previewAt == null ? null : ctx.previewAt,
+        anchorText: anchor ? String(anchor.text).trim() : '',
+        anchorStart: anchor && anchor.start != null ? anchor.start : null,
+        anchorEnd: anchor && anchor.end != null ? anchor.end : null,
+        fromTranslation: !!anchor,
       };
     }
   }
@@ -3650,7 +3647,7 @@ function saveAnswerToPassage(text, kind) {
   if (!body) { toast('Ask something first', 'info'); return; }
   const ctx = answerAnchorContext();
   if (!ctx) { toast(t('Select the passage first, then ask'), 'info'); return; }
-  const quote = ctx.text.slice(0, 600);
+  const quote = ctx.quote.slice(0, 600);
   const question = [...aiThread].reverse().find((turn) => turn.role === 'user');
   if (!Array.isArray(state.passageAnswers[state.currentFile])) state.passageAnswers[state.currentFile] = [];
   const list = state.passageAnswers[state.currentFile];
@@ -3659,6 +3656,12 @@ function saveAnswerToPassage(text, kind) {
     quote,
     start: ctx.start,
     end: ctx.end,
+    // a passage picked while reading the translation: the note-side block is
+    // what marks it in the note, the quote is what marks it in the translation
+    anchorText: ctx.anchorText || '',
+    anchorStart: ctx.anchorStart == null ? null : ctx.anchorStart,
+    anchorEnd: ctx.anchorEnd == null ? null : ctx.anchorEnd,
+    fromTranslation: !!ctx.fromTranslation,
     question: question ? String(question.text || '').slice(0, 400) : '',
     // where the passage sat in the preview when it was saved, so a phrase that
     // appears more than once is marked in the right place
@@ -3679,15 +3682,15 @@ function saveAnswerToPassage(text, kind) {
 // The occurrence of a saved passage that was actually selected: the one closest
 // to the remembered preview position, or inside the block the note offset points
 // at. Without this a phrase that appears twice would be marked in the first.
-function locateSavedPassage(text, needle, item) {
+function locateSavedPassage(text, needle, hints = {}) {
   const matches = previewMatches(text, needle);
   if (!matches.length) return previewFind(text, needle);
-  const hint = Number(item.previewAt);
+  const hint = Number(hints.previewAt);
   if (matches.length > 1 && Number.isFinite(hint)) {
     const best = matches.reduce((a, b) => (Math.abs(b - hint) < Math.abs(a - hint) ? b : a), matches[0]);
     return { index: best, length: needle.length };
   }
-  const start = Number(item.start);
+  const start = Number(hints.start);
   if (matches.length > 1 && Number.isFinite(start)) {
     const blocks = mdBlocks(els.editor.value);
     const at = blocks.findIndex((b) => start >= b.start && start < b.end);
@@ -3713,21 +3716,32 @@ function decoratePreviewAnswers() {
   const ordered = [...list].sort((a, b) => String(b.quote || '').length - String(a.quote || '').length);
   const seen = new Set();
   for (const item of ordered) {
-    const plain = mdPlain(item.quote || '').trim();
-    if (plain.length < 2) continue;
-    let needle = plain;
+    // An answer is marked on the words that were selected, in the view it was
+    // selected from; the other view falls back to the matching paragraph.
+    let needle = '';
+    let hints = { previewAt: item.previewAt, start: item.start };
     if (tr) {
-      // the quote is in the note's language: mark the same block of the translation
-      if (!mapped) continue;
-      const at = Number.isFinite(Number(item.start))
-        ? srcBlocks.findIndex((b) => Number(item.start) >= b.start && Number(item.start) < b.end)
-        : srcBlocks.findIndex((b) => blockPlainText(b.text).includes(plain));
-      if (at < 0 || !dstBlocks[at]) continue;
-      needle = blockPlainText(dstBlocks[at].text);
+      if (item.fromTranslation) {
+        needle = mdPlain(item.quote || '').trim();
+      } else {
+        // saved from the note: mark the same block of the translation
+        if (!mapped) continue;
+        const at = Number.isFinite(Number(item.start))
+          ? srcBlocks.findIndex((b) => Number(item.start) >= b.start && Number(item.start) < b.end)
+          : srcBlocks.findIndex((b) => blockPlainText(b.text).includes(mdPlain(item.quote || '').trim()));
+        needle = at >= 0 && dstBlocks[at] ? blockPlainText(dstBlocks[at].text) : '';
+      }
+    } else if (item.fromTranslation) {
+      // saved from the translation: the note holds the matching passage instead
+      needle = blockPlainText(item.anchorText || '');
+      hints = { previewAt: null, start: item.anchorStart };
+      if (needle.length < 2) needle = mdPlain(item.quote || '').trim();
+    } else {
+      needle = mdPlain(item.quote || '').trim();
     }
     if (needle.length < 2 || seen.has(needle)) continue;
     const { text, items } = previewTextItems();
-    const found = tr ? previewFind(text, needle) : locateSavedPassage(text, needle, item);
+    const found = tr && !item.fromTranslation ? previewFind(text, needle) : locateSavedPassage(text, needle, hints);
     if (found) {
       seen.add(needle);
       wrapPreviewRange(item.id, found.index, found.length, items, { className: 'ans-mark', dataKey: 'ans' });
