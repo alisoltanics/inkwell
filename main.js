@@ -707,10 +707,12 @@ ipcMain.handle('shell:openExternal', async (event, url) => ({ success: openExter
 
 /* ================= READ ALOUD (text to speech) ================= */
 // The audio lives next to the vault (hidden .inkwell/audio) so the same note
-// always plays the same file and the sound survives a restart. 4,000 characters
-// is also the per-request limit of the speech API, so the AI voice never has to
-// be stitched together from chunks.
-const TTS_MAX_CHARS = 4000;
+// always plays the same file and the sound survives a restart. Any note can be
+// read: the system engines take the whole text, and the speech API is called in
+// sentence-sized chunks. The cap only stops a runaway file (a whole book).
+const TTS_MAX_CHARS = 200000;
+// one speech request carries at most ~4,096 characters
+const TTS_API_CHUNK = 3800;
 
 function ttsDir() {
   if (!NOTES_DIR) throw new Error('No vault is open');
@@ -875,6 +877,27 @@ async function systemTtsToFile(text, outFile, tempText, language) {
   return { ok: false, error: 'no system voice' };
 }
 
+// The speech API takes about 4,000 characters per request, so a long note is
+// split on sentence ends and the parts are joined back into one file.
+function ttsChunks(text, limit = TTS_API_CHUNK) {
+  const body = String(text || '').replace(/\s+/g, ' ').trim();
+  const parts = [];
+  let rest = body;
+  while (rest.length > limit) {
+    let cut = -1;
+    for (const mark of ['. ', '! ', '? ', '\u061F ', '\u06D4 ', '\n']) {
+      const at = rest.lastIndexOf(mark, limit);
+      if (at > cut) cut = at;
+    }
+    if (cut < limit * 0.4) cut = rest.lastIndexOf(' ', limit);
+    if (cut < limit * 0.4) cut = limit;
+    parts.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1).trim();
+  }
+  if (rest) parts.push(rest);
+  return parts.filter(Boolean);
+}
+
 async function apiTtsToFile(text, outFile) {
   const saved = storedAIKeys().tts || {};
   const key = apiProviderKey({ id: 'tts', apiKey: saved.apiKey, apiKeyEnv: saved.apiKeyEnv || 'OPENAI_API_KEY' });
@@ -882,19 +905,24 @@ async function apiTtsToFile(text, outFile) {
   const base = normalizeApiBase(saved.baseUrl) || 'https://api.openai.com/v1';
   // the HD model is the one that sounds like a person reading
   const model = String(saved.model || '').trim() || 'gpt-4o-mini-tts';
-  const res = await fetch(base + '/audio/speech', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, voice: saved.voice || 'alloy', input: String(text || ''), response_format: 'mp3' }),
-  });
-  if (!res.ok) {
-    let detail = '';
-    try { const data = await res.json(); detail = (data && data.error && data.error.message) || ''; } catch (_) {}
-    return { ok: false, error: detail || `HTTP ${res.status}` };
+  const chunks = ttsChunks(text);
+  if (!chunks.length) return { ok: false, error: 'There is no text to read' };
+  const buffers = [];
+  for (const chunk of chunks) {
+    const res = await fetch(base + '/audio/speech', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, voice: saved.voice || 'alloy', input: chunk, response_format: 'mp3' }),
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { const data = await res.json(); detail = (data && data.error && data.error.message) || ''; } catch (_) {}
+      return { ok: false, error: detail || `HTTP ${res.status}` };
+    }
+    buffers.push(Buffer.from(await res.arrayBuffer()));
   }
-  const buffer = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(outFile, buffer);
-  return { ok: fs.existsSync(outFile), engine: 'openai' };
+  fs.writeFileSync(outFile, buffers.length === 1 ? buffers[0] : Buffer.concat(buffers));
+  return { ok: fs.existsSync(outFile), engine: 'openai', chunks: chunks.length };
 }
 
 function commandOnPath(bin) {

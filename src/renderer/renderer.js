@@ -3349,7 +3349,6 @@ if (els.telegramBtn) els.telegramBtn.addEventListener('click', sendDocToTelegram
 // The recording of a note lives in <vault>/.inkwell/audio, so it survives a
 // restart and replays without asking the voice engine again. The button only
 // appears for notes that fit in one request.
-const TTS_MAX_CHARS = 4000;
 const ttsState = { file: '', url: '', busy: false, mode: '', utter: null, liveStarted: 0, liveTimer: 0 };
 
 // What the voice says: the document without its Markdown machinery.
@@ -3370,18 +3369,18 @@ function speechTextOf(source) {
   return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Any note can be read: a short one is one request, a long one is chunked by the
+// speech API (or taken whole by the system voice).
 function readAloudText() {
   if (!state.currentFile) return '';
-  const text = speechTextOf(documentTextForAI());
-  if (!text || text.length > TTS_MAX_CHARS) return '';
-  return text;
+  return speechTextOf(documentTextForAI());
 }
 
 function updateTtsButton() {
   if (!els.ttsBtn) return;
   const text = readAloudText();
   els.ttsBtn.classList.toggle('hidden', !text);
-  els.ttsBtn.title = text ? 'Read this document aloud' : 'This document is too long to read aloud';
+  els.ttsBtn.title = text ? 'Read this document aloud' : 'This document has no text to read';
 }
 
 let ttsButtonTimer = 0;
@@ -3589,6 +3588,7 @@ async function ensureReadAloud(force) {
   }
   ttsState.busy = true;
   if (els.ttsPlay) els.ttsPlay.disabled = true;
+  if (els.ttsBtn) els.ttsBtn.classList.add('busy');
   setTtsStatus(t('Preparing audio…'));
   try {
     const res = await window.inkwell.ttsGenerate({ path: state.currentFile, text, force: !!force });
@@ -3626,6 +3626,7 @@ async function ensureReadAloud(force) {
   } finally {
     ttsState.busy = false;
     if (els.ttsPlay) els.ttsPlay.disabled = false;
+    if (els.ttsBtn) els.ttsBtn.classList.remove('busy');
     // the voice that was found (or missed) is what the settings section shows
     updateTtsSettingsBadge();
   }
@@ -3633,7 +3634,7 @@ async function ensureReadAloud(force) {
 
 async function startReadAloud(force) {
   if (!state.currentFile) { toast('Open a file first', 'info'); return; }
-  if (!readAloudText()) { toast('This document is too long to read aloud', 'info'); return; }
+  if (!readAloudText()) { toast('This document has no text to read', 'info'); return; }
   if (els.ttsBar) els.ttsBar.classList.remove('hidden');
   if (els.ttsTitle) els.ttsTitle.textContent = t('Read aloud');
   if (els.ttsSpeed && state.ttsSpeed && Number(state.ttsSpeed) > 0) els.ttsSpeed.value = String(state.ttsSpeed);
