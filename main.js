@@ -807,6 +807,32 @@ async function apiTtsToFile(text, outFile) {
   return { ok: fs.existsSync(outFile), engine: 'openai' };
 }
 
+// Which voice the app can use right now: a system engine that writes a file, an
+// AI voice with a saved key, or neither (the renderer then speaks offline).
+async function systemVoiceAvailable() {
+  if (process.platform === 'darwin') return (await runCommand('say', ['-v', '?'])).ok;
+  if (process.platform === 'win32') {
+    return (await runCommand('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])).ok;
+  }
+  for (const bin of ['espeak-ng', 'espeak']) {
+    if ((await runCommand(bin, ['--version'])).ok) return bin;
+  }
+  return false;
+}
+
+ipcMain.handle('tts:status', async () => {
+  const system = await systemVoiceAvailable();
+  const saved = storedAIKeys().tts || {};
+  const hasKey = !!apiProviderKey({ id: 'tts', apiKey: saved.apiKey, apiKeyEnv: saved.apiKeyEnv || 'OPENAI_API_KEY' });
+  return {
+    ok: true,
+    system: !!system,
+    engine: typeof system === 'string' ? system : (system ? 'system' : ''),
+    api: hasKey,
+    platform: process.platform,
+  };
+});
+
 ipcMain.handle('tts:generate', async (event, payload) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkwell-tts-'));
   try {
@@ -849,6 +875,56 @@ ipcMain.handle('tts:generate', async (event, payload) => {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   }
 });
+
+// The last resort, when nothing can write an audio file: hand the text to the
+// operating system's own speaker. Nothing is saved, but the note is read aloud.
+ipcMain.handle('tts:speak', async (event, payload) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkwell-say-'));
+  try {
+    const text = String((payload && payload.text) || '').trim();
+    if (!text) throw new Error('There is no text to read');
+    const lang = String((payload && payload.lang) || ttsLanguage(text));
+    if (process.platform === 'win32') {
+      const file = path.join(tempDir, 'speech.txt');
+      fs.writeFileSync(file, text, 'utf8');
+      const script = [
+        'Add-Type -AssemblyName System.Speech;',
+        '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
+        `$s.Speak([System.IO.File]::ReadAllText('${file.replace(/'/g, "''")}'));`,
+      ].join(' ');
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, detached: true, stdio: 'ignore' });
+      child.unref();
+      return { ok: true, engine: 'sapi' };
+    }
+    if (process.platform === 'darwin') {
+      const file = path.join(tempDir, 'speech.txt');
+      fs.writeFileSync(file, text, 'utf8');
+      const child = spawn('say', ['-f', file], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return { ok: true, engine: 'say' };
+    }
+    // speech-dispatcher: speaks without writing a file
+    const child = spawn('spd-say', ['-l', lang, text], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return { ok: true, engine: 'spd-say' };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    // the child already read the file by the time it matters; clean up later
+    setTimeout(() => { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {} }, 15000);
+  }
+});
+
+ipcMain.handle('tts:cancel', async () => {
+  try {
+    if (process.platform === 'linux') await runCommand('spd-say', ['-C']);
+    else if (process.platform === 'darwin') await runCommand('killall', ['say']);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 
 // The renderer plays the file from a Blob, so the audio never needs a file://
 // permission and the vault path stays in the main process.

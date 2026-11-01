@@ -779,7 +779,12 @@
                     </section>
                     <section class="settings-pane" data-settings-pane="ai">
                         <h4>AI Assistant</h4>
-                        <p class="settings-desc">Choose which CLI to use for Ask AI. The command must be installed and available on your PATH.</p>
+                        <p class="settings-desc">Ask AI talks to a command-line client installed on this computer, or to an HTTP API you configure with a key. The key stays on this device.</p>
+                        <div class="settings-group">
+                            <div class="settings-group-head">
+                                <h5>Model</h5>
+                                <span class="settings-badge" id="settingsAiModeBadge">CLI</span>
+                            </div>
                         <div class="settings-row">
                             <div class="settings-field">
                                 <label for="settingsAiProvider">Provider</label>
@@ -798,14 +803,28 @@
                             <input type="text" id="settingsAiBaseUrl" placeholder="https://api.deepseek.com/v1" spellcheck="false">
                             <p class="settings-desc">Stored on this device. Inkwell calls the provider directly, so no CLI is needed.</p>
                         </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-group-head">
+                                <h5>Read aloud</h5>
+                                <span class="settings-badge" id="settingsTtsBadge">Offline voice</span>
+                            </div>
+                            <p class="settings-desc" id="settingsTtsHint">Inkwell reads a note with the system voice and saves the audio in the vault. Without a system voice it still reads offline — without saving.</p>
                         <div class="settings-field">
                             <label for="settingsTtsKey">Read aloud — AI voice key <span class="settings-opt">optional</span></label>
                             <input type="password" id="settingsTtsKey" placeholder="sk-… (OpenAI)" autocomplete="off" spellcheck="false">
                             <label for="settingsTtsBaseUrl" style="margin-top:10px;">Base URL</label>
                             <input type="text" id="settingsTtsBaseUrl" placeholder="https://api.openai.com/v1" spellcheck="false">
-                            <p class="settings-desc">The system voice (espeak-ng, say, SAPI) is used first and needs no key. This key is only used when no system voice can save audio. Stored on this device.</p>
+                            <p class="settings-desc">The system voice is free and needs no key; these two fields only make the AI voice available.</p>
                             <button type="button" class="btn-ghost" id="settingsTtsSave" style="margin-top:10px;">Save voice settings</button>
                         </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-group-head">
+                                <h5>Responses</h5>
+                            </div>
                         <div class="settings-field">
                             <label for="settingsAiResponseLanguage">Response language</label>
                             <select id="settingsAiResponseLanguage">
@@ -827,12 +846,25 @@
                             <input type="text" id="settingsAiResponseLanguageCustom" class="hidden" placeholder="Enter a language name" autocomplete="off" spellcheck="false">
                             <p class="settings-desc settings-language-hint">Used for responses from all AI actions. Exact source text and code stay unchanged in document edits.</p>
                         </div>
-                        <div class="settings-field">
-                            <label for="settingsAiPrompts">Quick prompts <span class="settings-opt">one per line</span></label>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-group-head">
+                                <h5>Quick prompts</h5>
+                                <span class="settings-opt">one per line</span>
+                            </div>
+                            <div class="settings-field">
+                                <label class="sr-only" for="settingsAiPrompts">Quick prompts</label>
                             <textarea id="settingsAiPrompts" rows="6" placeholder="Explain this&#10;Translate to Persian&#10;Summarize this" spellcheck="false"></textarea>
                         </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <div class="settings-group-head">
+                                <h5>Custom providers</h5>
+                            </div>
                         <div class="settings-field">
-                            <label>Custom providers</label>
+                            <label class="sr-only">Custom providers</label>
                             <div class="ai-providers-list" id="aiProvidersList"></div>
                             <button class="btn-secondary" id="aiProviderAdd" type="button" style="margin-top:6px;">Add custom provider</button>
                             <form class="ai-provider-form hidden" id="aiProviderForm" autocomplete="off">
@@ -860,8 +892,9 @@
                                 </div>
                             </form>
                         </div>
-                        <p class="modal-hint">The provider CLI must be installed and signed in. Models are passed with each provider's native flag.</p>
-                        <div class="settings-actions">
+                        </div>
+                        <div class="settings-actions settings-actions-sticky">
+                            <p class="modal-hint">The provider CLI must be installed and signed in. Models are passed with each provider's native flag.</p>
                             <button class="btn-primary" id="settingsAiSave" type="button">Save AI settings</button>
                         </div>
                     </section>

@@ -42,7 +42,7 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 
 - A speaker button appears in the header for notes whose text stays under 4,000 characters. One click records the note and starts playing it; the audio is stored in the hidden `.inkwell/audio` folder inside the vault, so it is still there after a restart and plays again without asking the voice engine.
 - The player has play/pause, a position slider, playback speed from 0.75× to 2× (remembered), Regenerate to record the current text again, and Close. Editing the note makes a new recording the next time, and the previous recording of that note is removed.
-- The system voice is used first — `espeak-ng` on Linux, `say` on macOS, SAPI on Windows — so it works offline and free. When no system voice can write audio, Inkwell calls an OpenAI-compatible speech API instead: paste a key under Settings → AI → *Read aloud — AI voice key* (or set `OPENAI_API_KEY`). Code blocks are skipped and Markdown marks are not read out loud.
+- The system voice is used first — `espeak-ng` on Linux, `say` on macOS, SAPI on Windows — so it works offline and free. When no system voice can write audio, Inkwell calls an OpenAI-compatible speech API instead: paste a key under Settings → AI → *Read aloud — AI voice key* (or set `OPENAI_API_KEY`). With no key either, the note is still read aloud by the operating system's own speaker (speech-dispatcher, `say`, SAPI); that voice is not saved. Code blocks are skipped and Markdown marks are not read out loud.
 
 ### Ask AI
 

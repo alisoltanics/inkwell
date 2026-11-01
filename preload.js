@@ -35,6 +35,10 @@ contextBridge.exposeInMainWorld('inkwell', {
   // read aloud: build (or reuse) the note's audio file and stream it back
   ttsGenerate: (payload) => ipcRenderer.invoke('tts:generate', payload),
   ttsRead: (payload) => ipcRenderer.invoke('tts:read', payload),
+  ttsStatus: () => ipcRenderer.invoke('tts:status'),
+  // speak through the system speaker when no audio file can be produced
+  ttsSpeak: (payload) => ipcRenderer.invoke('tts:speak', payload),
+  ttsCancel: () => ipcRenderer.invoke('tts:cancel'),
   // window chrome (frameless) controls
   minimize: () => ipcRenderer.invoke('win:minimize'),
   toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),

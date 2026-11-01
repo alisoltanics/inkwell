@@ -342,6 +342,9 @@ const els = {
   settingsTtsKey: $('settingsTtsKey'),
   settingsTtsBaseUrl: $('settingsTtsBaseUrl'),
   settingsTtsSave: $('settingsTtsSave'),
+  settingsTtsBadge: $('settingsTtsBadge'),
+  settingsTtsHint: $('settingsTtsHint'),
+  settingsAiModeBadge: $('settingsAiModeBadge'),
   findBar: $('findBar'),
   findInput: $('findInput'),
   findCount: $('findCount'),
@@ -3346,7 +3349,7 @@ if (els.telegramBtn) els.telegramBtn.addEventListener('click', sendDocToTelegram
 // restart and replays without asking the voice engine again. The button only
 // appears for notes that fit in one request.
 const TTS_MAX_CHARS = 4000;
-const ttsState = { file: '', url: '', busy: false };
+const ttsState = { file: '', url: '', busy: false, mode: '', utter: null, liveStarted: 0, liveTimer: 0 };
 
 // What the voice says: the document without its Markdown machinery.
 function speechTextOf(source) {
@@ -3396,8 +3399,11 @@ function setTtsStatus(message) {
 }
 
 function syncTtsPlayIcon() {
-  const audio = els.ttsAudio;
-  const playing = !!audio && !audio.paused && !audio.ended;
+  const synth = ttsSynth();
+  const live = ttsState.mode === 'live' && !!synth && synth.speaking && !synth.paused;
+  const os = ttsState.mode === 'os' && ttsState.osPlaying === true;
+  const file = ttsState.mode === 'file' && !!els.ttsAudio && !els.ttsAudio.paused && !els.ttsAudio.ended;
+  const playing = live || os || file;
   if (!els.ttsPlay) return;
   const play = els.ttsPlay.querySelector('.tts-icon-play');
   const pause = els.ttsPlay.querySelector('.tts-icon-pause');
@@ -3407,7 +3413,119 @@ function syncTtsPlayIcon() {
   els.ttsPlay.setAttribute('aria-label', els.ttsPlay.title);
 }
 
+function ttsSynth() {
+  return window.speechSynthesis && typeof SpeechSynthesisUtterance === 'function'
+    ? window.speechSynthesis
+    : null;
+}
+
+// The voice of the operating system, through the browser. It cannot be saved,
+// but it needs no key and no installed engine, so read aloud never dead-ends.
+function offlineVoiceFor(text) {
+  const synth = ttsSynth();
+  if (!synth) return null;
+  const voices = synth.getVoices() || [];
+  if (!voices.length) return null;
+  const source = String(text || '');
+  const want = /[\u0600-\u06FF]/.test(source) ? (/[\u067E\u0686\u0698\u06AF\u06A9]/.test(source) ? 'fa' : 'ar') : 'en';
+  return voices.find((voice) => (voice.lang || '').toLowerCase().startsWith(want))
+    || voices.find((voice) => voice.default)
+    || voices[0];
+}
+
+// Two ways to speak without a saved file: the browser voice (pausable, uses a
+// system voice through speech-dispatcher) and, if that has no voices, the
+// operating system's own speaker. Neither needs a key.
+function ttsLangOf(text) {
+  const source = String(text || '');
+  if (/[\u0600-\u06FF]/.test(source)) return /[\u067E\u0686\u0698\u06AF\u06A9]/.test(source) ? 'fa' : 'ar';
+  return 'en';
+}
+
+async function speakOffline(text) {
+  const body = String(text || '').trim();
+  if (!body) return false;
+  if (speakWithSynth(body)) return true;
+  return speakWithSystemVoice(body);
+}
+
+function speakWithSynth(body) {
+  const synth = ttsSynth();
+  if (!synth || !(synth.getVoices() || []).length) return false;
+  try { synth.cancel(); } catch (_) {}
+  const utter = new SpeechSynthesisUtterance(body);
+  const voice = offlineVoiceFor(body);
+  if (voice) {
+    utter.voice = voice;
+    utter.lang = voice.lang;
+  }
+  utter.rate = parseFloat((els.ttsSpeed && els.ttsSpeed.value) || '1');
+  ttsState.mode = 'live';
+  ttsState.utter = utter;
+  clearInterval(ttsState.liveTimer);
+  utter.onstart = () => {
+    ttsState.liveStarted = Date.now();
+    clearInterval(ttsState.liveTimer);
+    ttsState.liveTimer = setInterval(() => {
+      if (els.ttsTime) els.ttsTime.textContent = ttsClock((Date.now() - ttsState.liveStarted) / 1000);
+    }, 500);
+    syncTtsPlayIcon();
+  };
+  const finish = () => {
+    clearInterval(ttsState.liveTimer);
+    ttsState.liveTimer = 0;
+    syncTtsPlayIcon();
+  };
+  utter.onend = finish;
+  utter.onerror = finish;
+  synth.speak(utter);
+  updateTtsBarMode();
+  setTtsStatus(t('Offline voice (not saved)'));
+  syncTtsPlayIcon();
+  return true;
+}
+
+async function speakWithSystemVoice(body) {
+  try {
+    const res = await window.inkwell.ttsSpeak({ text: body, lang: ttsLangOf(body) });
+    if (!res || !res.ok) return false;
+    ttsState.mode = 'os';
+    ttsState.osPlaying = true;
+    updateTtsBarMode();
+    setTtsStatus(t('System voice (not saved)'));
+    syncTtsPlayIcon();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function stopSystemVoice() {
+  ttsState.osPlaying = false;
+  try { await window.inkwell.ttsCancel(); } catch (_) {}
+  syncTtsPlayIcon();
+}
+
+// A saved recording has a position and a length; a voice that only speaks has
+// neither, so the slider makes way for the elapsed time.
+function updateTtsBarMode() {
+  const live = ttsState.mode === 'live' || ttsState.mode === 'os';
+  if (els.ttsSeek) els.ttsSeek.classList.toggle('hidden', live);
+  if (els.ttsDuration) els.ttsDuration.classList.toggle('hidden', live);
+  if (els.ttsRegenerate) els.ttsRegenerate.classList.toggle('hidden', live);
+  if (els.ttsTime) els.ttsTime.textContent = '0:00';
+}
+
 function stopReadAloud() {
+  const synth = ttsSynth();
+  if (synth) { try { synth.cancel(); } catch (_) {} }
+  if (ttsState.mode === 'os' || ttsState.osPlaying) {
+    ttsState.osPlaying = false;
+    try { window.inkwell.ttsCancel(); } catch (_) {}
+  }
+  clearInterval(ttsState.liveTimer);
+  ttsState.liveTimer = 0;
+  ttsState.utter = null;
   if (els.ttsAudio) {
     try { els.ttsAudio.pause(); } catch (_) {}
     els.ttsAudio.removeAttribute('src');
@@ -3416,9 +3534,11 @@ function stopReadAloud() {
   if (ttsState.url) URL.revokeObjectURL(ttsState.url);
   ttsState.url = '';
   ttsState.file = '';
+  ttsState.mode = '';
   if (els.ttsSeek) els.ttsSeek.value = '0';
   if (els.ttsTime) els.ttsTime.textContent = '0:00';
   if (els.ttsDuration) els.ttsDuration.textContent = '0:00';
+  updateTtsBarMode();
   syncTtsPlayIcon();
 }
 
@@ -3441,8 +3561,13 @@ async function ensureReadAloud(force) {
   try {
     const res = await window.inkwell.ttsGenerate({ path: state.currentFile, text, force: !!force });
     if (!res || !res.ok) {
+      // no voice that can save audio: speak with the offline voice instead of
+      // leaving the user with an error and no sound
+      ttsState.busy = false;
+      if (els.ttsPlay) els.ttsPlay.disabled = false;
+      if (await speakOffline(text)) return true;
       const why = res && res.error === 'no-engine'
-        ? 'No voice is available: install espeak-ng, or save an OpenAI key in Settings → AI.'
+        ? 'No voice is available on this system.'
         : (res && res.error) || 'unknown error';
       setTtsStatus(why);
       toast('Read aloud failed: ' + why, 'error', 6000);
@@ -3457,8 +3582,10 @@ async function ensureReadAloud(force) {
     if (ttsState.url) URL.revokeObjectURL(ttsState.url);
     ttsState.url = URL.createObjectURL(new Blob([bytes], { type: read.mime }));
     ttsState.file = res.file;
+    ttsState.mode = 'file';
     els.ttsAudio.src = ttsState.url;
     els.ttsAudio.playbackRate = parseFloat((els.ttsSpeed && els.ttsSpeed.value) || '1');
+    updateTtsBarMode();
     setTtsStatus(res.cached ? '' : (res.engine === 'openai' ? 'AI voice' : 'System voice'));
     return true;
   } catch (_) {
@@ -3467,6 +3594,8 @@ async function ensureReadAloud(force) {
   } finally {
     ttsState.busy = false;
     if (els.ttsPlay) els.ttsPlay.disabled = false;
+    // the voice that was found (or missed) is what the settings section shows
+    updateTtsSettingsBadge();
   }
 }
 
@@ -3478,6 +3607,10 @@ async function startReadAloud(force) {
   if (els.ttsSpeed && state.ttsSpeed && Number(state.ttsSpeed) > 0) els.ttsSpeed.value = String(state.ttsSpeed);
   const ready = await ensureReadAloud(!!force);
   if (!ready) return;
+  if (ttsState.mode === 'live') {
+    syncTtsPlayIcon();
+    return;
+  }
   try { await els.ttsAudio.play(); } catch (_) {}
   syncTtsPlayIcon();
 }
@@ -3486,6 +3619,20 @@ if (els.ttsBtn) els.ttsBtn.addEventListener('click', () => startReadAloud(false)
 if (els.editor) els.editor.addEventListener('input', scheduleTtsButton);
 if (els.ttsPlay) {
   els.ttsPlay.addEventListener('click', async () => {
+    if (ttsState.mode === 'os') {
+      if (ttsState.osPlaying) await stopSystemVoice();
+      else await speakWithSystemVoice(readAloudText());
+      return;
+    }
+    if (ttsState.mode === 'live') {
+      const synth = ttsSynth();
+      if (!synth) { startReadAloud(false); return; }
+      if (synth.paused) synth.resume();
+      else if (synth.speaking) synth.pause();
+      else speakWithSynth(readAloudText());
+      syncTtsPlayIcon();
+      return;
+    }
     const audio = els.ttsAudio;
     if (!audio || !ttsState.url) { startReadAloud(false); return; }
     if (audio.paused || audio.ended) {
@@ -3542,6 +3689,28 @@ function loadTtsSettings() {
     );
   }
   if (els.settingsTtsBaseUrl) els.settingsTtsBaseUrl.value = status.baseUrl || '';
+  updateTtsSettingsBadge();
+}
+
+// What read aloud will actually do on this machine, said in one line.
+async function updateTtsSettingsBadge() {
+  let voice = null;
+  try { voice = await window.inkwell.ttsStatus(); } catch (_) { voice = null; }
+  const badge = els.settingsTtsBadge;
+  const hint = els.settingsTtsHint;
+  const system = !!(voice && voice.ok && voice.system);
+  const api = !!(voice && voice.ok && voice.api);
+  if (badge) {
+    badge.textContent = system ? `System voice${voice.engine && voice.engine !== 'system' ? ' · ' + voice.engine : ''}`
+      : api ? 'AI voice' : 'Offline voice';
+    badge.classList.toggle('is-muted', !system && !api);
+  }
+  if (!hint) return;
+  hint.textContent = system
+    ? 'A system voice records the note and the audio is saved in the vault, so it can be played again later.'
+    : api
+      ? 'No system voice was found, so the AI voice records the note. The audio is saved in the vault.'
+      : 'No system voice and no key: notes are read with the offline voice and nothing is saved.';
 }
 
 if (els.settingsTtsSave) {
@@ -5185,8 +5354,12 @@ function populateSettingsAIProviderSelect(providers) {
 // Only providers that speak HTTP need a key and a base URL in the settings.
 function syncAIApiFields(providerId) {
   const box = els.settingsAiApiFields;
-  if (!box) return;
   const api = isApiProvider(providerId);
+  // the badge tells at a glance what this provider needs: a CLI or a key
+  if (els.settingsAiModeBadge) {
+    els.settingsAiModeBadge.textContent = api ? 'HTTP API' : 'CLI';
+  }
+  if (!box) return;
   box.classList.toggle('hidden', !api);
   if (!api) return;
   const cfg = getAIProviderById(providerId) || {};
