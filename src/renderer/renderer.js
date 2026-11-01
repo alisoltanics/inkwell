@@ -246,6 +246,8 @@ let state = {
   saveAnswerKind: 'answer',
   aiDockW: 400,
   aiDockH: 380,
+  // reading speed for the read-aloud player (1× by default)
+  ttsSpeed: 1,
   aiPrompts: ['Explain this', 'Translate to Persian', 'Explain this in Persian', 'Summarize this', 'What is this?'],
   commentsByFile: {},
   lastFile: null,
@@ -325,6 +327,21 @@ const els = {
   exportBtn: $('exportBtn'),
   printBtn: $('printBtn'),
   telegramBtn: $('telegramBtn'),
+  ttsBtn: $('ttsBtn'),
+  ttsBar: $('ttsBar'),
+  ttsPlay: $('ttsPlay'),
+  ttsTitle: $('ttsTitle'),
+  ttsTime: $('ttsTime'),
+  ttsSeek: $('ttsSeek'),
+  ttsDuration: $('ttsDuration'),
+  ttsSpeed: $('ttsSpeed'),
+  ttsStatus: $('ttsStatus'),
+  ttsRegenerate: $('ttsRegenerate'),
+  ttsClose: $('ttsClose'),
+  ttsAudio: $('ttsAudio'),
+  settingsTtsKey: $('settingsTtsKey'),
+  settingsTtsBaseUrl: $('settingsTtsBaseUrl'),
+  settingsTtsSave: $('settingsTtsSave'),
   findBar: $('findBar'),
   findInput: $('findInput'),
   findCount: $('findCount'),
@@ -712,6 +729,7 @@ function loadPreferences() {
       // the bottom dock used to default to 280px, which is too short for the
       // current layout (context, composer, actions and the answer)
       if (typeof p.aiDockH === 'number') state.aiDockH = p.aiDockH <= 280 ? 380 : p.aiDockH;
+      if (typeof p.ttsSpeed === 'number' && p.ttsSpeed > 0) state.ttsSpeed = p.ttsSpeed;
       if (Array.isArray(p.aiPrompts)) state.aiPrompts = p.aiPrompts.filter((s) => typeof s === 'string');
       if (Array.isArray(p.externalFiles)) {
         state.externalFiles = p.externalFiles
@@ -771,6 +789,7 @@ function savePreferences() {
       cursorByFile: state.cursorByFile,
       aiProviders: state.aiProviders,
       apiPresetsSeeded: state.apiPresetsSeeded === true,
+      ttsSpeed: state.ttsSpeed,
     }));
   } catch (_) {}
 }
@@ -1919,6 +1938,9 @@ async function selectFile(path, options = {}) {
     renderPreview();
     renderEditorHighlight();
     updateDocAiBar();
+    // a recording belongs to the note that was open when it was made
+    resetReadAloud();
+    updateTtsButton();
     updateCommentsBadge();
     if (isHtmlFile || isDocx) {
       els.viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
@@ -3318,6 +3340,229 @@ async function printDoc() {
 els.exportBtn.addEventListener('click', exportHTML);
 if (els.printBtn) els.printBtn.addEventListener('click', printDoc);
 if (els.telegramBtn) els.telegramBtn.addEventListener('click', sendDocToTelegram);
+
+/* ============ READ ALOUD (text to speech) ============ */
+// The recording of a note lives in <vault>/.inkwell/audio, so it survives a
+// restart and replays without asking the voice engine again. The button only
+// appears for notes that fit in one request.
+const TTS_MAX_CHARS = 4000;
+const ttsState = { file: '', url: '', busy: false };
+
+// What the voice says: the document without its Markdown machinery.
+function speechTextOf(source) {
+  let text = String(source || '').replace(/\r\n?/g, '\n');
+  text = text.replace(/```[\s\S]*?```/g, ' ');
+  text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+  text = text.replace(/^\s*\|?[\s:|-]{3,}\|?\s*$/gm, '');
+  text = text.replace(/^\s*\|(.*)\|\s*$/gm, (whole, row) => ' ' + String(row).replace(/\|/g, ' '));
+  text = text.replace(/^\s{0,3}#{1,6}\s+/gm, '');
+  text = text.replace(/^\s{0,3}>\s?/gm, '');
+  text = text.replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, '');
+  text = text.replace(/^\s*[-*+]\s+/gm, '');
+  text = text.replace(/^\s*\d+[.)]\s+/gm, '');
+  text = text.replace(/^[-*_]{3,}\s*$/gm, '');
+  text = text.replace(/[*_~`]+/g, '');
+  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function readAloudText() {
+  if (!state.currentFile) return '';
+  const text = speechTextOf(documentTextForAI());
+  if (!text || text.length > TTS_MAX_CHARS) return '';
+  return text;
+}
+
+function updateTtsButton() {
+  if (!els.ttsBtn) return;
+  const text = readAloudText();
+  els.ttsBtn.classList.toggle('hidden', !text);
+  els.ttsBtn.title = text ? 'Read this document aloud' : 'This document is too long to read aloud';
+}
+
+let ttsButtonTimer = 0;
+function scheduleTtsButton() {
+  clearTimeout(ttsButtonTimer);
+  ttsButtonTimer = setTimeout(updateTtsButton, 400);
+}
+
+function ttsClock(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function setTtsStatus(message) {
+  if (els.ttsStatus) els.ttsStatus.textContent = message || '';
+}
+
+function syncTtsPlayIcon() {
+  const audio = els.ttsAudio;
+  const playing = !!audio && !audio.paused && !audio.ended;
+  if (!els.ttsPlay) return;
+  const play = els.ttsPlay.querySelector('.tts-icon-play');
+  const pause = els.ttsPlay.querySelector('.tts-icon-pause');
+  if (play) play.classList.toggle('hidden', playing);
+  if (pause) pause.classList.toggle('hidden', !playing);
+  els.ttsPlay.title = playing ? 'Pause' : 'Play';
+  els.ttsPlay.setAttribute('aria-label', els.ttsPlay.title);
+}
+
+function stopReadAloud() {
+  if (els.ttsAudio) {
+    try { els.ttsAudio.pause(); } catch (_) {}
+    els.ttsAudio.removeAttribute('src');
+    els.ttsAudio.load();
+  }
+  if (ttsState.url) URL.revokeObjectURL(ttsState.url);
+  ttsState.url = '';
+  ttsState.file = '';
+  if (els.ttsSeek) els.ttsSeek.value = '0';
+  if (els.ttsTime) els.ttsTime.textContent = '0:00';
+  if (els.ttsDuration) els.ttsDuration.textContent = '0:00';
+  syncTtsPlayIcon();
+}
+
+// A different note is a different recording: the bar goes away instead of
+// playing the previous document over the new one.
+function resetReadAloud() {
+  stopReadAloud();
+  setTtsStatus('');
+  if (els.ttsBar) els.ttsBar.classList.add('hidden');
+}
+
+async function ensureReadAloud(force) {
+  const text = readAloudText();
+  if (!text || !state.currentFile) return false;
+  if (ttsState.url && !force) return true;
+  if (ttsState.busy) return false;
+  ttsState.busy = true;
+  if (els.ttsPlay) els.ttsPlay.disabled = true;
+  setTtsStatus(t('Preparing audio…'));
+  try {
+    const res = await window.inkwell.ttsGenerate({ path: state.currentFile, text, force: !!force });
+    if (!res || !res.ok) {
+      const why = res && res.error === 'no-engine'
+        ? 'No voice is available: install espeak-ng, or save an OpenAI key in Settings → AI.'
+        : (res && res.error) || 'unknown error';
+      setTtsStatus(why);
+      toast('Read aloud failed: ' + why, 'error', 6000);
+      return false;
+    }
+    const read = await window.inkwell.ttsRead({ file: res.file });
+    if (!read || !read.ok) {
+      setTtsStatus('Could not load the audio');
+      return false;
+    }
+    const bytes = Uint8Array.from(atob(read.base64), (char) => char.charCodeAt(0));
+    if (ttsState.url) URL.revokeObjectURL(ttsState.url);
+    ttsState.url = URL.createObjectURL(new Blob([bytes], { type: read.mime }));
+    ttsState.file = res.file;
+    els.ttsAudio.src = ttsState.url;
+    els.ttsAudio.playbackRate = parseFloat((els.ttsSpeed && els.ttsSpeed.value) || '1');
+    setTtsStatus(res.cached ? '' : (res.engine === 'openai' ? 'AI voice' : 'System voice'));
+    return true;
+  } catch (_) {
+    setTtsStatus('Read aloud failed');
+    return false;
+  } finally {
+    ttsState.busy = false;
+    if (els.ttsPlay) els.ttsPlay.disabled = false;
+  }
+}
+
+async function startReadAloud(force) {
+  if (!state.currentFile) { toast('Open a file first', 'info'); return; }
+  if (!readAloudText()) { toast('This document is too long to read aloud', 'info'); return; }
+  if (els.ttsBar) els.ttsBar.classList.remove('hidden');
+  if (els.ttsTitle) els.ttsTitle.textContent = t('Read aloud');
+  if (els.ttsSpeed && state.ttsSpeed && Number(state.ttsSpeed) > 0) els.ttsSpeed.value = String(state.ttsSpeed);
+  const ready = await ensureReadAloud(!!force);
+  if (!ready) return;
+  try { await els.ttsAudio.play(); } catch (_) {}
+  syncTtsPlayIcon();
+}
+
+if (els.ttsBtn) els.ttsBtn.addEventListener('click', () => startReadAloud(false));
+if (els.editor) els.editor.addEventListener('input', scheduleTtsButton);
+if (els.ttsPlay) {
+  els.ttsPlay.addEventListener('click', async () => {
+    const audio = els.ttsAudio;
+    if (!audio || !ttsState.url) { startReadAloud(false); return; }
+    if (audio.paused || audio.ended) {
+      try { await audio.play(); } catch (_) {}
+    } else {
+      audio.pause();
+    }
+    syncTtsPlayIcon();
+  });
+}
+if (els.ttsRegenerate) els.ttsRegenerate.addEventListener('click', () => startReadAloud(true));
+if (els.ttsClose) els.ttsClose.addEventListener('click', resetReadAloud);
+if (els.ttsAudio) {
+  const audio = els.ttsAudio;
+  audio.addEventListener('play', syncTtsPlayIcon);
+  audio.addEventListener('pause', syncTtsPlayIcon);
+  audio.addEventListener('ended', syncTtsPlayIcon);
+  audio.addEventListener('loadedmetadata', () => {
+    if (els.ttsDuration) els.ttsDuration.textContent = ttsClock(audio.duration);
+  });
+  audio.addEventListener('timeupdate', () => {
+    if (els.ttsTime) els.ttsTime.textContent = ttsClock(audio.currentTime);
+    if (els.ttsSeek && Number.isFinite(audio.duration) && audio.duration > 0) {
+      els.ttsSeek.value = String(Math.round((audio.currentTime / audio.duration) * 1000));
+    }
+  });
+  audio.addEventListener('error', () => setTtsStatus('This recording cannot be played'));
+}
+if (els.ttsSeek) {
+  els.ttsSeek.addEventListener('input', () => {
+    const audio = els.ttsAudio;
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    audio.currentTime = (Number(els.ttsSeek.value) / 1000) * audio.duration;
+  });
+}
+if (els.ttsSpeed) {
+  els.ttsSpeed.addEventListener('change', () => {
+    const rate = parseFloat(els.ttsSpeed.value || '1');
+    if (els.ttsAudio) els.ttsAudio.playbackRate = rate;
+    state.ttsSpeed = rate;
+    savePreferences();
+  });
+}
+
+function loadTtsSettings() {
+  const status = apiKeyState('tts');
+  if (els.settingsTtsKey) {
+    els.settingsTtsKey.value = '';
+    els.settingsTtsKey.classList.toggle('has-saved-key', !!status.hasKey);
+    setUITitle(
+      els.settingsTtsKey,
+      status.hasKey ? 'A key is saved. Type a new one to replace it.' : 'OpenAI API key',
+      'placeholder'
+    );
+  }
+  if (els.settingsTtsBaseUrl) els.settingsTtsBaseUrl.value = status.baseUrl || '';
+}
+
+if (els.settingsTtsSave) {
+  els.settingsTtsSave.addEventListener('click', async () => {
+    const apiKey = els.settingsTtsKey ? els.settingsTtsKey.value.trim() : '';
+    const baseUrl = els.settingsTtsBaseUrl ? els.settingsTtsBaseUrl.value.trim() : '';
+    try {
+      const res = await window.inkwell.saveAIKey({ id: 'tts', apiKey, baseUrl });
+      if (res && res.ok) {
+        toast('Voice settings saved', 'success');
+        if (els.settingsTtsKey) els.settingsTtsKey.value = '';
+        await refreshAIKeyStatus(['tts']);
+        loadTtsSettings();
+      } else {
+        toast('Could not save the voice settings', 'error');
+      }
+    } catch (_) {
+      toast('Could not save the voice settings', 'error');
+    }
+  });
+}
 
 /* ============ VIEW MODE ============ */
 function setViewMode(mode) {
@@ -5086,9 +5331,10 @@ async function loadVaultSettings() {
 }
 
 async function openSettings(tab) {
-  await refreshAIKeyStatus(getAIProviders().map((p) => p.id));
+  await refreshAIKeyStatus([...getAIProviders().map((p) => p.id), 'tts']);
   setSettingsTab(tab || 'appearance');
   populateAISettings();
+  loadTtsSettings();
   renderLanguageSelect();
   renderAIProvidersList();
   syncAIProvider();

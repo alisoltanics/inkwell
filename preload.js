@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('inkwell', {
   revealItem: (payload) => ipcRenderer.invoke('shell:reveal', payload),
   // open a web link in the system browser (the app window never navigates)
   openExternalLink: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  // read aloud: build (or reuse) the note's audio file and stream it back
+  ttsGenerate: (payload) => ipcRenderer.invoke('tts:generate', payload),
+  ttsRead: (payload) => ipcRenderer.invoke('tts:read', payload),
   // window chrome (frameless) controls
   minimize: () => ipcRenderer.invoke('win:minimize'),
   toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),

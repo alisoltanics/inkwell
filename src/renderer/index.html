@@ -185,6 +185,9 @@
                     <button id="telegramBtn" class="btn-icon" title="Send document to Telegram">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 3.5 2.5 10.7l5.4 1.9M21.5 3.5l-3.1 16.4-6-4.6M21.5 3.5 7.9 12.6m0 0v4.9l3-3.1"/></svg>
                     </button>
+                    <button id="ttsBtn" class="btn-icon hidden" title="Read this document aloud" aria-label="Read this document aloud">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+                    </button>
                     <div class="zoom-controls">
                         <button class="btn-icon" id="zoomOut" title="Zoom out (Ctrl+-)">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
@@ -796,6 +799,14 @@
                             <p class="settings-desc">Stored on this device. Inkwell calls the provider directly, so no CLI is needed.</p>
                         </div>
                         <div class="settings-field">
+                            <label for="settingsTtsKey">Read aloud — AI voice key <span class="settings-opt">optional</span></label>
+                            <input type="password" id="settingsTtsKey" placeholder="sk-… (OpenAI)" autocomplete="off" spellcheck="false">
+                            <label for="settingsTtsBaseUrl" style="margin-top:10px;">Base URL</label>
+                            <input type="text" id="settingsTtsBaseUrl" placeholder="https://api.openai.com/v1" spellcheck="false">
+                            <p class="settings-desc">The system voice (espeak-ng, say, SAPI) is used first and needs no key. This key is only used when no system voice can save audio. Stored on this device.</p>
+                            <button type="button" class="btn-ghost" id="settingsTtsSave" style="margin-top:10px;">Save voice settings</button>
+                        </div>
+                        <div class="settings-field">
                             <label for="settingsAiResponseLanguage">Response language</label>
                             <select id="settingsAiResponseLanguage">
                                 <option value="auto">Auto (match the request)</option>
@@ -1160,6 +1171,29 @@
         <button class="lightbox-close" id="lightboxClose" title="Close (Esc)">&times;</button>
         <img id="lightboxImg" alt="">
         <div class="lightbox-caption" id="lightboxCaption"></div>
+    </div>
+
+    <!-- Read aloud: the recording of this note, kept in the vault -->
+    <div class="tts-bar hidden" id="ttsBar" role="region" aria-label="Read aloud">
+        <button type="button" class="tts-play" id="ttsPlay" title="Play" aria-label="Play">
+            <svg class="tts-icon-play" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+            <svg class="tts-icon-pause hidden" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+        </button>
+        <span class="tts-title" id="ttsTitle">Read aloud</span>
+        <span class="tts-time" id="ttsTime">0:00</span>
+        <input type="range" class="tts-seek" id="ttsSeek" min="0" max="1000" value="0" step="1" aria-label="Position">
+        <span class="tts-time" id="ttsDuration">0:00</span>
+        <select class="tts-speed" id="ttsSpeed" title="Playback speed" aria-label="Playback speed">
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+        </select>
+        <span class="tts-status" id="ttsStatus"></span>
+        <button type="button" class="tts-action" id="ttsRegenerate" title="Read again from the current text">Regenerate</button>
+        <button type="button" class="tts-close" id="ttsClose" title="Close" aria-label="Close">&times;</button>
+        <audio id="ttsAudio" preload="metadata"></audio>
     </div>
 
     <script src="i18n.js"></script>

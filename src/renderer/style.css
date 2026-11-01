@@ -6000,3 +6000,119 @@ html.rtl .docx-li { flex-direction: row-reverse; }
     border-color: color-mix(in srgb, var(--accent) 50%, transparent);
     background: var(--accent-glow);
 }
+
+/* ============ READ ALOUD ============ */
+/* A player for the note's recording: the audio lives in the vault, so this is
+   only a control surface. It sits above the status bar and stays out of the way. */
+.tts-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 34px;
+    transform: translateX(-50%);
+    z-index: 9400;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: min(760px, calc(100vw - 48px));
+    padding: 8px 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    color: var(--text);
+    font-size: 12px;
+}
+
+.tts-bar.hidden { display: none; }
+
+.tts-play {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    color: #04121c;
+    background: var(--accent);
+}
+
+.tts-play:hover { filter: brightness(1.08); }
+.tts-play:disabled { opacity: 0.55; cursor: default; }
+
+.tts-title {
+    flex-shrink: 0;
+    font-weight: 600;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tts-time {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.tts-seek {
+    flex: 1 1 160px;
+    min-width: 90px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.tts-speed {
+    flex-shrink: 0;
+    background: var(--bg-elevated);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px 6px;
+    font-size: 11.5px;
+}
+
+.tts-status {
+    flex-shrink: 0;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 11.5px;
+}
+
+.tts-action {
+    flex-shrink: 0;
+    background: var(--bg-hover);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px 9px;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+
+.tts-action:hover { background: var(--bg-active); }
+
+.tts-close {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.tts-close:hover { background: var(--bg-hover); color: var(--text); }
+
+html[dir="rtl"] .tts-bar { direction: rtl; }

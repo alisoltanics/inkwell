@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const os = require('os');
+const crypto = require('crypto');
 const Store = require('electron-store');
 const { docxToHtml } = require('./src/docx');
 
@@ -703,6 +704,168 @@ function openExternalUrl(rawUrl) {
 }
 
 ipcMain.handle('shell:openExternal', async (event, url) => ({ success: openExternalUrl(url) }));
+
+/* ================= READ ALOUD (text to speech) ================= */
+// The audio lives next to the vault (hidden .inkwell/audio) so the same note
+// always plays the same file and the sound survives a restart. 4,000 characters
+// is also the per-request limit of the speech API, so the AI voice never has to
+// be stitched together from chunks.
+const TTS_MAX_CHARS = 4000;
+
+function ttsDir() {
+  if (!NOTES_DIR) throw new Error('No vault is open');
+  const dir = path.join(NOTES_DIR, '.inkwell', 'audio');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function ttsSlug(logicalPath) {
+  const base = path.basename(String(logicalPath || 'note'), path.extname(String(logicalPath || '')));
+  const clean = base.normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+  return (clean || 'note').slice(0, 40);
+}
+
+// The hash is the text itself: change one word and the old file stops matching,
+// which is what "the recording is out of date" means here.
+function ttsHash(text) {
+  return crypto.createHash('sha1').update(String(text || ''), 'utf8').digest('hex').slice(0, 10);
+}
+
+function ttsBaseName(logicalPath, text) {
+  return `${ttsSlug(logicalPath)}-${ttsHash(text)}`;
+}
+
+function ttsLanguage(text) {
+  const sample = String(text || '').slice(0, 800);
+  if (/[\u0600-\u06FF]/.test(sample)) {
+    return /[پچژگک]/.test(sample) ? 'fa' : 'ar';
+  }
+  if (/[\u0400-\u04FF]/.test(sample)) return 'ru';
+  return 'en';
+}
+
+function runCommand(command, args, options = {}) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(command, args, { windowsHide: true, ...options });
+    } catch (e) {
+      resolve({ ok: false, error: e.message });
+      return;
+    }
+    let stderr = '';
+    if (child.stderr) child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (e) => resolve({ ok: false, error: e.message }));
+    child.on('close', (code) => resolve({ ok: code === 0, code, error: code === 0 ? '' : (stderr.trim() || `exit ${code}`) }));
+  });
+}
+
+// Each platform ships a voice engine that can write a file: espeak on Linux,
+// say on macOS, SAPI on Windows. Nothing is installed by the app.
+async function systemTtsToFile(text, outFile, tempText, language) {
+  if (process.platform === 'darwin') {
+    const res = await runCommand('say', ['-o', outFile, '--file-format=WAVE', '--data-format=LEI16@22050', '-f', tempText]);
+    return res.ok && fs.existsSync(outFile) ? { ok: true } : { ok: false, error: res.error };
+  }
+  if (process.platform === 'win32') {
+    const script = [
+      'Add-Type -AssemblyName System.Speech;',
+      '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
+      `$s.SetOutputToWaveFile('${outFile.replace(/'/g, "''")}');`,
+      `$s.Speak([System.IO.File]::ReadAllText('${tempText.replace(/'/g, "''")}'));`,
+      '$s.Dispose();',
+    ].join(' ');
+    const res = await runCommand('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+    return res.ok && fs.existsSync(outFile) ? { ok: true } : { ok: false, error: res.error };
+  }
+  // Linux: espeak-ng writes a wav; espeak (older) does the same
+  for (const bin of ['espeak-ng', 'espeak']) {
+    const res = await runCommand(bin, ['-v', language, '-w', outFile, '-f', tempText]);
+    if (res.ok && fs.existsSync(outFile)) return { ok: true, engine: bin };
+  }
+  return { ok: false, error: 'no system voice' };
+}
+
+async function apiTtsToFile(text, outFile) {
+  const saved = storedAIKeys().tts || {};
+  const key = apiProviderKey({ id: 'tts', apiKey: saved.apiKey, apiKeyEnv: saved.apiKeyEnv || 'OPENAI_API_KEY' });
+  if (!key) return { ok: false, error: 'no key' };
+  const base = normalizeApiBase(saved.baseUrl) || 'https://api.openai.com/v1';
+  const model = String(saved.model || '').trim() || 'gpt-4o-mini-tts';
+  const res = await fetch(base + '/audio/speech', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, voice: saved.voice || 'alloy', input: String(text || ''), response_format: 'mp3' }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { const data = await res.json(); detail = (data && data.error && data.error.message) || ''; } catch (_) {}
+    return { ok: false, error: detail || `HTTP ${res.status}` };
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(outFile, buffer);
+  return { ok: fs.existsSync(outFile), engine: 'openai' };
+}
+
+ipcMain.handle('tts:generate', async (event, payload) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkwell-tts-'));
+  try {
+    const logicalPath = String((payload && payload.path) || '');
+    const text = String((payload && payload.text) || '').trim();
+    if (!text) throw new Error('There is no text to read');
+    if (text.length > TTS_MAX_CHARS) throw new Error('This document is too long to read aloud');
+    const dir = ttsDir();
+    const base = ttsBaseName(logicalPath, text);
+    const force = !!(payload && payload.force);
+    const cached = force ? null : ['.wav', '.mp3'].map((ext) => path.join(dir, base + ext)).find((file) => fs.existsSync(file));
+    if (cached) return { ok: true, cached: true, file: cached, ext: path.extname(cached).slice(1) };
+
+    const tempText = path.join(tempDir, 'speech.txt');
+    fs.writeFileSync(tempText, text, 'utf8');
+    const language = ttsLanguage(text);
+    const wavOut = path.join(dir, base + '.wav');
+    const system = await systemTtsToFile(text, wavOut, tempText, language);
+    let engine = system.ok ? (system.engine || 'system') : '';
+    if (!system.ok) {
+      const apiOut = path.join(dir, base + '.mp3');
+      const api = await apiTtsToFile(text, apiOut);
+      if (!api.ok) {
+        return { ok: false, error: 'no-engine', system: system.error, api: api.error };
+      }
+      engine = api.engine;
+    }
+    const file = fs.existsSync(wavOut) ? wavOut : path.join(dir, base + '.mp3');
+    if (!fs.existsSync(file)) throw new Error('The voice engine produced no audio');
+    // older recordings of the same note are no longer reachable from the note
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry.startsWith(ttsSlug(logicalPath) + '-') && !entry.startsWith(base)) {
+        try { fs.rmSync(path.join(dir, entry), { force: true }); } catch (_) {}
+      }
+    }
+    return { ok: true, cached: false, file, ext: path.extname(file).slice(1), engine, size: fs.statSync(file).size };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+  }
+});
+
+// The renderer plays the file from a Blob, so the audio never needs a file://
+// permission and the vault path stays in the main process.
+ipcMain.handle('tts:read', async (event, payload) => {
+  try {
+    const file = path.resolve(String((payload && payload.file) || ''));
+    const dir = ttsDir();
+    if (!file.startsWith(dir + path.sep)) throw new Error('Not an audio file');
+    if (!fs.existsSync(file)) throw new Error('File not found');
+    const ext = path.extname(file).toLowerCase();
+    const mime = ext === '.mp3' ? 'audio/mpeg' : 'audio/wav';
+    return { ok: true, base64: fs.readFileSync(file).toString('base64'), mime };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 
 /* ================= WINDOW CHROME ================= */
 
