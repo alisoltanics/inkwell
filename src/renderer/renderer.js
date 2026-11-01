@@ -3452,12 +3452,19 @@ function decoratePreviewTranslations() {
   // The longest passage goes first: a translation saved on a sentence can hold
   // the mark of a word inside it, and the word keeps its own card.
   const ordered = [...list].sort((a, b) => String(b.quote || '').length - String(a.quote || '').length);
+  // one mark per passage: an older duplicate of the same quote must not stack a
+  // second highlight that no "Remove" can reach
+  const seen = new Set();
   for (const item of ordered) {
     const plain = mdPlain(item.quote || '').trim();
     if (plain.length < 2) continue;
+    if (seen.has(plain)) continue;
     const { text, items } = previewTextItems();
     const found = previewFind(text, plain);
-    if (found) wrapPreviewRange(item.id, found.index, found.length, items, { className: 'tr-mark', dataKey: 'tr' });
+    if (found) {
+      seen.add(plain);
+      wrapPreviewRange(item.id, found.index, found.length, items, { className: 'tr-mark', dataKey: 'tr' });
+    }
   }
 }
 
@@ -3596,7 +3603,15 @@ if (els.trPopRemove) {
   els.trPopRemove.addEventListener('click', () => {
     const id = trState.openedId;
     if (!id) return;
-    const list = translationsFor().filter((item) => item.id !== id);
+    const current = translationsFor();
+    const target = current.find((item) => item.id === id);
+    // an older duplicate of the same passage would keep the highlight alive, so
+    // removing one removes every copy of it
+    const list = current.filter((item) => {
+      if (item.id === id) return false;
+      if (target && item.quote === target.quote && item.to === target.to) return false;
+      return true;
+    });
     if (list.length) state.translationsByFile[state.currentFile] = list;
     else delete state.translationsByFile[state.currentFile];
     savePreferences();
