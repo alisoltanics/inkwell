@@ -6009,7 +6009,8 @@ html.rtl .docx-li { flex-direction: row-reverse; }
     left: 50%;
     bottom: 34px;
     transform: translateX(-50%);
-    z-index: 9400;
+    /* above the editor, below a modal: the player must not float over Settings */
+    z-index: 1500;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -6096,6 +6097,19 @@ html.rtl .docx-li { flex-direction: row-reverse; }
 }
 
 .tts-action:hover { background: var(--bg-active); }
+
+/* the upsell is quiet: it reads as part of the player until you look at it */
+.tts-ai {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--accent);
+    border-color: rgba(56, 189, 248, 0.35);
+    background: var(--accent-glow);
+}
+
+.tts-ai:hover { background: rgba(56, 189, 248, 0.22); color: var(--accent); }
+.tts-ai svg { flex-shrink: 0; }
 
 .tts-close {
     flex-shrink: 0;

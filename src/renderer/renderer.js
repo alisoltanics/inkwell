@@ -337,6 +337,7 @@ const els = {
   ttsSpeed: $('ttsSpeed'),
   ttsStatus: $('ttsStatus'),
   ttsRegenerate: $('ttsRegenerate'),
+  ttsAiSettings: $('ttsAiSettings'),
   ttsClose: $('ttsClose'),
   ttsAudio: $('ttsAudio'),
   settingsTtsKey: $('settingsTtsKey'),
@@ -3536,7 +3537,21 @@ function updateTtsBarMode() {
   if (els.ttsSeek) els.ttsSeek.classList.toggle('hidden', live);
   if (els.ttsDuration) els.ttsDuration.classList.toggle('hidden', live);
   if (els.ttsRegenerate) els.ttsRegenerate.classList.toggle('hidden', live);
+  // the offline voices are the ones worth upgrading: this is where a reader
+  // finds out that an AI voice is one key away
+  if (els.ttsAiSettings) els.ttsAiSettings.classList.toggle('hidden', ttsState.mode === 'file');
   if (els.ttsTime) els.ttsTime.textContent = '0:00';
+}
+
+// Straight from the player to the field that makes the voice natural.
+async function openVoiceSettings() {
+  await openSettings('ai');
+  // the modal takes focus when it opens, so the field is focused after it
+  setTimeout(() => {
+    const card = els.settingsTtsKey ? els.settingsTtsKey.closest('.settings-group') : null;
+    if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (els.settingsTtsKey) els.settingsTtsKey.focus({ preventScroll: true });
+  }, 160);
 }
 
 function stopReadAloud() {
@@ -3684,6 +3699,7 @@ if (els.ttsPlay) {
   });
 }
 if (els.ttsRegenerate) els.ttsRegenerate.addEventListener('click', () => startReadAloud(true));
+if (els.ttsAiSettings) els.ttsAiSettings.addEventListener('click', () => { openVoiceSettings(); });
 if (els.ttsClose) els.ttsClose.addEventListener('click', resetReadAloud);
 if (els.ttsAudio) {
   const audio = els.ttsAudio;
