@@ -346,6 +346,8 @@ const els = {
   settingsTtsBadge: $('settingsTtsBadge'),
   settingsTtsHint: $('settingsTtsHint'),
   settingsTtsEngine: $('settingsTtsEngine'),
+  settingsTtsVoice: $('settingsTtsVoice'),
+  settingsTtsTest: $('settingsTtsTest'),
   settingsAiModeBadge: $('settingsAiModeBadge'),
   findBar: $('findBar'),
   findInput: $('findInput'),
@@ -3749,8 +3751,58 @@ if (els.ttsSpeed) {
   });
 }
 
+// The voices the current engine offers for this note's language. Most engines
+// ship several, and the default one is often the most mechanical.
+async function loadTtsVoiceOptions() {
+  if (!els.settingsTtsVoice) return;
+  const sample = speechTextOf(documentTextForAI()).slice(0, 400);
+  const language = sample ? ttsLangOf(sample) : 'en';
+  let list = null;
+  try { list = await window.inkwell.ttsVoices({ language }); } catch (_) {}
+  const keep = els.settingsTtsVoice.value;
+  els.settingsTtsVoice.replaceChildren();
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = 'Automatic (engine default)';
+  els.settingsTtsVoice.appendChild(auto);
+  for (const voice of (list && list.voices) || []) {
+    if (!voice.id) continue;
+    const option = document.createElement('option');
+    option.value = voice.id;
+    option.textContent = voice.label || voice.id;
+    els.settingsTtsVoice.appendChild(option);
+  }
+  const chosen = keep || (list && list.chosen) || '';
+  els.settingsTtsVoice.value = chosen;
+  if (els.settingsTtsVoice.value !== chosen) els.settingsTtsVoice.value = '';
+  if (els.settingsTtsTest) {
+    els.settingsTtsTest.disabled = !!(els.settingsTtsEngine && els.settingsTtsEngine.value === 'api');
+  }
+}
+
+// Saves the choice, then speaks a short sample so it can be judged by ear.
+async function testTtsVoice() {
+  const text = readAloudText() || speechTextOf(documentTextForAI());
+  const sample = (text || 'This is how the selected voice sounds.').slice(0, 160);
+  try {
+    await window.inkwell.saveAIKey({
+      id: 'tts',
+      apiKey: els.settingsTtsKey ? els.settingsTtsKey.value.trim() : '',
+      baseUrl: els.settingsTtsBaseUrl ? els.settingsTtsBaseUrl.value.trim() : '',
+      engine: els.settingsTtsEngine ? els.settingsTtsEngine.value : 'auto',
+      voice: els.settingsTtsVoice ? els.settingsTtsVoice.value : '',
+    });
+    await window.inkwell.ttsCancel();
+    const res = await window.inkwell.ttsSpeak({ text: sample, lang: ttsLangOf(sample), rate: Number(state.ttsSpeed) || 1 });
+    if (!res || !res.ok) toast('This voice cannot speak on this system', 'info');
+  } catch (_) {
+    toast('This voice cannot speak on this system', 'info');
+  }
+}
+
 function loadTtsSettings() {
   const status = apiKeyState('tts');
+  loadTtsVoiceOptions();
   if (els.settingsTtsKey) {
     els.settingsTtsKey.value = '';
     els.settingsTtsKey.classList.toggle('has-saved-key', !!status.hasKey);
@@ -3794,6 +3846,8 @@ async function updateTtsSettingsBadge() {
       : 'No system voice and no key: notes are read with the offline voice and nothing is saved.';
 }
 
+if (els.settingsTtsTest) els.settingsTtsTest.addEventListener('click', () => { testTtsVoice(); });
+
 if (els.settingsTtsSave) {
   els.settingsTtsSave.addEventListener('click', async () => {
     const apiKey = els.settingsTtsKey ? els.settingsTtsKey.value.trim() : '';
@@ -3804,6 +3858,7 @@ if (els.settingsTtsSave) {
         apiKey,
         baseUrl,
         engine: els.settingsTtsEngine ? els.settingsTtsEngine.value : 'auto',
+        voice: els.settingsTtsVoice ? els.settingsTtsVoice.value : '',
       });
       if (res && res.ok) {
         toast('Voice settings saved', 'success');

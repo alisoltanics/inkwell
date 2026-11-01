@@ -820,6 +820,14 @@
                                 </select>
                                 <p class="settings-desc">For a natural offline voice install <code>piper</code> with a voice model (<code>.onnx</code>) in <code>~/.local/share/piper</code>; <code>pico2wave</code> is the next best. Nothing installed means the robotic <code>espeak</code> voice.</p>
                             </div>
+                            <div class="settings-field">
+                                <label for="settingsTtsVoice">System voice</label>
+                                <div class="settings-voice-row">
+                                    <select id="settingsTtsVoice"><option value="">Automatic (engine default)</option></select>
+                                    <button type="button" class="btn-secondary" id="settingsTtsTest">Test voice</button>
+                                </div>
+                                <p class="settings-desc">Some engines ship several voices, and they do not sound alike. Press <strong>Test voice</strong> to hear this one before you save.</p>
+                            </div>
                         <div class="settings-field">
                             <label for="settingsTtsKey">Read aloud — AI voice key <span class="settings-opt">optional</span></label>
                             <input type="password" id="settingsTtsKey" placeholder="sk-… (OpenAI)" autocomplete="off" spellcheck="false">

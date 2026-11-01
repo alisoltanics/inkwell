@@ -815,14 +815,96 @@ async function espeakVoices(bin) {
   return names;
 }
 
-// espeak with the settings that sound least mechanical: MBROLA first (a
-// different synthesiser), then a slower rate and a lower pitch.
+// espeak ships many "variants" on top of the base voice (`en-us+klatt`), and the
+// default one is the most mechanical. They are offered as choices, with a test
+// button, instead of guessing which one sounds best to a given person.
+const TTS_VARIANTS = ['klatt', 'klatt2', 'klatt3', 'klatt4', 'klatt5', 'female3', 'female4', 'male3', 'male4', 'whisper'];
+const TTS_LANG_CODES = { en: 'en-US', fa: 'fa', ar: 'ar', ru: 'ru', tr: 'tr', es: 'es', fr: 'fr', de: 'de', it: 'it', zh: 'cmn', hi: 'hi' };
+
+function storedVoice() {
+  return String((storedAIKeys().tts || {}).voice || '').trim();
+}
+
+// speech-dispatcher lists its voices as "<Language name>+<variant>  <code>  <variant>"
+function spdVoiceList(stdout, langCode) {
+  const found = { base: '', variants: [] };
+  for (const line of String(stdout || '').split('\n')) {
+    const match = line.match(/^\s*(.+?)\+([A-Za-z0-9_-]+)\s{2,}([A-Za-z-]+)\s{2,}/);
+    if (!match) {
+      const base = line.match(/^\s*(.+?)\s{2,}([A-Za-z-]+)\s{2,}none\s*$/);
+      if (base && base[2].toLowerCase().startsWith(langCode.toLowerCase().slice(0, 2))) {
+        found.base = base[1].trim();
+      }
+      continue;
+    }
+    const [, name, variant, lang] = match;
+    if (!lang.toLowerCase().startsWith(langCode.toLowerCase().slice(0, 2))) continue;
+    if (!found.base) found.base = name.trim();
+    if (TTS_VARIANTS.includes(variant)) found.variants.push(variant);
+  }
+  found.variants = [...new Set(found.variants)];
+  return found;
+}
+
+async function listSystemVoices(language) {
+  const lang = TTS_LANG_CODES[language] || 'en-US';
+  const engine = detectSystemVoice(language);
+  const out = [];
+  if (engine === 'espeak-ng' || engine === 'espeak') {
+    const available = await espeakVoices(engine);
+    const base = language === 'en' ? 'en-us' : language;
+    if (!available.size || available.has(base)) {
+      out.push({ id: '', label: `${base} (default)` });
+      for (const variant of TTS_VARIANTS) out.push({ id: `${base}+${variant}`, label: `${base}+${variant}` });
+    }
+    for (const name of available) {
+      if (name === base || name.startsWith('mb-')) continue;
+      if (!name.startsWith(base)) continue;
+      out.push({ id: name, label: name });
+    }
+    return { engine: engine || 'espeak', base, voices: out.slice(0, 24) };
+  }
+  if (process.platform === 'linux') {
+    const res = await runCommand('spd-say', ['-L']);
+    const found = spdVoiceList(res.stdout, lang);
+    if (found.base) {
+      out.push({ id: '', label: `${found.base} (default)` });
+      for (const variant of found.variants) out.push({ id: `${found.base}+${variant}`, label: variant });
+    }
+    return { engine: 'spd-say', base: found.base, voices: out.slice(0, 24) };
+  }
+  if (process.platform === 'darwin') {
+    const res = await runCommand('say', ['-v', '?']);
+    for (const line of String(res.stdout || '').split('\n')) {
+      const match = line.match(/^(.+?)\s{2,}([a-z]{2}_[A-Z]{2})\s/);
+      if (!match || !match[2].toLowerCase().startsWith(lang.slice(0, 2).toLowerCase())) continue;
+      out.push({ id: match[1].trim(), label: `${match[1].trim()} (${match[2]})` });
+    }
+    return { engine: 'say', base: '', voices: out.slice(0, 30) };
+  }
+  return { engine: engine || '', base: '', voices: [] };
+}
+
+ipcMain.handle('tts:voices', async (event, payload) => {
+  try {
+    const list = await listSystemVoices(String((payload && payload.language) || 'en'));
+    const chosen = storedVoice();
+    return { ok: true, ...list, chosen };
+  } catch (e) {
+    return { ok: false, error: e.message, voices: [] };
+  }
+});
+
+// espeak with the settings that sound least mechanical: the voice the reader
+// picked (or MBROLA), a slower rate and a lower pitch.
 async function espeakToFile(bin, text, outFile, tempText, language) {
   const available = await espeakVoices(bin);
   const preferred = language === 'en' ? 'en-us' : language === 'fa' ? 'fa' : language;
-  const order = [`mb-${language}1`, preferred, language].filter((voice, i, list) => voice && list.indexOf(voice) === i);
+  const chosen = storedVoice();
+  const order = [chosen, `mb-${language}1`, preferred, language].filter((voice, i, list) => voice && list.indexOf(voice) === i);
   for (const voice of order) {
-    if (available.size && !available.has(voice.toLowerCase())) continue;
+    const isVariant = voice.includes('+');
+    if (available.size && !isVariant && !available.has(voice.toLowerCase())) continue;
     const res = await runCommand(bin, ['-v', voice, '-s', '160', '-p', '42', '-g', '4', '-w', outFile, '-f', tempText]);
     if (res.ok && fs.existsSync(outFile)) return { ok: true, engine: `${bin} · ${voice}` };
   }
@@ -837,7 +919,11 @@ async function systemTtsToFile(text, outFile, tempText, language) {
   if (process.platform === 'darwin') {
     if (mode === 'api') return { ok: false, error: 'system voice disabled' };
     // the built-in voices are natural; 175 words a minute reads like a person
-    const res = await runCommand('say', ['-r', '175', '-o', outFile, '--file-format=WAVE', '--data-format=LEI16@22050', '-f', tempText]);
+    const voice = storedVoice();
+    const args = ['-r', '175'];
+    if (voice) args.push('-v', voice);
+    args.push('-o', outFile, '--file-format=WAVE', '--data-format=LEI16@22050', '-f', tempText);
+    const res = await runCommand('say', args);
     return res.ok && fs.existsSync(outFile) ? { ok: true, engine: 'say' } : { ok: false, error: res.error };
   }
 
@@ -1064,14 +1150,22 @@ ipcMain.handle('tts:speak', async (event, payload) => {
       fs.writeFileSync(file, text, 'utf8');
       // say counts words per minute; 175 is its natural pace
       const wpm = Math.round(175 * rate);
-      osSpeaker = spawn('say', ['-r', String(wpm), '-f', file], { detached: true, stdio: 'ignore' });
+      const sayArgs = ['-r', String(wpm)];
+      const voice = storedVoice();
+      if (voice) sayArgs.push('-v', voice);
+      sayArgs.push('-f', file);
+      osSpeaker = spawn('say', sayArgs, { detached: true, stdio: 'ignore' });
       osSpeaker.on('exit', () => { osSpeaker = null; });
       osSpeaker.unref();
       return { ok: true, engine: 'say', rate };
     }
     // speech-dispatcher: speaks without writing a file, -100..+100 for speed
     const spdRate = Math.max(-90, Math.min(90, Math.round((rate - 1) * 85)));
-    osSpeaker = spawn('spd-say', ['-r', String(spdRate), '-l', lang, text], { detached: true, stdio: 'ignore' });
+    const spdArgs = ['-r', String(spdRate), '-l', lang];
+    const spdVoice = storedVoice();
+    if (spdVoice) spdArgs.push('-y', spdVoice);
+    spdArgs.push(text);
+    osSpeaker = spawn('spd-say', spdArgs, { detached: true, stdio: 'ignore' });
     osSpeaker.on('exit', () => { osSpeaker = null; });
     osSpeaker.unref();
     return { ok: true, engine: 'spd-say', rate: spdRate };
@@ -2013,6 +2107,11 @@ ipcMain.handle('ai:saveKey', (_event, payload) => {
     if (payload && typeof payload.engine === 'string') {
       const engine = payload.engine.trim();
       if (['auto', 'system', 'api'].includes(engine)) entry.engine = engine;
+    }
+    if (payload && typeof payload.voice === 'string') {
+      const voice = payload.voice.trim();
+      if (voice) entry.voice = voice;
+      else delete entry.voice;
     }
     if (Object.keys(entry).length) keys[id] = entry;
     else delete keys[id];

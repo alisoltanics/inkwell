@@ -6231,3 +6231,13 @@ html[dir="rtl"] .tts-bar { direction: rtl; }
     white-space: nowrap;
     border: 0;
 }
+
+/* a select and its preview button share one line */
+.settings-voice-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-voice-row select { flex: 1 1 auto; min-width: 0; }
+.settings-voice-row button { flex-shrink: 0; }
