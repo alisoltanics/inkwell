@@ -2319,8 +2319,10 @@ function isTransientAIError(message) {
 }
 
 // The CLI run itself, with no retry logic: resolves with the parsed answer or
-// the failure the process produced.
-function runAIProcess(spec, cmdPath, event, outputFile, providerConfig) {
+// the failure the process produced. waitMs is the per-request timeout the
+// caller resolved (a translation asks for a longer one than a short question).
+function runAIProcess(spec, cmdPath, event, outputFile, providerConfig, waitMs) {
+  const timeoutMs = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : AI_TIMEOUT;
   return new Promise((resolve) => {
     let proc;
     try {
@@ -2350,8 +2352,8 @@ function runAIProcess(spec, cmdPath, event, outputFile, providerConfig) {
 
     const timer = setTimeout(() => {
       try { proc.kill('SIGKILL'); } catch (_) {}
-      done({ ok: false, error: 'Timed out after ' + Math.round(waitMs / 1000) + 's' });
-    }, waitMs);
+      done({ ok: false, error: 'Timed out after ' + Math.round(timeoutMs / 1000) + 's' });
+    }, timeoutMs);
 
     aiProcs.set(event.sender.id, { proc, timer });
 
@@ -2445,7 +2447,7 @@ ipcMain.handle('ai:ask', async (event, payload) => {
   let last = { ok: false, error: 'No response' };
   for (let attempt = 1; attempt <= AI_ATTEMPTS; attempt += 1) {
     if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
-    last = await runAIProcess(spec, cmdPath, event, outputFile, providerConfig);
+    last = await runAIProcess(spec, cmdPath, event, outputFile, providerConfig, waitMs);
     if (last && last.ok) return last;
     if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
     if (attempt >= AI_ATTEMPTS || !isTransientAIError(last && last.error)) break;
