@@ -930,8 +930,13 @@ function runCommand(command, args, options = {}) {
     }
     let stderr = '';
     let stdout = '';
-    if (child.stderr) child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    if (child.stdout) child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    // Decode the streams as UTF-8 text: decoding each chunk on its own breaks a
+    // character that straddles a chunk boundary, which shows up as "\uFFFD" in
+    // Persian output from the offline translator.
+    if (child.stderr) child.stderr.setEncoding('utf8');
+    if (child.stdout) child.stdout.setEncoding('utf8');
+    if (child.stderr) child.stderr.on('data', (chunk) => { stderr += chunk; });
+    if (child.stdout) child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.on('error', (e) => resolve({ ok: false, error: e.message }));
     child.on('close', (code) => resolve({ ok: code === 0, code, stdout, stderr, error: code === 0 ? '' : (stderr.trim() || `exit ${code}`) }));
   });
@@ -1737,8 +1742,10 @@ function captureAICommand(cmd, args, options = {}) {
       try { proc.kill('SIGKILL'); } catch (_) {}
       resolve({ ok: false, error: `${cmd} model discovery timed out.` });
     }, options.timeout || 20000);
-    proc.stdout.on('data', (chunk) => { if (stdout.length < 2_000_000) stdout += chunk.toString(); });
-    proc.stderr.on('data', (chunk) => { if (stderr.length < 30000) stderr += chunk.toString(); });
+    proc.stdout.setEncoding('utf8');
+    proc.stderr.setEncoding('utf8');
+    proc.stdout.on('data', (chunk) => { if (stdout.length < 2_000_000) stdout += chunk; });
+    proc.stderr.on('data', (chunk) => { if (stderr.length < 30000) stderr += chunk; });
     proc.on('error', (error) => { clearTimeout(timer); resolve({ ok: false, error: error.message }); });
     proc.on('close', (code) => {
       clearTimeout(timer);
@@ -1935,22 +1942,49 @@ function stripAnsi(s) {
   return String(s).replace(ANSI_RE, '');
 }
 
+// OpenCode's "--format json" prints one event per line. Text arrives in parts
+// that can be repeated (a part is re-sent as it grows), so the last text of a
+// part wins instead of being appended twice. Failures are events too, and a raw
+// JSON dump must never reach the answer pane, so the reason is pulled out here.
 function parseOpencodeJson(out) {
-  let text = '';
+  const parts = new Map();
+  const order = [];
+  let error = '';
+  let loose = '';
+  let sawJson = false;
   for (const line of String(out).split('\n')) {
     const t = line.trim();
     if (!t.startsWith('{')) continue;
-    try {
-      const ev = JSON.parse(t);
-      if (ev && ev.type === 'text' && ev.part && typeof ev.part.text === 'string') {
-        text += ev.part.text;
-      }
-    } catch (_) {}
+    let ev;
+    try { ev = JSON.parse(t); } catch (_) { continue; }
+    sawJson = true;
+    if (!ev || typeof ev !== 'object') continue;
+    if (ev.type === 'error') {
+      const info = ev.error || ev.part || {};
+      const message = typeof info === 'string' ? info : (info.data && info.data.message) || info.message || ev.message || '';
+      if (message) error = String(message);
+      continue;
+    }
+    if (ev.type !== 'text') continue;
+    const part = ev.part || {};
+    const value = typeof part.text === 'string' ? part.text : (typeof ev.text === 'string' ? ev.text : '');
+    if (!value) continue;
+    const id = part.id || part.messageID || null;
+    if (id) {
+      if (!parts.has(id)) order.push(id);
+      parts.set(id, value);
+    } else {
+      loose += value;
+    }
   }
-  return text.replace(THINK_RE, '').trim();
+  const text = order.map((id) => parts.get(id)).join('') + loose;
+  return { text: text.replace(THINK_RE, '').trim(), error, sawJson };
 }
 
 const AI_OUTPUT_TOKEN = '__INKWELL_OUT__';
+// A prompt longer than this cannot survive a command line on Windows (32k for a
+// real executable, 8k for a .cmd shim), so it is only ever sent on stdin.
+const AI_ARG_PROMPT_LIMIT = 7000;
 
 const DEFAULT_CREDENTIAL_ENV = {
   claude: { apiKey: 'ANTHROPIC_API_KEY', baseUrl: 'ANTHROPIC_BASE_URL' },
@@ -2141,7 +2175,11 @@ function buildAICommand(provider, prompt, model, providerConfig, isolationArgs =
           args.push('-m', model);
         }
       }
-      if (providerConfig.passPromptAsArg !== false) {
+      // The prompt travels on stdin: OpenCode reads it there when no message
+      // argument is given, and a long document would otherwise hit the Windows
+      // command-line limit (32k, and 8k when the CLI is a .cmd shim through
+      // cmd.exe) — plus cmd.exe would expand %VAR% and !var! inside the text.
+      if (providerConfig.passPromptAsArg === true) {
         args.push(prompt);
         return { cmd, args, stdin: providerConfig.stdin || null, parse: providerConfig.parse || 'opencode-json' };
       }
@@ -2182,8 +2220,8 @@ function buildAICommand(provider, prompt, model, providerConfig, isolationArgs =
     case 'opencode': {
       const args = ['run', '--format', 'json'];
       if (model) args.push('-m', model);
-      args.push(prompt);
-      return { cmd: 'opencode', args, stdin: null, parse: 'opencode-json' };
+      // the prompt goes on stdin, never on a command line that Windows caps
+      return { cmd: 'opencode', args, stdin: prompt, parse: 'opencode-json' };
     }
     default:
       return null;
@@ -2413,23 +2451,36 @@ function runAIProcess(spec, cmdPath, event, outputFile, providerConfig, waitMs) 
 
     aiProcs.set(event.sender.id, { proc, timer });
 
-    proc.stdout.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    // Decoding each chunk on its own splits a multi-byte character whenever the
+    // pipe cuts one in half, which turns Persian/Chinese output into U+FFFD.
+    // Reading the streams as text lets Node carry the partial character over.
+    proc.stdout.setEncoding('utf8');
+    proc.stderr.setEncoding('utf8');
+    proc.stdout.on('data', (d) => { stdout += d; });
+    proc.stderr.on('data', (d) => { stderr += d; });
     proc.on('error', (e) => {
       done({ ok: false, error: 'Could not run "' + spec.cmd + '": ' + e.message });
     });
     proc.on('close', (code) => {
       let text;
+      let opencodeError = '';
+      let opencodeSawJson = false;
       if (spec.parse === 'file') {
         try { text = fs.readFileSync(outputFile, 'utf8').trim(); } catch (_) { text = ''; }
         text = stripAnsi(text).replace(THINK_RE, '').trim();
       } else if (spec.parse === 'opencode-json') {
-        text = parseOpencodeJson(stdout) || stripAnsi(stdout).replace(THINK_RE, '').trim();
+        const parsed = parseOpencodeJson(stdout);
+        text = parsed.text;
+        opencodeError = parsed.error;
+        opencodeSawJson = parsed.sawJson;
+        // a line that is not an event is still something the user can read
+        if (!text && !opencodeSawJson) text = stripAnsi(stdout).replace(THINK_RE, '').trim();
       } else {
         text = stripAnsi(stdout).replace(THINK_RE, '').trim();
       }
       const errOut = stripAnsi(stderr).trim();
       if (/not logged in|please run \/login/i.test(text)) return done({ ok: false, error: text });
+      if (!text && opencodeError) return done({ ok: false, error: opencodeError });
       if (!text && errOut) return done({ ok: false, error: errOut });
       if (!text && code !== 0) return done({ ok: false, error: spec.cmd + ' exited with code ' + code });
       if (!text) return done({ ok: false, error: 'No response from ' + spec.cmd });
@@ -2497,14 +2548,38 @@ ipcMain.handle('ai:ask', async (event, payload) => {
     spec.args = spec.args.map((a) => (a === AI_OUTPUT_TOKEN ? outputFile : a));
   }
 
+  // A custom provider can be configured to take the prompt as an argument. On
+  // Windows that argument has a hard ceiling (about 8000 characters through a
+  // .cmd shim), so a long document must not be cut there without saying so.
+  if (process.platform === 'win32' && spec.stdin == null && prompt.length > AI_ARG_PROMPT_LIMIT
+    && spec.args.some((a) => a === prompt)) {
+    return {
+      ok: false,
+      error: 'This provider takes the prompt on the command line, which Windows limits to about 8000 characters. Use Claude, Codex or OpenCode (they read the prompt from the input), or an HTTP provider, for a document this long.',
+    };
+  }
+
   aiCancelled.delete(event.sender.id);
   killAIFor(event.sender.id);
+
+  // An older OpenCode build ignores the message on stdin and exits with
+  // "You must provide a message or a command". Rather than failing every
+  // request, fall back to the argument form once — only when the prompt is
+  // small enough for a command line, which is the case such a build can take.
+  const argFallback = spec.parse === 'opencode-json' && typeof spec.stdin === 'string'
+    && prompt.length <= AI_ARG_PROMPT_LIMIT;
+  let activeSpec = spec;
 
   let last = { ok: false, error: 'No response' };
   for (let attempt = 1; attempt <= AI_ATTEMPTS; attempt += 1) {
     if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
-    last = await runAIProcess(spec, cmdPath, event, outputFile, providerConfig, waitMs);
+    last = await runAIProcess(activeSpec, cmdPath, event, outputFile, providerConfig, waitMs);
     if (last && last.ok) return last;
+    if (argFallback && activeSpec === spec && /must provide a message/i.test(String(last && last.error))) {
+      activeSpec = { ...spec, stdin: null, args: [...spec.args, prompt] };
+      last = await runAIProcess(activeSpec, cmdPath, event, outputFile, providerConfig, waitMs);
+      if (last && last.ok) return last;
+    }
     if (aiCancelled.has(event.sender.id)) return { ok: false, error: 'Cancelled' };
     if (attempt >= AI_ATTEMPTS || !isTransientAIError(last && last.error)) break;
     // a blip on the provider's side should not reach the user as an error
