@@ -6416,15 +6416,20 @@ html[dir="rtl"] .ans-pop-quote {
 }
 
 .tr-lang {
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--bg-hover);
-    border: 1px solid var(--border);
+    padding: 7px 10px;
+    border-radius: 9px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
     white-space: nowrap;
+    max-width: 44%;
 }
+
+/* the two pickers share the row, the target takes the room left over */
+.tr-source { flex: 0 1 auto; min-width: 0; }
 
 .tr-arrow { color: var(--text-muted); }
 

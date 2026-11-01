@@ -3415,6 +3415,8 @@
     "Saved answer removed": "پاسخ ذخیره‌شده حذف شد",
     "Select the passage first, then ask": "اول قسمت را انتخاب کن، بعد بپرس",
     "Choose the language to translate into, then press Translate.": "زبان مقصد را انتخاب کن، بعد Translate را بزن.",
+    "Choose the languages, then press Translate.": "زبان‌ها را انتخاب کن، بعد Translate را بزن.",
+    "Choose two different languages": "دو زبان متفاوت انتخاب کن",
   });
 
   Object.assign(ar, {
@@ -3432,6 +3434,8 @@
     "Saved answer removed": "تمت إزالة الإجابة المحفوظة",
     "Select the passage first, then ask": "حدّد المقطع أولاً ثم اسأل",
     "Choose the language to translate into, then press Translate.": "اختر لغة الهدف ثم اضغط Translate.",
+    "Choose the languages, then press Translate.": "اختر اللغتين ثم اضغط Translate.",
+    "Choose two different languages": "اختر لغتين مختلفتين",
   });
 
   Object.assign(fr, {
@@ -3449,6 +3453,8 @@
     "Saved answer removed": "Réponse enregistrée supprimée",
     "Select the passage first, then ask": "Sélectionnez d’abord le passage, puis posez la question",
     "Choose the language to translate into, then press Translate.": "Choisissez la langue cible, puis appuyez sur Translate.",
+    "Choose the languages, then press Translate.": "Choisissez les deux langues, puis appuyez sur Translate.",
+    "Choose two different languages": "Choisissez deux langues différentes",
   });
 
   Object.assign(de, {
@@ -3466,6 +3472,8 @@
     "Saved answer removed": "Gespeicherte Antwort entfernt",
     "Select the passage first, then ask": "Wähle zuerst den Absatz, dann frage",
     "Choose the language to translate into, then press Translate.": "Zielsprache wählen, dann auf Translate drücken.",
+    "Choose the languages, then press Translate.": "Beide Sprachen wählen, dann auf Translate drücken.",
+    "Choose two different languages": "Wähle zwei verschiedene Sprachen",
   });
 
   Object.assign(it, {
@@ -3483,6 +3491,8 @@
     "Saved answer removed": "Risposta salvata rimossa",
     "Select the passage first, then ask": "Seleziona prima il passaggio, poi chiedi",
     "Choose the language to translate into, then press Translate.": "Scegli la lingua di destinazione, poi premi Translate.",
+    "Choose the languages, then press Translate.": "Scegli le due lingue, poi premi Translate.",
+    "Choose two different languages": "Scegli due lingue diverse",
   });
 
   Object.assign(tr, {
@@ -3500,6 +3510,8 @@
     "Saved answer removed": "Kaydedilen yanıt kaldırıldı",
     "Select the passage first, then ask": "Önce bölümü seç, sonra sor",
     "Choose the language to translate into, then press Translate.": "Hedef dili seç, sonra Translate'e bas.",
+    "Choose the languages, then press Translate.": "İki dili seç, sonra Translate'e bas.",
+    "Choose two different languages": "İki farklı dil seç",
   });
 
   Object.assign(es, {
@@ -3517,6 +3529,8 @@
     "Saved answer removed": "Respuesta guardada eliminada",
     "Select the passage first, then ask": "Selecciona primero el pasaje y luego pregunta",
     "Choose the language to translate into, then press Translate.": "Elige el idioma de destino y pulsa Translate.",
+    "Choose the languages, then press Translate.": "Elige los dos idiomas y pulsa Translate.",
+    "Choose two different languages": "Elige dos idiomas distintos",
   });
 
   Object.assign(zh, {
@@ -3534,6 +3548,8 @@
     "Saved answer removed": "已删除保存的回答",
     "Select the passage first, then ask": "请先选择段落再提问",
     "Choose the language to translate into, then press Translate.": "选择目标语言，然后点击 Translate。",
+    "Choose the languages, then press Translate.": "选择两种语言，然后点击 Translate。",
+    "Choose two different languages": "请选择两种不同的语言",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

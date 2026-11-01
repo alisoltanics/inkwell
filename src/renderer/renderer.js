@@ -3441,15 +3441,36 @@ function guessTextLanguage(text) {
 }
 
 function fillTrLanguages() {
-  if (!els.trTo) return;
-  els.trTo.replaceChildren();
-  for (const [code, label] of TR_LANGS) {
-    const option = document.createElement('option');
-    option.value = code;
-    option.textContent = `${label} (${code})`;
-    els.trTo.appendChild(option);
+  for (const [select, value] of [[els.trFrom, trState.from], [els.trTo, trState.to]]) {
+    if (!select) continue;
+    select.replaceChildren();
+    for (const [code, label] of TR_LANGS) {
+      const option = document.createElement('option');
+      option.value = code;
+      option.textContent = `${label} (${code})`;
+      select.appendChild(option);
+    }
+    select.value = value;
   }
-  els.trTo.value = trState.to;
+}
+
+// How the dialog waits for its two languages before anything runs.
+function showTranslateHint() {
+  trState.result = '';
+  trState.engine = '';
+  if (els.trEngine) els.trEngine.textContent = '';
+  if (els.trResult) {
+    els.trResult.replaceChildren();
+    const hint = document.createElement('div');
+    hint.className = 'tr-hint';
+    hint.textContent = t('Choose the languages, then press Translate.');
+    els.trResult.appendChild(hint);
+  }
+  if (els.trSave) els.trSave.disabled = true;
+  if (els.trSave) els.trSave.classList.add('hidden');
+  if (els.trCopy) els.trCopy.classList.add('hidden');
+  if (els.trRetry) els.trRetry.classList.add('hidden');
+  if (els.trGo) els.trGo.classList.remove('hidden');
 }
 
 function translationsFor(file) {
@@ -3557,29 +3578,12 @@ async function openDocumentTranslate() {
   const wanted = langCodeOfName(getAIResponseLanguage());
   trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
   fillTrLanguages();
-  if (els.trFrom) els.trFrom.textContent = `${langLabel(trState.from)} (${trState.from})`;
   if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
-  if (els.trEngine) els.trEngine.textContent = '';
-  // nothing is translated until the target language is chosen: the picker and
-  // the Translate button are the confirmation step
-  if (els.trResult) {
-    els.trResult.replaceChildren();
-    const hint = document.createElement('div');
-    hint.className = 'tr-hint';
-    hint.textContent = t('Choose the language to translate into, then press Translate.');
-    els.trResult.appendChild(hint);
-  }
-  if (els.trSave) {
-    els.trSave.disabled = true;
-    els.trSave.textContent = t('Save translation');
-    els.trSave.classList.add('hidden');
-  }
-  if (els.trCopy) els.trCopy.classList.add('hidden');
-  if (els.trRetry) els.trRetry.classList.add('hidden');
-  if (els.trGo) els.trGo.classList.remove('hidden');
+  if (els.trSave) els.trSave.textContent = t('Save translation');
+  showTranslateHint();
   closeTrPop();
   openModal('translate');
-  // the picker is the next thing to use
+  // the target picker is the next thing to use
   if (els.trTo) setTimeout(() => { try { els.trTo.focus(); } catch (_) {} }, 60);
 }
 
@@ -3785,34 +3789,30 @@ function openTranslate(selection) {
   const wanted = langCodeOfName(getAIResponseLanguage());
   trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
   fillTrLanguages();
-  if (els.trFrom) els.trFrom.textContent = `${langLabel(trState.from)} (${trState.from})`;
   if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
-  if (els.trEngine) els.trEngine.textContent = '';
-  if (els.trResult) els.trResult.replaceChildren();
-  if (els.trSave) {
-    els.trSave.disabled = true;
-    els.trSave.textContent = t('Save to note');
-    els.trSave.classList.remove('hidden');
-  }
-  if (els.trCopy) els.trCopy.classList.remove('hidden');
-  if (els.trRetry) els.trRetry.classList.remove('hidden');
-  if (els.trGo) els.trGo.classList.add('hidden');
+  if (els.trSave) els.trSave.textContent = t('Save to note');
+  showTranslateHint();
   closeTrPop();
   openModal('translate');
-  runTranslate();
 }
 
 async function runTranslate() {
   const text = trState.text;
+  // the two pickers are the source of truth: the user chose them
+  if (els.trFrom && els.trFrom.value) trState.from = els.trFrom.value;
+  if (els.trTo && els.trTo.value) trState.to = els.trTo.value;
   const from = trState.from;
   const to = trState.to;
   if (!text) return;
+  if (from === to) {
+    toast(t('Choose two different languages'), 'info');
+    return;
+  }
   trState.result = '';
   trState.engine = '';
-  if (els.trGo) els.trGo.classList.add('hidden');
   if (els.trSave) els.trSave.classList.remove('hidden');
   if (els.trCopy) els.trCopy.classList.remove('hidden');
-  if (els.trRetry) els.trRetry.classList.remove('hidden');
+  if (els.trRetry) els.trRetry.classList.add('hidden');
   if (els.trResult) els.trResult.innerHTML = '<div class="tr-busy"><span class="ai-spinner"></span><span>Translating…</span></div>';
   if (els.trEngine) els.trEngine.textContent = '';
   if (els.trSave) els.trSave.disabled = true;
@@ -3826,7 +3826,6 @@ async function runTranslate() {
     if (!ai.ok) {
       if (els.trResult) els.trResult.textContent = ai.error;
       if (els.trEngine) els.trEngine.textContent = 'No translator available';
-      if (els.trGo) els.trGo.classList.remove('hidden');
       return;
     }
     trState.result = ai.text;
@@ -3902,11 +3901,12 @@ if (els.trFloatBtn) {
     openTranslate(selection);
   });
 }
+// choosing a language only records it: Translate is what runs the job
+if (els.trFrom) {
+  els.trFrom.addEventListener('change', () => { trState.from = els.trFrom.value; });
+}
 if (els.trTo) {
-  els.trTo.addEventListener('change', () => {
-    trState.to = els.trTo.value;
-    runTranslate();
-  });
+  els.trTo.addEventListener('change', () => { trState.to = els.trTo.value; });
 }
 if (els.trGo) els.trGo.addEventListener('click', () => runTranslate());
 if (els.trRetry) els.trRetry.addEventListener('click', () => runTranslate());

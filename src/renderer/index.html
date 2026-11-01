@@ -1247,7 +1247,7 @@
             </div>
             <div class="modal-body">
                 <div class="tr-head">
-                    <span class="tr-lang" id="trFrom">Automatic</span>
+                    <select id="trFrom" class="tr-lang tr-source" aria-label="Translate from"></select>
                     <span class="tr-arrow" aria-hidden="true">&rarr;</span>
                     <select id="trTo" class="tr-target" aria-label="Translate to"></select>
                 </div>
@@ -1256,9 +1256,9 @@
                 <div class="tr-result markdown-body" id="trResult" dir="auto"></div>
                 <div class="tr-actions">
                     <button class="btn-primary hidden" id="trGo" type="button">Translate</button>
-                    <button class="btn-primary" id="trSave" type="button">Save to note</button>
+                    <button class="btn-secondary" id="trSave" type="button">Save to note</button>
                     <button class="btn-secondary" id="trCopy" type="button">Copy</button>
-                    <button class="btn-secondary" id="trRetry" type="button">Try again</button>
+                    <button class="btn-secondary hidden" id="trRetry" type="button">Try again</button>
                 </div>
             </div>
         </div>
