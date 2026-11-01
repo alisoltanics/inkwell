@@ -155,5 +155,5 @@ Version tags matching `v*` trigger GitHub Actions to build Linux x64, Windows x6
 - `html.js` — builds self-contained HTML exports
 - `src/renderer/` — application interface and Markdown rendering bundle
 - `docs/screenshots/` — the screenshots used above
-- `vscode-extension/` — Inkwell Preview, a VS Code extension that previews Markdown with this renderer
+- `vscode-extension/` — Inkwell Preview, a VS Code extension that previews Markdown with this renderer and can copy the open note into the vault with one button
 - `.github/workflows/release.yml` — cross-platform release build workflow

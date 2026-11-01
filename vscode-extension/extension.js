@@ -1,4 +1,6 @@
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const vscode = require('vscode');
 
 const VIEW_TYPE = 'inkwell.preview';
@@ -174,6 +176,148 @@ async function openPreview(uri, column) {
   await vscode.commands.executeCommand('vscode.openWith', target, VIEW_TYPE, column);
 }
 
+/* ============ SEND TO THE INKWELL VAULT ============ */
+// The vault is a plain folder of Markdown files, so "sending" a document is
+// copying its text there: no export format, no second copy to keep in sync.
+
+function expandHome(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text === '~') return os.homedir();
+  if (text.startsWith('~/') || text.startsWith('~\\')) return path.join(os.homedir(), text.slice(2));
+  return text;
+}
+
+async function isDirectory(target) {
+  try {
+    return (await fs.promises.stat(target)).isDirectory();
+  } catch (_) {
+    return false;
+  }
+}
+
+async function fileExists(target) {
+  try {
+    await fs.promises.access(target);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// A free name next to the file that is already there: note.md, note-2.md, …
+async function freeName(target) {
+  const dir = path.dirname(target);
+  const ext = path.extname(target);
+  const base = path.basename(target, ext);
+  for (let n = 2; n < 500; n++) {
+    const candidate = path.join(dir, `${base}-${n}${ext}`);
+    if (!(await fileExists(candidate))) return candidate;
+  }
+  return path.join(dir, `${base}-${Date.now()}${ext}`);
+}
+
+// Asks for the vault the first time and remembers the answer.
+async function vaultRoot() {
+  const config = vscode.workspace.getConfiguration('inkwellPreview');
+  const configured = expandHome(config.get('vaultPath'));
+  if (configured && await isDirectory(configured)) return configured;
+
+  const picked = await vscode.window.showOpenDialog({
+    canSelectFiles: false,
+    canSelectFolders: true,
+    canSelectMany: false,
+    openLabel: 'Use as Inkwell vault',
+    title: 'Choose the folder Inkwell keeps your notes in',
+  });
+  if (!picked || !picked.length) return '';
+  const chosen = picked[0].fsPath;
+  await config.update('vaultPath', chosen, vscode.ConfigurationTarget.Global);
+  return chosen;
+}
+
+// Where the copy goes: a note from a workspace keeps its place under a folder
+// named after that workspace, unless the setting asks for a flat vault.
+function vaultDestination(uri, vault) {
+  const config = vscode.workspace.getConfiguration('inkwellPreview');
+  const keepTree = config.get('vaultFolderPerWorkspace') !== false;
+  const file = uri.fsPath || uri.path || '';
+  let relative = path.basename(file);
+  if (keepTree && typeof vscode.workspace.getWorkspaceFolder === 'function') {
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    const root = folder && folder.uri && (folder.uri.fsPath || folder.uri.path);
+    if (root) {
+      const inside = path.relative(root, file);
+      if (inside && !inside.startsWith('..') && !path.isAbsolute(inside)) {
+        relative = path.join(path.basename(root), inside);
+      }
+    }
+  }
+  return path.join(vault, relative);
+}
+
+async function documentFor(uri) {
+  const editor = vscode.window.activeTextEditor;
+  if (editor && (!uri || editor.document.uri.fsPath === uri.fsPath)) return editor.document;
+  if (!uri) return null;
+  try {
+    return await vscode.workspace.openTextDocument(uri);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function sendToVault(value) {
+  const uri = targetUri(value);
+  const document = await documentFor(uri);
+  if (!document) {
+    vscode.window.showInformationMessage('Open a Markdown file first.');
+    return;
+  }
+  if (uri && !/\.(md|markdown)$/i.test(uri.fsPath || uri.path || '')) {
+    vscode.window.showInformationMessage('Only Markdown notes can go to the vault.');
+    return;
+  }
+  if (document.isDirty) await document.save();
+
+  const vault = await vaultRoot();
+  if (!vault) return;
+
+  let destination = vaultDestination(document.uri, vault);
+  const text = document.getText();
+  if (await fileExists(destination)) {
+    const current = await fs.promises.readFile(destination, 'utf8').catch(() => null);
+    if (current === text) {
+      vscode.window.showInformationMessage(`Already in the Inkwell vault: ${path.relative(vault, destination)}`);
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `${path.basename(destination)} is already in the vault.`,
+      { modal: true, detail: path.relative(vault, destination) },
+      'Replace',
+      'Keep both'
+    );
+    if (!choice) return;
+    if (choice === 'Keep both') destination = await freeName(destination);
+  }
+
+  try {
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+    await fs.promises.writeFile(destination, text, 'utf8');
+  } catch (error) {
+    vscode.window.showErrorMessage(`Could not copy the note: ${error && error.message ? error.message : error}`);
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    `Copied to the Inkwell vault: ${path.relative(vault, destination)}`,
+    'Reveal'
+  );
+  if (action === 'Reveal') {
+    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(destination));
+  }
+}
+
 function activate(context) {
   const provider = new InkwellPreviewProvider(context);
 
@@ -184,6 +328,7 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('inkwell.preview.open', (uri) => openPreview(uri, vscode.ViewColumn.Active)),
     vscode.commands.registerCommand('inkwell.preview.openToSide', (uri) => openPreview(uri, vscode.ViewColumn.Beside)),
+    vscode.commands.registerCommand('inkwell.preview.sendToVault', (uri) => sendToVault(uri)),
     vscode.window.onDidChangeActiveColorTheme(() => provider.refreshAll())
   );
 }

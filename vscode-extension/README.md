@@ -24,6 +24,14 @@ implementation to drift out of sync:
 The preview follows the file live while you type and keeps your scroll position.
 It is a preview: edit the file in the normal editor (or in the other column).
 
+## Sending a note to the vault
+
+- Press the **inbox button** in the editor title bar — or right-click a `.md` file → **Inkwell: Send to Inkwell Vault**, or pick the command in the palette — to copy the note into your Inkwell vault.
+- The first time, you are asked for the vault folder and it is remembered in `inkwellPreview.vaultPath` (`~` expands to your home folder).
+- A note from a project keeps its place under a folder named after the workspace, so `<project>/docs/flow.md` arrives as `<vault>/<project>/docs/flow.md` and two projects cannot overwrite each other. Turn `inkwellPreview.vaultFolderPerWorkspace` off to drop every copy straight into the vault.
+- If the copy is already there and identical, nothing is written. If it changed, choose **Replace** or **Keep both** (`flow-2.md`).
+- **Reveal** in the confirmation opens the folder holding the new note. The vault is a plain folder, so Inkwell picks the note up on its own.
+
 ## Settings
 
 | Setting | Default | Meaning |
@@ -32,6 +40,8 @@ It is a preview: edit the file in the normal editor (or in the other column).
 | `inkwellPreview.palette` | `auto` | `auto` matches VS Code; or `default`, `vscode-dark`, `nord`, `dracula`, `solarized-dark`, `solarized-light`, `sepia`, `rose` |
 | `inkwellPreview.fontSize` | `100` | text scale in percent |
 | `inkwellPreview.direction` | `auto` | `auto`, `ltr` or `rtl` |
+| `inkwellPreview.vaultPath` | empty | folder of the Inkwell vault; asked for the first time when empty |
+| `inkwellPreview.vaultFolderPerWorkspace` | `true` | keep the workspace path under the vault, or copy flat into it |
 
 ## Images
 

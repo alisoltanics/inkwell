@@ -2,7 +2,7 @@
   "name": "inkwell-preview",
   "displayName": "Inkwell Preview",
   "description": "Preview Markdown in VS Code with Inkwell's renderer: the same typography, syntax highlighting, KaTeX math, task lists, footnotes and flashcard decks as the Inkwell app.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "alisoltanics",
   "repository": {
     "type": "git",
@@ -26,7 +26,8 @@
   "activationEvents": [
     "onCustomEditor:inkwell.preview",
     "onCommand:inkwell.preview.open",
-    "onCommand:inkwell.preview.openToSide"
+    "onCommand:inkwell.preview.openToSide",
+    "onCommand:inkwell.preview.sendToVault"
   ],
   "contributes": {
     "customEditors": [
@@ -54,6 +55,12 @@
         "command": "inkwell.preview.openToSide",
         "title": "Open Preview to the Side",
         "category": "Inkwell"
+      },
+      {
+        "command": "inkwell.preview.sendToVault",
+        "title": "Send to Inkwell Vault",
+        "category": "Inkwell",
+        "icon": "$(inbox)"
       }
     ],
     "menus": {
@@ -62,12 +69,20 @@
           "command": "inkwell.preview.openToSide",
           "when": "resourceExtname == .md || resourceExtname == .markdown",
           "group": "navigation@20"
+        },
+        {
+          "command": "inkwell.preview.sendToVault",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "navigation@21"
         }
       ],
       "commandPalette": [
         {
           "command": "inkwell.preview.openToSide",
           "when": "resourceExtname == .md || resourceExtname == .markdown"
+        },
+        {
+          "command": "inkwell.preview.sendToVault"
         }
       ],
       "explorer/context": [
@@ -75,6 +90,11 @@
           "command": "inkwell.preview.open",
           "when": "resourceExtname == .md || resourceExtname == .markdown",
           "group": "navigation@20"
+        },
+        {
+          "command": "inkwell.preview.sendToVault",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "inkwell@10"
         }
       ]
     },
@@ -129,6 +149,16 @@
           "minimum": 70,
           "maximum": 180,
           "description": "Text scale of the preview, in percent."
+        },
+        "inkwellPreview.vaultPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Folder of your Inkwell vault, for **Inkwell: Send to Inkwell Vault**. `~` expands to your home folder. Leave it empty and the folder is asked for the first time you use the command."
+        },
+        "inkwellPreview.vaultFolderPerWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Keep the workspace's folder structure under the vault, so two projects with the same file name do not overwrite each other. Turn it off to drop every copy straight into the vault folder."
         },
         "inkwellPreview.direction": {
           "type": "string",
