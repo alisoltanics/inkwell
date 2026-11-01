@@ -1580,6 +1580,15 @@ ipcMain.handle('telegram:test', async (event, config) => {
   }
 });
 
+// Both formats share the same upload; only the file name and MIME type differ.
+async function sendTelegramFile(creds, filename, blob) {
+  const form = new FormData();
+  form.append('chat_id', creds.chatId);
+  form.append('caption', filename);
+  form.append('document', blob, filename);
+  await telegramApi('sendDocument', form);
+}
+
 ipcMain.handle('telegram:sendHTML', async (event, suggestedName, payload) => {
   const win = windowFrom(event);
   if (!win) return { success: false, error: 'No window available' };
@@ -1600,11 +1609,30 @@ ipcMain.handle('telegram:sendHTML', async (event, suggestedName, payload) => {
   }
 
   try {
-    const form = new FormData();
-    form.append('chat_id', creds.chatId);
-    form.append('caption', filename);
-    form.append('document', new Blob([html], { type: 'text/html' }), filename);
-    await telegramApi('sendDocument', form);
+    await sendTelegramFile(creds, filename, new Blob([html], { type: 'text/html' }));
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// The same note as plain Markdown: nothing to render, so the file is exactly the
+// text the editor holds (or the saved translation).
+ipcMain.handle('telegram:sendMarkdown', async (event, suggestedName, text) => {
+  const win = windowFrom(event);
+  if (!win) return { success: false, error: 'No window available' };
+
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) {
+    return { success: false, error: 'Telegram is not configured. Open Settings → Telegram.' };
+  }
+
+  const body = String(text == null ? '' : text);
+  if (!body.trim()) return { success: false, error: 'There is nothing to send' };
+  const filename = docBaseName(suggestedName) + '.md';
+
+  try {
+    await sendTelegramFile(creds, filename, new Blob([body], { type: 'text/markdown' }));
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };

@@ -456,6 +456,32 @@
         </div>
     </div>
 
+    <!-- Modal: how to send a document to Telegram -->
+    <div class="modal-overlay hidden" id="modalTelegramSend">
+        <div class="modal tg-send-modal">
+            <div class="modal-header">
+                <h3 id="tgSendTitle">Send to Telegram</h3>
+                <button class="modal-close" data-close="telegramSend">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint" id="tgSendHint">Choose the file type to send.</p>
+                <div class="tg-send-choices">
+                    <button class="tg-send-choice" type="button" data-tg-format="html" id="tgSendHtml">
+                        <span class="tg-send-name" id="tgSendHtmlName">document.html</span>
+                        <span class="tg-send-note">One self-contained page: styles, formulas and images inside the file</span>
+                    </button>
+                    <button class="tg-send-choice" type="button" data-tg-format="md" id="tgSendMd">
+                        <span class="tg-send-name" id="tgSendMdName">document.md</span>
+                        <span class="tg-send-note">Plain Markdown text that opens in any editor</span>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" data-close="telegramSend" type="button">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Explain code -->
     <div class="modal-overlay hidden" id="modalExplainCode">
         <div class="modal explain-modal">

@@ -268,6 +268,8 @@ let state = {
   scrollByFile: {},
   cursorByFile: {},
   telegramBusy: false,
+  // which file a Telegram send produces: a self-contained page or plain Markdown
+  telegramFormat: 'html',
   printBusy: false,
   aiProviders: [],
   apiPresetsSeeded: false,
@@ -505,6 +507,7 @@ const modals = {
   saveAnswer: $('modalSaveAnswer'),
   comment: $('modalComment'),
   explainCode: $('modalExplainCode'),
+  telegramSend: $('modalTelegramSend'),
   compare: $('modalCompare'),
   askFiles: $('modalAskFiles'),
   translate: $('modalTranslate'),
@@ -832,6 +835,7 @@ function loadPreferences() {
       if (typeof p.translateEngine === 'string' && p.translateEngine) state.translateEngine = p.translateEngine;
       if (typeof p.translateProvider === 'string') state.translateProvider = p.translateProvider;
       if (typeof p.translateModel === 'string') state.translateModel = p.translateModel;
+      if (p.telegramFormat === 'md' || p.telegramFormat === 'html') state.telegramFormat = p.telegramFormat;
       if (p.docTranslations && typeof p.docTranslations === 'object') state.docTranslations = p.docTranslations;
       if (p.docTranslationView && typeof p.docTranslationView === 'object') state.docTranslationView = p.docTranslationView;
       if (p.docTranslationDir && typeof p.docTranslationDir === 'object') state.docTranslationDir = p.docTranslationDir;
@@ -885,6 +889,7 @@ function savePreferences() {
       translateEngine: state.translateEngine,
       translateProvider: state.translateProvider,
       translateModel: state.translateModel,
+      telegramFormat: state.telegramFormat,
       docTranslations: state.docTranslations,
       docTranslationView: state.docTranslationView,
       docTranslationDir: state.docTranslationDir,
@@ -2188,7 +2193,7 @@ function setupEditorEvents() {
   });
 
   if (els.preview) {
-    els.preview.addEventListener('mouseup', () => {
+    els.preview.addEventListener('mouseup', (e) => {
       const sel = window.getSelection();
       const text = sel ? sel.toString() : '';
       const node = sel && sel.anchorNode;
@@ -2201,16 +2206,23 @@ function setupEditorEvents() {
       // block, while the selected (translated) text stays the passage itself
       const previewAt = previewTextOffsetOf(node, range.startOffset);
       const mapped = mapTranslatedSelection(text);
-      showAIFloat(rect.right, rect.bottom + 4, {
-        text,
-        start: unique ? idx : null,
-        end: unique ? idx + text.length : null,
-        anchor: mapped ? { text: mapped.quote, start: mapped.start, end: mapped.end } : null,
-        // what is on screen decides where the passage is marked, even when the
-        // translation no longer lines up block by block with the note
-        fromTranslation: docTranslationActive(),
-        previewAt,
-      });
+      // the bar belongs under the pointer that finished the selection (the end
+      // of the range only when the selection came from the keyboard)
+      const atMouse = e && typeof e.clientX === 'number' && (e.clientX || e.clientY);
+      showAIFloat(
+        atMouse ? e.clientX : rect.right,
+        atMouse ? e.clientY : rect.bottom + 4,
+        {
+          text,
+          start: unique ? idx : null,
+          end: unique ? idx + text.length : null,
+          anchor: mapped ? { text: mapped.quote, start: mapped.start, end: mapped.end } : null,
+          // what is on screen decides where the passage is marked, even when the
+          // translation no longer lines up block by block with the note
+          fromTranslation: docTranslationActive(),
+          previewAt,
+        },
+      );
     });
   }
 }
@@ -3406,22 +3418,79 @@ async function revealExportedFile(absPath) {
   setTimeout(() => row.classList.remove('just-exported'), 1800);
 }
 
-async function sendDocToTelegram() {
-  if (!state.currentFile) { toast('Open a file first', 'info'); return; }
+// Sending to Telegram asks for the file type first: one self-contained page to
+// read, or the plain Markdown to keep editing. The choice is remembered, and
+// the one used last time is highlighted.
+let telegramSendTarget = null;
+
+function telegramSuggestedBase(name) {
+  return String(name || 'note')
+    .replace(/\.(?:md|markdown|html?|docx|txt)$/i, '')
+    .split(/[\\/]/)
+    .pop() || 'note';
+}
+
+function documentIsPreviewOnly() {
+  return /\.(?:docx|html?)$/i.test(state.currentFile || '');
+}
+
+function openTelegramSendDialog(target) {
+  telegramSendTarget = target;
+  const htmlBtn = $('tgSendHtml');
+  const mdBtn = $('tgSendMd');
+  const canMarkdown = target.kind === 'answer' || !documentIsPreviewOnly();
+  const base = telegramSuggestedBase(target.name);
+  const htmlName = $('tgSendHtmlName');
+  const mdName = $('tgSendMdName');
+  const hint = $('tgSendHint');
+  if (htmlName) htmlName.textContent = base + '.html';
+  if (mdName) mdName.textContent = base + '.md';
+  if (mdBtn) {
+    mdBtn.disabled = !canMarkdown;
+    mdBtn.title = canMarkdown ? '' : t('This document is preview-only');
+  }
+  if (hint) {
+    hint.textContent = canMarkdown
+      ? 'Choose the file type to send.'
+      : 'This document only has a preview, so it is sent as an HTML file.';
+  }
+  const last = state.telegramFormat === 'md' && canMarkdown ? mdBtn : htmlBtn;
+  [htmlBtn, mdBtn].forEach((btn) => { if (btn) btn.classList.toggle('is-last', btn === last); });
+  openModal('telegramSend');
+}
+
+// The Markdown that matches what is on screen: the translation when that is
+// what the user is reading, the note itself otherwise.
+function markdownForTelegram(target) {
+  if (target.kind === 'answer') return String(target.body || '');
+  if (target.translated) {
+    const tr = docTranslationFor();
+    return String((tr && tr.text) || '');
+  }
+  return els.editor.value || '';
+}
+
+async function sendDocumentFileToTelegram(target, format) {
   if (state.telegramBusy) return;
   if (state.dirty) await saveFile(true);
-
   state.telegramBusy = true;
   const btn = els.telegramBtn;
   if (btn) btn.classList.add('busy');
   try {
-    const payload = await buildPrintPayload();
-    // what is on screen is what gets sent: in translation view that is the
-    // translated text, and the file name says which language it is
-    const tr = docTranslationActive() ? docTranslationFor() : null;
-    const name = tr ? `${baseName(state.currentFile)}-${tr.to}` : state.currentFile;
-    toast(tr ? `Sending the ${langLabel(tr.to)} translation to Telegram\u2026` : 'Sending document to Telegram\u2026', 'info', 2500);
-    const res = await window.inkwell.sendDocToTelegram(name, payload);
+    const sending = target.translated
+      ? `Sending the ${langLabel(target.translated.to)} translation to Telegram\u2026`
+      : 'Sending document to Telegram\u2026';
+    let res;
+    if (format === 'md') {
+      const text = markdownForTelegram(target);
+      if (!text.trim()) { toast('There is nothing to send', 'info'); return; }
+      toast(sending, 'info', 2500);
+      res = await window.inkwell.sendDocMarkdown(target.name, text);
+    } else {
+      const payload = await buildPrintPayload();
+      toast(sending, 'info', 2500);
+      res = await window.inkwell.sendDocToTelegram(target.name, payload);
+    }
     if (res && res.success) {
       toast('Sent to Telegram', 'success', 3600);
     } else {
@@ -3434,6 +3503,73 @@ async function sendDocToTelegram() {
     if (btn) btn.classList.remove('busy');
     if (findState.open && findState.query) applyFindMarks();
   }
+}
+
+async function sendAnswerFileToTelegram(target, format) {
+  if (state.telegramBusy) return;
+  state.telegramBusy = true;
+  if (target.button) target.button.classList.add('busy');
+  try {
+    let res;
+    if (format === 'md') {
+      toast(t('Sending answer to Telegram\u2026'), 'info', 2500);
+      res = await window.inkwell.sendDocMarkdown(target.name, target.body);
+    } else {
+      const payload = buildAIAnswerPayload(target.body, target.answerKind);
+      toast(t('Sending answer to Telegram\u2026'), 'info', 2500);
+      res = await window.inkwell.sendDocToTelegram(payload.title, payload);
+    }
+    if (res && res.success) {
+      toast(t('Answer sent to Telegram'), 'success', 3600);
+    } else {
+      const error = (res && res.error) || 'unknown error';
+      toast(t('Telegram send failed: %error%', { error }), 'error', 5000);
+      if (/not configured/i.test(error)) openSettings('telegram');
+    }
+  } catch (e) {
+    toast(t('Telegram send failed: %error%', { error: e && e.message ? e.message : String(e) }), 'error', 5000);
+  } finally {
+    state.telegramBusy = false;
+    if (target.button) target.button.classList.remove('busy');
+  }
+}
+
+function setupTelegramSendDialog() {
+  document.querySelectorAll('.tg-send-choices [data-tg-format]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled || !telegramSendTarget) return;
+      const format = btn.dataset.tgFormat === 'md' ? 'md' : 'html';
+      const target = telegramSendTarget;
+      telegramSendTarget = null;
+      state.telegramFormat = format;
+      savePreferences();
+      closeModal('telegramSend');
+      if (target.kind === 'answer') sendAnswerFileToTelegram(target, format);
+      else sendDocumentFileToTelegram(target, format);
+    });
+  });
+  document.querySelectorAll('.tg-send-choices').forEach((box) => {
+    box.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const items = Array.from(box.querySelectorAll('[data-tg-format]:not(:disabled)'));
+      const at = items.indexOf(document.activeElement);
+      if (!items.length || at === -1) return;
+      e.preventDefault();
+      const next = items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length];
+      next.focus();
+    });
+  });
+}
+setupTelegramSendDialog();
+
+async function sendDocToTelegram() {
+  if (!state.currentFile) { toast('Open a file first', 'info'); return; }
+  if (state.telegramBusy) return;
+  const tr = docTranslationActive() ? docTranslationFor() : null;
+  // what is on screen is what gets sent: in translation view that is the
+  // translated text, and the file name says which language it is
+  const name = tr ? `${baseName(state.currentFile)}-${tr.to}` : state.currentFile;
+  openTelegramSendDialog({ kind: 'document', name, translated: tr || null });
 }
 
 async function printDoc() {
@@ -11191,28 +11327,12 @@ function buildAIAnswerPayload(text = aiAnswer, kind = aiAnswerKind) {
 }
 
 async function sendAIAnswerToTelegram(button, text = aiAnswer, kind = aiAnswerKind) {
-  const body = String(text || '');
+  const body = String(answerTextOf(text) || '');
   if (!body.trim()) { toast(t('There is no answer to send'), 'info'); return; }
   if (state.telegramBusy) return;
-  state.telegramBusy = true;
-  if (button) button.classList.add('busy');
-  try {
-    const payload = buildAIAnswerPayload(body, kind);
-    toast(t('Sending answer to Telegram…'), 'info', 2500);
-    const res = await window.inkwell.sendDocToTelegram(payload.title, payload);
-    if (res && res.success) {
-      toast(t('Answer sent to Telegram'), 'success', 3600);
-    } else {
-      const error = (res && res.error) || 'unknown error';
-      toast(t('Telegram send failed: %error%', { error }), 'error', 5000);
-      if (/not configured/i.test(error)) openSettings('telegram');
-    }
-  } catch (e) {
-    toast(t('Telegram send failed: %error%', { error: e && e.message ? e.message : String(e) }), 'error', 5000);
-  } finally {
-    state.telegramBusy = false;
-    if (button) button.classList.remove('busy');
-  }
+  // the same file-type choice as a document: a page to read or the Markdown
+  const title = buildAIAnswerPayload(body, kind).title;
+  openTelegramSendDialog({ kind: 'answer', name: title, body, answerKind: kind, button });
 }
 
 async function createAnswerFile() {

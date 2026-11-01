@@ -4645,6 +4645,36 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .explain-code-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 .explain-modal .modal-hint { margin: 0; }
 
+/* Send to Telegram: pick the file type */
+.tg-send-modal { width: 480px; max-width: 94vw; }
+.tg-send-modal .modal-body { display: flex; flex-direction: column; gap: 12px; }
+.tg-send-modal .modal-hint { margin: 0; }
+.tg-send-choices { display: flex; flex-direction: column; gap: 10px; }
+.tg-send-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: 12px 14px;
+    text-align: start;
+    color: var(--text);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.tg-send-choice:hover:not(:disabled),
+.tg-send-choice:focus-visible:not(:disabled) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+    outline: none;
+}
+.tg-send-choice.is-last:not(:disabled) { border-color: var(--accent); background: var(--bg-hover); }
+.tg-send-choice:disabled { opacity: .55; cursor: not-allowed; }
+.tg-send-name { font-size: 13px; font-weight: 600; }
+.tg-send-note { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; }
+
 .selection-edit-modal { width: 460px; max-width: 94vw; }
 .selection-edit-modal .modal-body { display: flex; flex-direction: column; gap: 12px; }
 .selection-edit-quote {
