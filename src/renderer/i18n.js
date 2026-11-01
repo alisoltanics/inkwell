@@ -3414,6 +3414,7 @@
     "Answer saved on this passage": "پاسخ روی این قسمت ذخیره شد",
     "Saved answer removed": "پاسخ ذخیره‌شده حذف شد",
     "Select the passage first, then ask": "اول قسمت را انتخاب کن، بعد بپرس",
+    "Choose the language to translate into, then press Translate.": "زبان مقصد را انتخاب کن، بعد Translate را بزن.",
   });
 
   Object.assign(ar, {
@@ -3430,6 +3431,7 @@
     "Answer saved on this passage": "تم حفظ الإجابة على هذا المقطع",
     "Saved answer removed": "تمت إزالة الإجابة المحفوظة",
     "Select the passage first, then ask": "حدّد المقطع أولاً ثم اسأل",
+    "Choose the language to translate into, then press Translate.": "اختر لغة الهدف ثم اضغط Translate.",
   });
 
   Object.assign(fr, {
@@ -3446,6 +3448,7 @@
     "Answer saved on this passage": "Réponse enregistrée sur ce passage",
     "Saved answer removed": "Réponse enregistrée supprimée",
     "Select the passage first, then ask": "Sélectionnez d’abord le passage, puis posez la question",
+    "Choose the language to translate into, then press Translate.": "Choisissez la langue cible, puis appuyez sur Translate.",
   });
 
   Object.assign(de, {
@@ -3462,6 +3465,7 @@
     "Answer saved on this passage": "Antwort am Absatz gespeichert",
     "Saved answer removed": "Gespeicherte Antwort entfernt",
     "Select the passage first, then ask": "Wähle zuerst den Absatz, dann frage",
+    "Choose the language to translate into, then press Translate.": "Zielsprache wählen, dann auf Translate drücken.",
   });
 
   Object.assign(it, {
@@ -3478,6 +3482,7 @@
     "Answer saved on this passage": "Risposta salvata sul passaggio",
     "Saved answer removed": "Risposta salvata rimossa",
     "Select the passage first, then ask": "Seleziona prima il passaggio, poi chiedi",
+    "Choose the language to translate into, then press Translate.": "Scegli la lingua di destinazione, poi premi Translate.",
   });
 
   Object.assign(tr, {
@@ -3494,6 +3499,7 @@
     "Answer saved on this passage": "Yanıt bu bölüme kaydedildi",
     "Saved answer removed": "Kaydedilen yanıt kaldırıldı",
     "Select the passage first, then ask": "Önce bölümü seç, sonra sor",
+    "Choose the language to translate into, then press Translate.": "Hedef dili seç, sonra Translate'e bas.",
   });
 
   Object.assign(es, {
@@ -3510,6 +3516,7 @@
     "Answer saved on this passage": "Respuesta guardada en el pasaje",
     "Saved answer removed": "Respuesta guardada eliminada",
     "Select the passage first, then ask": "Selecciona primero el pasaje y luego pregunta",
+    "Choose the language to translate into, then press Translate.": "Elige el idioma de destino y pulsa Translate.",
   });
 
   Object.assign(zh, {
@@ -3526,6 +3533,7 @@
     "Answer saved on this passage": "回答已保存到该段落",
     "Saved answer removed": "已删除保存的回答",
     "Select the passage first, then ask": "请先选择段落再提问",
+    "Choose the language to translate into, then press Translate.": "选择目标语言，然后点击 Translate。",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

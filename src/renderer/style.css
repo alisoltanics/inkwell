@@ -6485,6 +6485,18 @@ html[dir="rtl"] .ans-pop-quote {
     font-size: 13px;
 }
 
+/* a document waits here until a target language is picked */
+.tr-hint {
+    padding: 14px 12px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+    text-align: center;
+}
+
 .tr-actions {
     display: flex;
     justify-content: flex-end;

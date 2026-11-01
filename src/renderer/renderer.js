@@ -363,6 +363,7 @@ const els = {
   docTrToggleLabel: $('docTrToggleLabel'),
   trFrom: $('trFrom'),
   trTo: $('trTo'),
+  trGo: $('trGo'),
   trEngine: $('trEngine'),
   trSource: $('trSource'),
   trResult: $('trResult'),
@@ -3560,14 +3561,27 @@ async function openDocumentTranslate() {
   if (els.trFrom) els.trFrom.textContent = `${langLabel(trState.from)} (${trState.from})`;
   if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
   if (els.trEngine) els.trEngine.textContent = '';
-  if (els.trResult) els.trResult.replaceChildren();
+  // nothing is translated until the target language is chosen: the picker and
+  // the Translate button are the confirmation step
+  if (els.trResult) {
+    els.trResult.replaceChildren();
+    const hint = document.createElement('div');
+    hint.className = 'tr-hint';
+    hint.textContent = t('Choose the language to translate into, then press Translate.');
+    els.trResult.appendChild(hint);
+  }
   if (els.trSave) {
     els.trSave.disabled = true;
     els.trSave.textContent = t('Save translation');
+    els.trSave.classList.add('hidden');
   }
+  if (els.trCopy) els.trCopy.classList.add('hidden');
+  if (els.trRetry) els.trRetry.classList.add('hidden');
+  if (els.trGo) els.trGo.classList.remove('hidden');
   closeTrPop();
   openModal('translate');
-  runTranslate();
+  // the picker is the next thing to use
+  if (els.trTo) setTimeout(() => { try { els.trTo.focus(); } catch (_) {} }, 60);
 }
 
 function saveDocTranslation() {
@@ -3735,7 +3749,11 @@ function openTranslate(selection) {
   if (els.trSave) {
     els.trSave.disabled = true;
     els.trSave.textContent = t('Save to note');
+    els.trSave.classList.remove('hidden');
   }
+  if (els.trCopy) els.trCopy.classList.remove('hidden');
+  if (els.trRetry) els.trRetry.classList.remove('hidden');
+  if (els.trGo) els.trGo.classList.add('hidden');
   closeTrPop();
   openModal('translate');
   runTranslate();
@@ -3748,6 +3766,10 @@ async function runTranslate() {
   if (!text) return;
   trState.result = '';
   trState.engine = '';
+  if (els.trGo) els.trGo.classList.add('hidden');
+  if (els.trSave) els.trSave.classList.remove('hidden');
+  if (els.trCopy) els.trCopy.classList.remove('hidden');
+  if (els.trRetry) els.trRetry.classList.remove('hidden');
   if (els.trResult) els.trResult.innerHTML = '<div class="tr-busy"><span class="ai-spinner"></span><span>Translating…</span></div>';
   if (els.trEngine) els.trEngine.textContent = '';
   if (els.trSave) els.trSave.disabled = true;
@@ -3761,6 +3783,7 @@ async function runTranslate() {
     if (!ai.ok) {
       if (els.trResult) els.trResult.textContent = ai.error;
       if (els.trEngine) els.trEngine.textContent = 'No translator available';
+      if (els.trGo) els.trGo.classList.remove('hidden');
       return;
     }
     trState.result = ai.text;
@@ -3842,6 +3865,7 @@ if (els.trTo) {
     runTranslate();
   });
 }
+if (els.trGo) els.trGo.addEventListener('click', () => runTranslate());
 if (els.trRetry) els.trRetry.addEventListener('click', () => runTranslate());
 if (els.trSave) els.trSave.addEventListener('click', saveTranslation);
 if (els.trCopy) {
