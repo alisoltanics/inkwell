@@ -3362,14 +3362,39 @@ function speechTextOf(source) {
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
   text = text.replace(/^\s*\|?[\s:|-]{3,}\|?\s*$/gm, '');
   text = text.replace(/^\s*\|(.*)\|\s*$/gm, (whole, row) => ' ' + String(row).replace(/\|/g, ' '));
-  text = text.replace(/^\s{0,3}#{1,6}\s+/gm, '');
-  text = text.replace(/^\s{0,3}>\s?/gm, '');
-  text = text.replace(/^\s*[-*+]\s+\[[ xX]\]\s+/gm, '');
-  text = text.replace(/^\s*[-*+]\s+/gm, '');
-  text = text.replace(/^\s*\d+[.)]\s+/gm, '');
-  text = text.replace(/^[-*_]{3,}\s*$/gm, '');
-  text = text.replace(/[*_~`]+/g, '');
-  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  // A voice only pauses at punctuation. What a reader pauses between is a
+  // block: a heading, a list item, a paragraph — a soft line break inside a
+  // paragraph is not one, so those lines are joined back together.
+  const blocks = [];
+  let current = [];
+  const flush = () => {
+    if (current.length) {
+      blocks.push(current.join(' '));
+      current = [];
+    }
+  };
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    const item = line.match(/^(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/);
+    if (heading || item) {
+      flush();
+      blocks.push((heading ? heading[1] : item[1]).trim());
+      continue;
+    }
+    current.push(line.replace(/^>\s?/, ''));
+  }
+  flush();
+
+  const endsSentence = /[.!?:;\u2026\u060C\u061B\u06D4\u3002\uFF01\uFF1F\u061F]$/;
+  return blocks
+    .map((block) => block.replace(/[*_~`]+/g, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map((block) => (endsSentence.test(block) ? block : `${block}.`))
+    .join('\n\n')
+    .trim();
 }
 
 // Any note can be read: a short one is one request, a long one is chunked by the
