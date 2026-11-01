@@ -5091,6 +5091,12 @@ mark.cmt-mark.cmt-flash {
 .ai-provider-form-actions { display: flex; gap: 8px; }
 .ai-provider-form-row { display: flex; gap: 8px; } .ai-provider-form-row input { flex: 1; min-width: 0; }
 .ai-provider-form .settings-desc { margin: 0; }
+.ai-provider-form input[readonly] { opacity: .65; cursor: not-allowed; }
+.provider-form-status { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); min-height: 15px; }
+.provider-form-status:empty { display: none; }
+.provider-form-status.ok { color: var(--accent); }
+.provider-form-status.err { color: #e5484d; }
+.ai-provider-row-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 
 /* ============ COMMENTS — refined look (markup unchanged) ============ */
 .comments-panel {

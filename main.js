@@ -1874,9 +1874,10 @@ async function discoverAIModels(providerId, providerConfig = {}) {
     const base = normalizeApiBase(providerConfig.baseUrl);
     const key = apiProviderKey(providerConfig);
     if (base && key) {
-      try {
-        const res = await fetch(base + '/models', { headers: { Authorization: 'Bearer ' + key } });
-        if (res.ok) {
+      for (const url of apiEndpointCandidates(providerConfig.baseUrl, 'models')) {
+        try {
+          const res = await fetch(url, { headers: { Authorization: 'Bearer ' + key } });
+          if (!res.ok) continue;
           const data = await res.json();
           const entries = Array.isArray(data && data.data) ? data.data : (Array.isArray(data && data.models) ? data.models : []);
           const models = entries
@@ -1886,9 +1887,9 @@ async function discoverAIModels(providerId, providerConfig = {}) {
             })
             .filter(Boolean);
           if (models.length) return { ok: true, models };
+        } catch (_) {
+          // offline or a blocked endpoint: fall back to the configured list
         }
-      } catch (_) {
-        // offline or a blocked endpoint: fall back to the configured list
       }
     }
     return { ok: true, models: configured };
@@ -2087,6 +2088,31 @@ function normalizeApiBase(baseUrl) {
   return /^https?:\/\//i.test(base) ? base : '';
 }
 
+// A base URL arrives in every shape: a bare host, a versioned root, or the full
+// endpoint copied from a documentation page. Each candidate is tried in order, so
+// "https://api.x.com", "https://api.x.com/v1" and
+// "https://api.x.com/v1/chat/completions" all end up in the right place instead
+// of returning 404.
+function apiEndpointCandidates(baseUrl, endpoint) {
+  const raw = normalizeApiBase(baseUrl);
+  if (!raw) return [];
+  const trimmed = raw.replace(/\/(?:chat\/completions|completions|responses|models)$/i, '');
+  const urls = [];
+  const push = (base) => {
+    const url = base.replace(/\/+$/, '') + '/' + endpoint;
+    if (base && !urls.includes(url)) urls.push(url);
+  };
+  push(trimmed);
+  try {
+    const parsed = new URL(trimmed);
+    const bare = parsed.pathname === '' || parsed.pathname === '/';
+    if (bare) push(trimmed + '/v1');
+    // a host that already ends in /v1 must not get a second one
+    if (/\/v1$/i.test(parsed.pathname)) push(trimmed);
+  } catch (_) {}
+  return urls;
+}
+
 // The key comes from the settings, or from the env var named on the provider,
 // or from <PROVIDER_ID>_API_KEY, so a key can also live in the environment.
 function apiProviderKey(cfg) {
@@ -2112,7 +2138,7 @@ function apiResponseText(data) {
   return '';
 }
 
-function apiErrorMessage(res, body, name) {
+function apiErrorMessage(res, body, name, url) {
   let detail = '';
   try {
     const parsed = JSON.parse(body);
@@ -2121,9 +2147,9 @@ function apiErrorMessage(res, body, name) {
     detail = String(body || '').trim().slice(0, 300);
   }
   if (res.status === 401 || res.status === 403) return name + ' rejected the API key (HTTP ' + res.status + '). Check the key in Settings → AI.';
-  if (res.status === 404) return name + ' returned 404. Check the base URL — it usually ends with /v1.';
+  if (res.status === 404) return name + ' answered 404 at ' + (url || 'the base URL') + '. Check the Base URL: most services expect it to end with /v1 (or the full endpoint), and the model name must exist there.';
   if (res.status === 429) return name + ' is rate limiting requests (HTTP 429). Try again in a moment.';
-  return name + ' request failed (HTTP ' + res.status + ')' + (detail ? ': ' + detail : '');
+  return name + ' request failed (HTTP ' + res.status + ')' + (url ? ' at ' + url : '') + (detail ? ': ' + detail : '');
 }
 
 async function askApiProvider(providerConfig, prompt, model, senderId) {
@@ -2132,29 +2158,39 @@ async function askApiProvider(providerConfig, prompt, model, senderId) {
   if (!base) return { ok: false, error: name + ' needs a base URL such as https://api.deepseek.com/v1.' };
   const key = apiProviderKey(providerConfig);
   if (!key) return { ok: false, error: 'Add an API key for ' + name + ' in Settings → AI.' };
+  const urls = apiEndpointCandidates(providerConfig.baseUrl, 'chat/completions');
+  if (!urls.length) return { ok: false, error: name + ' needs a base URL such as https://api.deepseek.com/v1.' };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_TIMEOUT);
   if (senderId != null) aiProcs.set(senderId, { proc: { kill: () => controller.abort() }, timer });
 
   try {
-    const res = await fetch(base + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-      body: JSON.stringify({
-        model: model || providerConfig.defaultModel || DEFAULT_API_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        stream: false,
-      }),
-      signal: controller.signal,
-    });
-    const body = await res.text();
-    if (!res.ok) return { ok: false, error: apiErrorMessage(res, body, name) };
-    let data;
-    try { data = JSON.parse(body); } catch (_) { return { ok: false, error: name + ' sent a response Inkwell could not read.' }; }
-    const text = stripAnsi(apiResponseText(data)).replace(THINK_RE, '').trim();
-    if (!text) return { ok: false, error: name + ' returned an empty answer.' };
-    return { ok: true, text };
+    let notFound = '';
+    for (const url of urls) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+        body: JSON.stringify({
+          model: model || providerConfig.defaultModel || DEFAULT_API_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+      const body = await res.text();
+      if (!res.ok) {
+        // 404 on one shape of the URL often means the other shape is right
+        if (res.status === 404 && url !== urls[urls.length - 1]) { notFound = url; continue; }
+        return { ok: false, error: apiErrorMessage(res, body, name, url) };
+      }
+      let data;
+      try { data = JSON.parse(body); } catch (_) { return { ok: false, error: name + ' sent a response Inkwell could not read.' }; }
+      const text = stripAnsi(apiResponseText(data)).replace(THINK_RE, '').trim();
+      if (!text) return { ok: false, error: name + ' returned an empty answer.' };
+      return { ok: true, text };
+    }
+    return { ok: false, error: name + ' answered 404 at ' + (notFound || urls[0]) + '. Check the Base URL: most services expect it to end with /v1 (or the full endpoint), and the model name must exist there.' };
   } catch (error) {
     if (error && error.name === 'AbortError') return { ok: false, error: 'Timed out after ' + Math.round(AI_TIMEOUT / 1000) + 's' };
     return { ok: false, error: name + ' request failed: ' + (error && error.message ? error.message : String(error)) };
@@ -2368,6 +2404,51 @@ ipcMain.handle('ai:saveKey', (_event, payload) => {
   } catch (error) {
     return { ok: false, error: error.message || String(error) };
   }
+});
+
+// "Test" in the provider form: prove the key and the base URL work before a long
+// answer depends on them. An HTTP provider lists its models (cheap, read-only);
+// a CLI provider is only asked whether its command exists.
+ipcMain.handle('ai:testProvider', async (_event, payload) => {
+  const cfg = withStoredAICredentials(payload && payload.providerConfig);
+  if (!cfg || typeof cfg !== 'object') return { ok: false, error: 'No provider selected.' };
+  const name = String(cfg.name || cfg.id || 'The provider');
+  if (cfg.type === 'api') {
+    if (!normalizeApiBase(cfg.baseUrl)) return { ok: false, error: name + ' needs a base URL such as https://api.deepseek.com/v1.' };
+    const key = apiProviderKey(cfg);
+    if (!key) return { ok: false, error: 'Add an API key for ' + name + ' first.' };
+    const urls = apiEndpointCandidates(cfg.baseUrl, 'models');
+    let notFound = '';
+    for (const url of urls) {
+      let res;
+      let body;
+      try {
+        res = await fetch(url, { headers: { Authorization: 'Bearer ' + key } });
+        body = await res.text();
+      } catch (e) {
+        return { ok: false, error: 'Could not reach ' + url + ': ' + (e && e.message ? e.message : String(e)) };
+      }
+      if (res.ok) {
+        let count = 0;
+        try {
+          const data = JSON.parse(body);
+          const list = Array.isArray(data && data.data) ? data.data : (Array.isArray(data && data.models) ? data.models : []);
+          count = list.length;
+        } catch (_) {}
+        return { ok: true, url, detail: 'Connected · ' + (count ? count + ' models available' : 'the endpoint answered') };
+      }
+      if (res.status === 404) { notFound = url; continue; }
+      return { ok: false, error: apiErrorMessage(res, body, name, url) };
+    }
+    return { ok: false, error: name + ' answered 404 at ' + (notFound || urls[0]) + '. Check the Base URL: most services expect it to end with /v1 (or the full endpoint).' };
+  }
+  const cmd = String(cfg.command || cfg.type || '').trim();
+  if (!cmd || cmd === 'api') return { ok: false, error: 'This provider has no command to test.' };
+  const exe = resolveExecutable(cmd);
+  if (!exe) return { ok: false, error: 'Could not find "' + cmd + '". Make sure it is installed and on your PATH.' };
+  const res = await captureAICommand(cmd, ['--version'], { timeout: 15000, env: providerCredentialEnv(cfg) });
+  const first = String((res && res.stdout) || '').trim().split(/\r?\n/)[0];
+  return { ok: true, detail: cmd + ' found' + (first ? ' · ' + first : ' at ' + exe) };
 });
 
 function killAIFor(id) {

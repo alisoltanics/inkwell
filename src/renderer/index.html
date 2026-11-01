@@ -938,8 +938,10 @@
                                 </div>
                                 <p class="settings-desc">Passed to the command as environment variables. Names are filled in from the type; change them if your CLI reads different ones.</p>
                                 <input type="text" id="aiProviderFormModelFlag" placeholder="Model flag (e.g. --model; blank if unsupported)" value="--model" spellcheck="false">
+                                <p class="provider-form-status" id="aiProviderFormStatus"></p>
                                 <div class="ai-provider-form-actions">
-                                    <button class="btn-primary" type="submit">Add provider</button>
+                                    <button class="btn-primary" type="submit" id="aiProviderFormSubmit">Add provider</button>
+                                    <button class="btn-secondary" id="aiProviderFormTest" type="button">Test</button>
                                     <button class="btn-secondary" id="aiProviderFormCancel" type="button">Cancel</button>
                                 </div>
                             </form>

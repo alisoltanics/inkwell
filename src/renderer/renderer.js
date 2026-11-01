@@ -6953,6 +6953,35 @@ function renderAIProvidersList() {
     if (hasKey) parts.push('key set');
     else if (p.type === 'api') parts.push('no key yet');
     info.innerHTML = '<div style="font-size:12px;">' + escapeHtml(p.name || p.id) + ' <span style="opacity:.6;">(' + escapeHtml(parts.join(' / ')) + ')</span></div>';
+    const actions = document.createElement('div');
+    actions.className = 'ai-provider-row-actions';
+    // Test asks the provider one cheap question (its model list) so a wrong base
+    // URL or a rejected key shows up here, not in the middle of a long answer.
+    const test = document.createElement('button');
+    test.className = 'btn-secondary';
+    test.type = 'button';
+    test.textContent = 'Test';
+    test.addEventListener('click', async () => {
+      test.disabled = true;
+      let res = null;
+      try {
+        res = await window.inkwell.testAIProvider({ providerConfig: p });
+      } catch (err) {
+        res = { ok: false, error: err && err.message ? err.message : String(err) };
+      }
+      test.disabled = false;
+      const text = (res && (res.detail || res.error)) || 'No answer';
+      toast(text, res && res.ok ? 'success' : 'error', 6000);
+    });
+    const edit = document.createElement('button');
+    edit.className = 'btn-secondary';
+    edit.type = 'button';
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => {
+      openCustomProviderForm(p);
+      const form = $('aiProviderForm');
+      if (form && form.scrollIntoView) form.scrollIntoView({ block: 'nearest' });
+    });
     const del = document.createElement('button');
     del.className = 'btn-secondary';
     del.type = 'button';
@@ -6974,8 +7003,11 @@ function renderAIProvidersList() {
       }
       toast('Removed provider', 'success');
     });
+    actions.appendChild(test);
+    actions.appendChild(edit);
+    actions.appendChild(del);
     row.appendChild(info);
-    row.appendChild(del);
+    row.appendChild(actions);
     els.aiProvidersList.appendChild(row);
   }
 }
@@ -7207,89 +7239,205 @@ function setupSettings() {
       }
     });
   }
-  if (els.aiProviderAdd) {
-    const form = $('aiProviderForm');
-    const field = (id) => $(id).value.trim();
-    els.aiProviderAdd.addEventListener('click', () => {
-      form.classList.toggle('hidden');
-      if (!form.classList.contains('hidden')) $('aiProviderFormId').focus();
-    });
-    const syncEnvNames = () => {
-      const type = $('aiProviderFormType').value;
-      const claude = type === 'claude';
-      const api = type === 'api';
-      const envId = (field('aiProviderFormId') || 'PROVIDER').toUpperCase().replace(/[^A-Z0-9]/g, '_');
-      $('aiProviderFormApiKeyEnv').value = api ? envId + '_API_KEY' : (claude ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
-      $('aiProviderFormBaseUrlEnv').value = api ? '' : (claude ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL');
-      // HTTP providers take the model from the model picker and need no command,
-      // no model flag and no env var names.
-      for (const id of ['aiProviderFormCommand', 'aiProviderFormModelFlag']) {
-        const input = $(id);
-        if (input) input.classList.toggle('hidden', api);
-      }
-      const envRow = form.querySelector('.ai-provider-form-row');
-      if (envRow) envRow.classList.toggle('hidden', api);
-    };
-    $('aiProviderFormType').addEventListener('change', syncEnvNames);
-    syncEnvNames();
-    $('aiProviderFormCancel').addEventListener('click', () => { form.reset(); syncEnvNames(); form.classList.add('hidden'); });
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const id = field('aiProviderFormId');
-      const type = $('aiProviderFormType').value || 'generic';
-      // HTTP providers call the API themselves, so they have no command.
-      const command = field('aiProviderFormCommand') || (type === 'api' ? 'api' : '');
-      if (!id) { toast('Give the provider a short ID', 'error'); $('aiProviderFormId').focus(); return; }
-      if (!command) { toast('ID and command required', 'error'); $('aiProviderFormCommand').focus(); return; }
-      const cleanId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
-      state.aiProviders = Array.isArray(state.aiProviders) ? state.aiProviders : [];
-      if (getAIProviders().some((p) => p.id === cleanId)) { toast('Provider ID already exists', 'error'); return; }
-      const customProvider = { id: cleanId, name: field('aiProviderFormName') || id, command, type };
-      const modelFlag = field('aiProviderFormModelFlag');
-      // an HTTP provider takes the model from the model picker: no flag, no env
-      if (modelFlag && type !== 'api') customProvider.modelFlag = modelFlag;
-      const baseUrl = field('aiProviderFormBaseUrl').replace(/\/+$/, '');
-      const apiKey = $('aiProviderFormApiKey').value.trim();
-      if (baseUrl && !/^https?:\/\//i.test(baseUrl)) { toast('Base URL must start with http:// or https://', 'error'); return; }
-      if (type === 'api' && !baseUrl) { toast('Base URL is required for API providers', 'error'); return; }
-      if (baseUrl) { customProvider.baseUrl = baseUrl; customProvider.baseUrlEnv = field('aiProviderFormBaseUrlEnv'); }
-      if (type === 'api') {
-        // an HTTP provider's key belongs in the app's settings file (written by
-        // the main process), never in the preferences this page keeps
-        customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv') || cleanId.toUpperCase() + '_API_KEY';
-        if (apiKey) {
-          let saved = null;
-          try {
-            saved = await window.inkwell.saveAIKey({ id: cleanId, apiKey, baseUrl });
-          } catch (err) {
-            saved = { ok: false, error: err && err.message ? err.message : String(err) };
-          }
-          if (!saved || !saved.ok) {
-            toast((saved && saved.error) || 'Could not save the API key', 'error');
-            return;
-          }
-          aiKeyStatus.set(cleanId, { hasKey: !!saved.hasKey, baseUrl });
-        }
-      } else if (apiKey) {
-        customProvider.apiKey = apiKey;
-        customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv');
-      }
-      state.aiProviders.push(customProvider);
-      state.aiProvider = cleanId;
-      form.reset();
-      syncEnvNames();
-      form.classList.add('hidden');
-      populateAISettings();
-      renderAIProvidersList();
-      syncAIProvider();
-      populateAIProviderSelect();
-      // a provider with a key can list the models of its service right away
-      aiModelCatalogs.delete(cleanId);
-      loadAIModelOptions(cleanId, true);
-      savePreferences();
-      toast('Provider added', 'success');
-    });
+  if (els.aiProviderAdd) setupCustomProviderForm();
+  els.settingsTelegramSave.addEventListener('click', saveTelegramSettings);
+  els.settingsTelegramTest.addEventListener('click', testTelegram);
+}
+
+/* ---- custom providers: one form for adding and for editing ---- */
+// Editing keeps the provider ID (the saved API key belongs to it) and leaves the
+// key alone unless a new one is typed, so a base URL can be fixed without
+// re-entering the secret.
+let editingProviderId = null;
+
+function syncProviderFormFields() {
+  const form = $('aiProviderForm');
+  if (!form) return;
+  const type = $('aiProviderFormType').value;
+  const api = type === 'api';
+  const claude = type === 'claude';
+  const envId = (($('aiProviderFormId').value || '').trim() || 'PROVIDER').toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  $('aiProviderFormApiKeyEnv').value = api ? envId + '_API_KEY' : (claude ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  $('aiProviderFormBaseUrlEnv').value = api ? '' : (claude ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL');
+  // HTTP providers take the model from the model picker and need no command,
+  // no model flag and no env var names.
+  for (const id of ['aiProviderFormCommand', 'aiProviderFormModelFlag']) {
+    const input = $(id);
+    if (input) input.classList.toggle('hidden', api);
   }
+  const envRow = form.querySelector('.ai-provider-form-row');
+  if (envRow) envRow.classList.toggle('hidden', api);
+  // the env-var explanation only applies to a CLI provider
+  const envHelp = form.querySelector('.settings-desc');
+  if (envHelp) envHelp.classList.toggle('hidden', api);
+  const keyInput = $('aiProviderFormApiKey');
+  if (keyInput) {
+    keyInput.placeholder = api
+      ? (editingProviderId && apiKeyState(editingProviderId).hasKey ? 'API key (leave empty to keep the saved one)' : 'API key')
+      : 'API key (optional, passed as an env var)';
+  }
+}
+
+function providerFormValues() {
+  const type = $('aiProviderFormType').value || 'generic';
+  return {
+    id: ($('aiProviderFormId').value || '').trim(),
+    name: ($('aiProviderFormName').value || '').trim(),
+    command: ($('aiProviderFormCommand').value || '').trim() || (type === 'api' ? 'api' : ''),
+    type,
+    baseUrl: ($('aiProviderFormBaseUrl').value || '').trim().replace(/\/+$/, ''),
+    modelFlag: ($('aiProviderFormModelFlag').value || '').trim(),
+    apiKey: $('aiProviderFormApiKey').value.trim(),
+    apiKeyEnv: $('aiProviderFormApiKeyEnv').value.trim(),
+    baseUrlEnv: $('aiProviderFormBaseUrlEnv').value.trim(),
+  };
+}
+
+function setProviderFormStatus(text, kind) {
+  const status = $('aiProviderFormStatus');
+  if (!status) return;
+  status.textContent = text || '';
+  status.className = 'provider-form-status' + (kind ? ' ' + kind : '');
+}
+
+function openCustomProviderForm(provider) {
+  const form = $('aiProviderForm');
+  if (!form) return;
+  editingProviderId = provider ? provider.id : null;
+  form.reset();
+  $('aiProviderFormId').value = provider ? provider.id : '';
+  $('aiProviderFormId').readOnly = !!provider;
+  $('aiProviderFormId').title = provider ? 'The ID is fixed: the saved API key belongs to it.' : '';
+  $('aiProviderFormName').value = provider ? (provider.name || provider.id) : '';
+  $('aiProviderFormCommand').value = provider && provider.command && provider.command !== 'api' ? provider.command : '';
+  $('aiProviderFormType').value = provider && provider.type ? provider.type : 'generic';
+  $('aiProviderFormBaseUrl').value = (provider && provider.baseUrl) || '';
+  $('aiProviderFormApiKey').value = '';
+  $('aiProviderFormModelFlag').value = (provider && provider.modelFlag) || '--model';
+  const submit = $('aiProviderFormSubmit');
+  if (submit) submit.textContent = provider ? 'Save changes' : 'Add provider';
+  setProviderFormStatus('');
+  syncProviderFormFields();
+  form.classList.remove('hidden');
+  const focusOn = provider ? $('aiProviderFormName') : $('aiProviderFormId');
+  if (focusOn) focusOn.focus();
+}
+
+async function testCustomProvider() {
+  const values = providerFormValues();
+  if (!values.id) { toast('Give the provider a short ID', 'error'); $('aiProviderFormId').focus(); return; }
+  if (values.type === 'api' && !values.baseUrl) { toast('Base URL is required for API providers', 'error'); $('aiProviderFormBaseUrl').focus(); return; }
+  const btn = $('aiProviderFormTest');
+  if (btn) btn.disabled = true;
+  setProviderFormStatus('Testing…', '');
+  let res = null;
+  try {
+    // the key typed in the form is tested before it is saved anywhere
+    res = await window.inkwell.testAIProvider({ providerConfig: { ...values, id: values.id.replace(/[^a-zA-Z0-9_-]/g, '_') } });
+  } catch (err) {
+    res = { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+  if (btn) btn.disabled = false;
+  const text = (res && (res.detail || res.error)) || 'No answer';
+  setProviderFormStatus(text, res && res.ok ? 'ok' : 'err');
+  toast(text, res && res.ok ? 'success' : 'error', 5000);
+}
+
+async function submitCustomProviderForm() {
+  const values = providerFormValues();
+  if (!values.id) { toast('Give the provider a short ID', 'error'); $('aiProviderFormId').focus(); return; }
+  if (!values.command) { toast('A command is required for this provider type', 'error'); $('aiProviderFormCommand').focus(); return; }
+  if (values.baseUrl && !/^https?:\/\//i.test(values.baseUrl)) { toast('Base URL must start with http:// or https://', 'error'); $('aiProviderFormBaseUrl').focus(); return; }
+  if (values.type === 'api' && !values.baseUrl) { toast('Base URL is required for API providers', 'error'); $('aiProviderFormBaseUrl').focus(); return; }
+
+  const cleanId = values.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+  state.aiProviders = Array.isArray(state.aiProviders) ? state.aiProviders : [];
+  const editing = !!editingProviderId;
+  const at = editing ? state.aiProviders.findIndex((p) => p.id === editingProviderId) : -1;
+  if (editing && at === -1) { toast('That provider is gone', 'error'); closeCustomProviderForm(); return; }
+  if (!editing && getAIProviders().some((p) => p.id === cleanId)) { toast('Provider ID already exists', 'error'); return; }
+
+  const entry = {
+    ...(editing ? state.aiProviders[at] : {}),
+    id: cleanId,
+    name: values.name || cleanId,
+    command: values.command,
+    type: values.type,
+  };
+  delete entry.apiKey;
+  if (values.modelFlag && values.type !== 'api') entry.modelFlag = values.modelFlag;
+  else delete entry.modelFlag;
+  if (values.baseUrl) entry.baseUrl = values.baseUrl;
+  else delete entry.baseUrl;
+  if (values.type !== 'api') {
+    if (values.baseUrlEnv) entry.baseUrlEnv = values.baseUrlEnv;
+    if (values.apiKeyEnv) entry.apiKeyEnv = values.apiKeyEnv;
+    if (values.apiKey) entry.apiKey = values.apiKey;
+  } else {
+    // an HTTP provider's key belongs in the app's settings file (written by the
+    // main process), never in the preferences this page keeps
+    entry.apiKeyEnv = values.apiKeyEnv || cleanId.toUpperCase() + '_API_KEY';
+    entry.baseUrlEnv = '';
+    if (values.apiKey) {
+      let saved = null;
+      try {
+        saved = await window.inkwell.saveAIKey({ id: cleanId, apiKey: values.apiKey, baseUrl: values.baseUrl });
+      } catch (err) {
+        saved = { ok: false, error: err && err.message ? err.message : String(err) };
+      }
+      if (!saved || !saved.ok) {
+        setProviderFormStatus((saved && saved.error) || 'Could not save the API key', 'err');
+        toast((saved && saved.error) || 'Could not save the API key', 'error');
+        return;
+      }
+      aiKeyStatus.set(cleanId, { hasKey: !!saved.hasKey, baseUrl: values.baseUrl });
+    }
+  }
+
+  if (editing) state.aiProviders[at] = entry;
+  else state.aiProviders.push(entry);
+  state.aiProvider = cleanId;
+  closeCustomProviderForm();
+  populateAISettings();
+  renderAIProvidersList();
+  syncAIProvider();
+  populateAIProviderSelect();
+  // a provider with a key can list the models of its service right away
+  aiModelCatalogs.delete(cleanId);
+  loadAIModelOptions(cleanId, true);
+  savePreferences();
+  toast(editing ? 'Provider updated' : 'Provider added', 'success');
+}
+
+function closeCustomProviderForm() {
+  const form = $('aiProviderForm');
+  if (!form) return;
+  editingProviderId = null;
+  form.reset();
+  $('aiProviderFormId').readOnly = false;
+  const submit = $('aiProviderFormSubmit');
+  if (submit) submit.textContent = 'Add provider';
+  setProviderFormStatus('');
+  syncProviderFormFields();
+  form.classList.add('hidden');
+}
+
+function setupCustomProviderForm() {
+  const form = $('aiProviderForm');
+  if (!form) return;
+  els.aiProviderAdd.addEventListener('click', () => {
+    if (!form.classList.contains('hidden') && !editingProviderId) { closeCustomProviderForm(); return; }
+    openCustomProviderForm(null);
+  });
+  $('aiProviderFormType').addEventListener('change', syncProviderFormFields);
+  $('aiProviderFormId').addEventListener('input', syncProviderFormFields);
+  $('aiProviderFormCancel').addEventListener('click', closeCustomProviderForm);
+  $('aiProviderFormTest').addEventListener('click', testCustomProvider);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitCustomProviderForm();
+  });
+  syncProviderFormFields();
   els.settingsTelegramSave.addEventListener('click', saveTelegramSettings);
   els.settingsTelegramTest.addEventListener('click', testTelegram);
 }

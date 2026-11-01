@@ -77,4 +77,5 @@ contextBridge.exposeInMainWorld('inkwell', {
   cancelAI: () => ipcRenderer.invoke('ai:cancel'),
   getAIKeyStatus: (payload) => ipcRenderer.invoke('ai:keyStatus', payload),
   saveAIKey: (payload) => ipcRenderer.invoke('ai:saveKey', payload),
+  testAIProvider: (payload) => ipcRenderer.invoke('ai:testProvider', payload),
 });
