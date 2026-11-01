@@ -981,6 +981,10 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
             Change
         </button>
+        <button class="sel-btn sel-btn-tr" id="trFloatBtn" type="button" title="Translate this selection">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h10M9 3v2M12 5c0 5-3.5 9-8 11"/><path d="m6 12 5 5"/><path d="M14 21l4-10 4 10M15.5 17h5"/></svg>
+            Translate
+        </button>
         <button class="sel-btn sel-btn-copy" id="copyFloatBtn" type="button" title="Copy the selected text">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             Copy
@@ -1226,6 +1230,44 @@
         <button class="lightbox-close" id="lightboxClose" title="Close (Esc)">&times;</button>
         <img id="lightboxImg" alt="">
         <div class="lightbox-caption" id="lightboxCaption"></div>
+    </div>
+
+    <!-- Translate a passage: shown before it is saved on the note -->
+    <div class="modal-overlay hidden" id="modalTranslate">
+        <div class="modal translate-modal">
+            <div class="modal-header">
+                <h3>Translate</h3>
+                <button class="modal-close" data-close="translate">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tr-head">
+                    <span class="tr-lang" id="trFrom">Automatic</span>
+                    <span class="tr-arrow" aria-hidden="true">&rarr;</span>
+                    <select id="trTo" class="tr-target" aria-label="Translate to"></select>
+                </div>
+                <p class="tr-engine" id="trEngine"></p>
+                <blockquote class="tr-source" id="trSource" dir="auto"></blockquote>
+                <div class="tr-result markdown-body" id="trResult" dir="auto"></div>
+                <div class="tr-actions">
+                    <button class="btn-primary" id="trSave" type="button">Save to note</button>
+                    <button class="btn-secondary" id="trCopy" type="button">Copy</button>
+                    <button class="btn-secondary" id="trRetry" type="button">Try again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- A saved translation, reopened from the highlighted passage -->
+    <div class="tr-pop hidden" id="trPop" role="dialog" aria-label="Saved translation">
+        <div class="tr-pop-head">
+            <span class="tr-pop-lang" id="trPopLang"></span>
+            <button type="button" class="tr-pop-close" id="trPopClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="tr-pop-body markdown-body" id="trPopBody" dir="auto"></div>
+        <div class="tr-pop-foot">
+            <button type="button" class="tts-action" id="trPopCopy">Copy</button>
+            <button type="button" class="tts-action" id="trPopRemove">Remove</button>
+        </div>
     </div>
 
     <!-- Read aloud: the recording of this note, kept in the vault -->

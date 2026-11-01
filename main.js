@@ -705,6 +705,42 @@ function openExternalUrl(rawUrl) {
 
 ipcMain.handle('shell:openExternal', async (event, url) => ({ success: openExternalUrl(url) }));
 
+/* ================= OFFLINE TRANSLATION ================= */
+// Argos Translate is the offline translator that is actually installable as a
+// command line tool. When it is missing the renderer falls back to the AI.
+function offlineTranslator() {
+  return commandOnPath('argos-translate') ? 'argos-translate' : '';
+}
+
+ipcMain.handle('translate:status', async () => {
+  const engine = offlineTranslator();
+  return { ok: true, engine, offline: !!engine };
+});
+
+ipcMain.handle('translate:text', async (event, payload) => {
+  const bin = offlineTranslator();
+  if (!bin) return { ok: false, error: 'no-engine' };
+  const text = String((payload && payload.text) || '').trim();
+  const from = String((payload && payload.from) || 'en').trim() || 'en';
+  const to = String((payload && payload.to) || 'fa').trim() || 'fa';
+  if (!text) return { ok: false, error: 'There is no text to translate' };
+  if (from === to) return { ok: true, engine: 'argos', text };
+  // long flags on current releases, short ones on older builds
+  const attempts = [
+    ['--from-lang', from, '--to-lang', to, text],
+    ['-f', from, '-t', to, text],
+  ];
+  let lastError = '';
+  for (const args of attempts) {
+    const res = await runCommand(bin, args, { timeout: 120000 });
+    if (res.ok && String(res.stdout || '').trim()) {
+      return { ok: true, engine: 'argos', text: String(res.stdout).trim() };
+    }
+    lastError = res.error || '';
+  }
+  return { ok: false, error: lastError || 'The translator returned nothing' };
+});
+
 /* ================= READ ALOUD (text to speech) ================= */
 // The audio lives next to the vault (hidden .inkwell/audio) so the same note
 // always plays the same file and the sound survives a restart. Any note can be

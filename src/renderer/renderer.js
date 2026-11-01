@@ -250,6 +250,8 @@ let state = {
   ttsSpeed: 1,
   aiPrompts: ['Explain this', 'Translate to Persian', 'Explain this in Persian', 'Summarize this', 'What is this?'],
   commentsByFile: {},
+  // translations saved per note: the passage and its translation
+  translationsByFile: {},
   lastFile: null,
   lastOpenFromFavorites: false,
   scrollByFile: {},
@@ -349,6 +351,21 @@ const els = {
   settingsTtsVoice: $('settingsTtsVoice'),
   settingsTtsTest: $('settingsTtsTest'),
   settingsAiModeBadge: $('settingsAiModeBadge'),
+  trFloatBtn: $('trFloatBtn'),
+  trFrom: $('trFrom'),
+  trTo: $('trTo'),
+  trEngine: $('trEngine'),
+  trSource: $('trSource'),
+  trResult: $('trResult'),
+  trSave: $('trSave'),
+  trCopy: $('trCopy'),
+  trRetry: $('trRetry'),
+  trPop: $('trPop'),
+  trPopLang: $('trPopLang'),
+  trPopBody: $('trPopBody'),
+  trPopClose: $('trPopClose'),
+  trPopCopy: $('trPopCopy'),
+  trPopRemove: $('trPopRemove'),
   findBar: $('findBar'),
   findInput: $('findInput'),
   findCount: $('findCount'),
@@ -459,6 +476,7 @@ const modals = {
   explainCode: $('modalExplainCode'),
   compare: $('modalCompare'),
   askFiles: $('modalAskFiles'),
+  translate: $('modalTranslate'),
   selectionEdit: $('modalSelectionEdit'),
   settings: $('modalSettings'),
 };
@@ -745,6 +763,7 @@ function loadPreferences() {
       }
       if (Array.isArray(p.aiProviders)) state.aiProviders = p.aiProviders.filter((pp) => pp && typeof pp === 'object' && pp.id && pp.name && pp.command);
       if (p.commentsByFile && typeof p.commentsByFile === 'object') state.commentsByFile = p.commentsByFile;
+      if (p.translationsByFile && typeof p.translationsByFile === 'object') state.translationsByFile = p.translationsByFile;
       if (typeof p.lastFile === 'string') state.lastFile = p.lastFile;
       if (typeof p.lastOpenFromFavorites === 'boolean') state.lastOpenFromFavorites = p.lastOpenFromFavorites;
       if (p.scrollByFile && typeof p.scrollByFile === 'object') state.scrollByFile = p.scrollByFile;
@@ -790,6 +809,7 @@ function savePreferences() {
       aiPrompts: state.aiPrompts,
       externalFiles: state.externalFiles,
       commentsByFile: state.commentsByFile,
+      translationsByFile: state.translationsByFile,
       lastFile: state.lastFile,
       lastOpenFromFavorites: state.lastOpenFromFavorites,
       scrollByFile: state.scrollByFile,
@@ -2246,6 +2266,7 @@ function renderPreview(force = false) {
   });
   applyDirection();
   decoratePreviewComments();
+  decoratePreviewTranslations();
   if (findState.open && findState.query) applyFindMarks();
   schedulePaginate(0);
 }
@@ -3347,6 +3368,242 @@ async function printDoc() {
 els.exportBtn.addEventListener('click', exportHTML);
 if (els.printBtn) els.printBtn.addEventListener('click', printDoc);
 if (els.telegramBtn) els.telegramBtn.addEventListener('click', sendDocToTelegram);
+
+/* ============ TRANSLATE A PASSAGE ============ */
+// Offline first: Argos Translate writes the translation on this machine. When it
+// is not installed the AI provider behind Ask AI does the work instead.
+const TR_LANGS = [
+  ['fa', 'Persian'], ['en', 'English'], ['ar', 'Arabic'], ['tr', 'Turkish'],
+  ['fr', 'French'], ['de', 'German'], ['es', 'Spanish'], ['it', 'Italian'],
+  ['ru', 'Russian'], ['zh', 'Chinese'], ['hi', 'Hindi'], ['pt', 'Portuguese'], ['ja', 'Japanese'],
+];
+const trState = { text: '', from: 'en', to: 'fa', result: '', engine: '' };
+
+function langLabel(code) {
+  const found = TR_LANGS.find(([id]) => id === code);
+  return found ? found[1] : String(code || '').toUpperCase();
+}
+
+function langCodeOfName(name) {
+  const wanted = String(name || '').trim().toLowerCase();
+  if (!wanted) return '';
+  const found = TR_LANGS.find(([id, label]) => id === wanted || label.toLowerCase() === wanted);
+  return found ? found[0] : '';
+}
+
+function guessTextLanguage(text) {
+  const sample = String(text || '').slice(0, 600);
+  if (/[\u0600-\u06FF]/.test(sample)) return /[\u067E\u0686\u0698\u06AF\u06A9]/.test(sample) ? 'fa' : 'ar';
+  if (/[\u0400-\u04FF]/.test(sample)) return 'ru';
+  if (/[\u4E00-\u9FFF]/.test(sample)) return 'zh';
+  if (/[\u0590-\u05FF]/.test(sample)) return 'he';
+  return 'en';
+}
+
+function fillTrLanguages() {
+  if (!els.trTo) return;
+  els.trTo.replaceChildren();
+  for (const [code, label] of TR_LANGS) {
+    const option = document.createElement('option');
+    option.value = code;
+    option.textContent = `${label} (${code})`;
+    els.trTo.appendChild(option);
+  }
+  els.trTo.value = trState.to;
+}
+
+function translationsFor(file) {
+  const key = file || state.currentFile;
+  if (!key) return [];
+  if (!Array.isArray(state.translationsByFile[key])) state.translationsByFile[key] = [];
+  return state.translationsByFile[key];
+}
+
+// Shows the saved translation in a small card next to the passage it belongs to.
+function openTrPop(mark) {
+  const id = mark && mark.dataset ? mark.dataset.tr : '';
+  const entry = translationsFor().find((item) => item.id === id);
+  if (!entry || !els.trPop) return;
+  closeTrPop();
+  trState.openedId = id;
+  if (els.trPopLang) els.trPopLang.textContent = `${langLabel(entry.from)} → ${langLabel(entry.to)}`;
+  if (els.trPopBody) els.trPopBody.innerHTML = md.render(entry.text || '');
+  els.trPop.classList.remove('hidden');
+  const rect = mark.getBoundingClientRect();
+  const width = els.trPop.offsetWidth || 320;
+  const height = els.trPop.offsetHeight || 160;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const top = rect.bottom + height + 12 <= window.innerHeight ? rect.bottom + 8 : Math.max(8, rect.top - height - 8);
+  els.trPop.style.left = left + 'px';
+  els.trPop.style.top = top + 'px';
+}
+
+function closeTrPop() {
+  if (els.trPop) els.trPop.classList.add('hidden');
+  trState.openedId = '';
+}
+
+// A saved translation keeps its passage marked, in a colour quiet enough to read
+// through.
+function decoratePreviewTranslations() {
+  if (!state.currentFile) return;
+  const list = state.translationsByFile[state.currentFile];
+  if (!Array.isArray(list) || !list.length) return;
+  for (const item of list) {
+    const plain = mdPlain(item.quote || '').trim();
+    if (plain.length < 2) continue;
+    const { text, items } = previewTextItems();
+    const found = previewFind(text, plain);
+    if (found) wrapPreviewRange(item.id, found.index, found.length, items, { className: 'tr-mark', dataKey: 'tr' });
+  }
+}
+
+function openTranslate(selection) {
+  const text = String((selection && selection.text) || '').trim();
+  if (!text) { toast('Select some text first', 'info'); return; }
+  trState.text = text;
+  trState.from = guessTextLanguage(text);
+  // the language the app answers in is the best guess for where it is going
+  const wanted = langCodeOfName(getAIResponseLanguage());
+  trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
+  fillTrLanguages();
+  if (els.trFrom) els.trFrom.textContent = `${langLabel(trState.from)} (${trState.from})`;
+  if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+  if (els.trEngine) els.trEngine.textContent = '';
+  if (els.trResult) els.trResult.replaceChildren();
+  if (els.trSave) els.trSave.disabled = true;
+  closeTrPop();
+  openModal('translate');
+  runTranslate();
+}
+
+async function runTranslate() {
+  const text = trState.text;
+  const from = trState.from;
+  const to = trState.to;
+  if (!text) return;
+  trState.result = '';
+  trState.engine = '';
+  if (els.trResult) els.trResult.innerHTML = '<div class="tr-busy"><span class="ai-spinner"></span><span>Translating…</span></div>';
+  if (els.trEngine) els.trEngine.textContent = '';
+  if (els.trSave) els.trSave.disabled = true;
+  let local = null;
+  try { local = await window.inkwell.translateText({ text, from, to }); } catch (_) { local = null; }
+  if (local && local.ok && String(local.text || '').trim()) {
+    trState.result = String(local.text).trim();
+    trState.engine = 'Argos · offline';
+  } else {
+    const ai = await translateWithAI(text, from, to);
+    if (!ai.ok) {
+      if (els.trResult) els.trResult.textContent = ai.error;
+      if (els.trEngine) els.trEngine.textContent = 'No translator available';
+      return;
+    }
+    trState.result = ai.text;
+    trState.engine = ai.engine;
+  }
+  if (els.trEngine) els.trEngine.textContent = `${trState.engine} · ${langLabel(from)} → ${langLabel(to)}`;
+  if (els.trResult) els.trResult.innerHTML = md.render(trState.result);
+  if (els.trSave) els.trSave.disabled = !trState.result.trim();
+}
+
+async function translateWithAI(text, from, to) {
+  const provider = els.aiProvider ? els.aiProvider.value : state.aiProvider;
+  const cfg = getAIProviderById(provider);
+  if (!cfg) return { ok: false, error: 'No AI provider is set up, and no offline translator was found.' };
+  const model = selectedAIModel(els.aiModel, els.aiModelCustom);
+  const prompt = [
+    `Translate the following ${langLabel(from)} text into ${langLabel(to)}.`,
+    'Keep Markdown, code, names, numbers and links exactly as they are, and preserve the paragraph and list structure.',
+    'Reply with the translation only — no preamble, no explanation, no code fence.',
+    '',
+    String(text || ''),
+  ].join('\n');
+  try {
+    const res = await window.inkwell.askAI({ provider, prompt, model, providerConfig: cfg });
+    if (res && res.ok && String(res.text || '').trim()) {
+      return { ok: true, text: String(res.text).trim(), engine: `AI · ${providerLabel(provider)}` };
+    }
+    return { ok: false, error: (res && res.error) || 'The AI returned nothing.' };
+  } catch (e) {
+    return { ok: false, error: e.message || 'The AI request failed.' };
+  }
+}
+
+function saveTranslation() {
+  if (!trState.result.trim()) return;
+  if (!state.currentFile) { toast('Open a note first', 'info'); return; }
+  const list = translationsFor();
+  list.push({
+    id: 'tr-' + Date.now().toString(36),
+    quote: trState.text.slice(0, 600),
+    from: trState.from,
+    to: trState.to,
+    text: trState.result,
+    engine: trState.engine,
+    createdAt: Date.now(),
+  });
+  savePreferences();
+  closeModal('translate');
+  renderPreview(true);
+  toast('Translation saved on this passage', 'success');
+}
+
+if (els.trFloatBtn) {
+  els.trFloatBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  els.trFloatBtn.addEventListener('click', () => {
+    const selection = pendingSelection && pendingSelection.text
+      ? pendingSelection
+      : (() => {
+        const start = Math.min(els.editor.selectionStart, els.editor.selectionEnd);
+        const end = Math.max(els.editor.selectionStart, els.editor.selectionEnd);
+        return { text: els.editor.value.slice(start, end), start, end };
+      })();
+    hideAIFloat();
+    openTranslate(selection);
+  });
+}
+if (els.trTo) {
+  els.trTo.addEventListener('change', () => {
+    trState.to = els.trTo.value;
+    runTranslate();
+  });
+}
+if (els.trRetry) els.trRetry.addEventListener('click', () => runTranslate());
+if (els.trSave) els.trSave.addEventListener('click', saveTranslation);
+if (els.trCopy) {
+  els.trCopy.addEventListener('click', async () => {
+    if (!trState.result) return;
+    try { await navigator.clipboard.writeText(trState.result); toast('Copied', 'success'); } catch (_) {}
+  });
+}
+if (els.trPopClose) els.trPopClose.addEventListener('click', closeTrPop);
+if (els.trPopCopy) {
+  els.trPopCopy.addEventListener('click', async () => {
+    const entry = translationsFor().find((item) => item.id === trState.openedId);
+    if (!entry) return;
+    try { await navigator.clipboard.writeText(entry.text || ''); toast('Copied', 'success'); } catch (_) {}
+  });
+}
+if (els.trPopRemove) {
+  els.trPopRemove.addEventListener('click', () => {
+    const id = trState.openedId;
+    if (!id) return;
+    const list = translationsFor().filter((item) => item.id !== id);
+    if (list.length) state.translationsByFile[state.currentFile] = list;
+    else delete state.translationsByFile[state.currentFile];
+    savePreferences();
+    closeTrPop();
+    renderPreview(true);
+    toast('Translation removed', 'info');
+  });
+}
+document.addEventListener('mousedown', (e) => {
+  if (!els.trPop || els.trPop.classList.contains('hidden')) return;
+  if (els.trPop.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('.tr-mark')) return;
+  closeTrPop();
+});
 
 /* ============ READ ALOUD (text to speech) ============ */
 // The recording of a note lives in <vault>/.inkwell/audio, so it survives a
@@ -4664,6 +4921,7 @@ $('deleteFileConfirm').addEventListener('click', async () => {
     if (favIdx !== -1) { state.favorites.splice(favIdx, 1); savePreferences(); }
     if (state.dirByFile[path] !== undefined) { delete state.dirByFile[path]; savePreferences(); }
     if (state.commentsByFile[path] !== undefined) { delete state.commentsByFile[path]; savePreferences(); }
+    if (state.translationsByFile[path] !== undefined) { delete state.translationsByFile[path]; savePreferences(); }
     if (state.currentFile === path) {
       state.currentFile = null;
       state.dirty = false;
@@ -4787,6 +5045,11 @@ async function doRename() {
     if (state.commentsByFile[oldPath] !== undefined) {
       state.commentsByFile[newPath] = state.commentsByFile[oldPath];
       delete state.commentsByFile[oldPath];
+      savePreferences();
+    }
+    if (state.translationsByFile[oldPath] !== undefined) {
+      state.translationsByFile[newPath] = state.translationsByFile[oldPath];
+      delete state.translationsByFile[oldPath];
       savePreferences();
     }
     await refreshFiles();
@@ -5247,7 +5510,7 @@ function previewTextItems() {
   while ((n = walker.nextNode())) {
     const p = n.parentNode;
     if (!p) continue;
-    if (p.closest && p.closest('.cmt-mark, .code-head')) continue;
+    if (p.closest && p.closest('.cmt-mark, .tr-mark, .code-head')) continue;
     if (!n.nodeValue) continue;
     items.push({ node: n, start: text.length });
     text += n.nodeValue;
@@ -5292,7 +5555,7 @@ function inlineBlock(node) {
   return el ? el.closest('p, li, pre, h1, h2, h3, h4, h5, h6, blockquote, td, th') : null;
 }
 
-function wrapPreviewRange(id, index, length, items) {
+function wrapPreviewRange(id, index, length, items, options = {}) {
   const a = previewLocate(items, index, false);
   const b = previewLocate(items, index + length, true);
   if (!a || !b) return false;
@@ -5303,8 +5566,8 @@ function wrapPreviewRange(id, index, length, items) {
     range.setEnd(b.node, b.offset);
   } catch (_) { return false; }
   const mark = document.createElement('mark');
-  mark.className = 'cmt-mark';
-  mark.dataset.cmt = id;
+  mark.className = options.className || 'cmt-mark';
+  mark.dataset[options.dataKey || 'cmt'] = id;
   try {
     range.surroundContents(mark);
   } catch (_) {
@@ -5417,6 +5680,11 @@ function setupComments() {
   window.addEventListener('resize', positionCommentsPanel);
 
   els.previewContent.addEventListener('click', (e) => {
+    const translation = e.target.closest('.tr-mark');
+    if (translation) {
+      openTrPop(translation);
+      return;
+    }
     const mark = e.target.closest('.cmt-mark');
     if (!mark) return;
     openCommentsPanel();

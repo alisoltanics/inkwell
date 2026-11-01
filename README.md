@@ -46,6 +46,13 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Pick the engine in Settings → AI → *Read aloud*: `Best available`, `System voice only` (offline, never calls an API), or `AI voice only`. The badge next to the section shows which voice will actually be used on this machine. While an offline voice is reading, the player offers **Use an AI voice…**, which opens that section with the key field ready.
 - Engines that ship several voices (espeak and speech-dispatcher list dozens, from `klatt` to `female3`) can be auditioned: choose one under *System voice* and press **Test voice** to hear it before saving.
 
+### Translate a passage
+
+- Select text in the editor and choose **Translate**. The dialog shows the language it guessed, a picker for the target language (the one the app answers in, when it differs), and the translation in a readable card.
+- The work is done on this machine by **Argos Translate** when it is installed (`pip install argostranslate` plus the language pair); otherwise the AI provider that Ask AI uses translates it, and the dialog says which of the two produced the text.
+- **Save to note** keeps the passage marked with a light blue highlight in the preview. Clicking the highlight reopens the translation in a small card, where it can be copied or removed. **Try again** re-runs the translation, and the target picker translates again immediately.
+- Saved translations are stored with the app settings per note, like comments, and follow a rename or a delete.
+
 ### Ask AI
 
 - Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, create a quiz, make flashcards, proofread) are in the AI tools menu in the header.

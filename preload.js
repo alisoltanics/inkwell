@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld('inkwell', {
   ttsGenerate: (payload) => ipcRenderer.invoke('tts:generate', payload),
   ttsRead: (payload) => ipcRenderer.invoke('tts:read', payload),
   ttsStatus: () => ipcRenderer.invoke('tts:status'),
+  // offline translation (Argos Translate) for a selected passage
+  translateStatus: () => ipcRenderer.invoke('translate:status'),
+  translateText: (payload) => ipcRenderer.invoke('translate:text', payload),
   // speak through the system speaker when no audio file can be produced
   ttsSpeak: (payload) => ipcRenderer.invoke('tts:speak', payload),
   ttsCancel: () => ipcRenderer.invoke('tts:cancel'),
