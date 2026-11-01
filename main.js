@@ -1040,33 +1040,41 @@ ipcMain.handle('tts:speak', async (event, payload) => {
     const text = String((payload && payload.text) || '').trim();
     if (!text) throw new Error('There is no text to read');
     const lang = String((payload && payload.lang) || ttsLanguage(text));
+    // the player's speed, mapped onto each speaker's own scale
+    const wanted = Number((payload && payload.rate) || 1);
+    const rate = Number.isFinite(wanted) ? Math.min(2, Math.max(0.5, wanted)) : 1;
     await stopOsSpeaker();
     if (process.platform === 'win32') {
       const file = path.join(tempDir, 'speech.txt');
       fs.writeFileSync(file, text, 'utf8');
+      const sapiRate = Math.max(-10, Math.min(10, Math.round((rate - 1) * 6)));
       const script = [
         'Add-Type -AssemblyName System.Speech;',
         '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
+        `$s.Rate = ${sapiRate};`,
         `$s.Speak([System.IO.File]::ReadAllText('${file.replace(/'/g, "''")}'));`,
       ].join(' ');
       osSpeaker = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, detached: true, stdio: 'ignore' });
       osSpeaker.on('exit', () => { osSpeaker = null; });
       osSpeaker.unref();
-      return { ok: true, engine: 'sapi' };
+      return { ok: true, engine: 'sapi', rate };
     }
     if (process.platform === 'darwin') {
       const file = path.join(tempDir, 'speech.txt');
       fs.writeFileSync(file, text, 'utf8');
-      osSpeaker = spawn('say', ['-f', file], { detached: true, stdio: 'ignore' });
+      // say counts words per minute; 175 is its natural pace
+      const wpm = Math.round(175 * rate);
+      osSpeaker = spawn('say', ['-r', String(wpm), '-f', file], { detached: true, stdio: 'ignore' });
       osSpeaker.on('exit', () => { osSpeaker = null; });
       osSpeaker.unref();
-      return { ok: true, engine: 'say' };
+      return { ok: true, engine: 'say', rate };
     }
-    // speech-dispatcher: speaks without writing a file
-    osSpeaker = spawn('spd-say', ['-l', lang, text], { detached: true, stdio: 'ignore' });
+    // speech-dispatcher: speaks without writing a file, -100..+100 for speed
+    const spdRate = Math.max(-90, Math.min(90, Math.round((rate - 1) * 85)));
+    osSpeaker = spawn('spd-say', ['-r', String(spdRate), '-l', lang, text], { detached: true, stdio: 'ignore' });
     osSpeaker.on('exit', () => { osSpeaker = null; });
     osSpeaker.unref();
-    return { ok: true, engine: 'spd-say' };
+    return { ok: true, engine: 'spd-say', rate: spdRate };
   } catch (e) {
     return { ok: false, error: e.message };
   } finally {

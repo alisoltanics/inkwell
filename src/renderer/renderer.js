@@ -3459,7 +3459,7 @@ function speakWithSynth(body) {
     utter.voice = voice;
     utter.lang = voice.lang;
   }
-  utter.rate = parseFloat((els.ttsSpeed && els.ttsSpeed.value) || '1');
+  utter.rate = Number(state.ttsSpeed) || parseFloat((els.ttsSpeed && els.ttsSpeed.value) || '1');
   ttsState.mode = 'live';
   ttsState.utter = utter;
   clearInterval(ttsState.liveTimer);
@@ -3489,7 +3489,7 @@ async function speakWithSystemVoice(body) {
   try {
     // never stack two utterances: the previous sentence stops first
     await window.inkwell.ttsCancel();
-    const res = await window.inkwell.ttsSpeak({ text: body, lang: ttsLangOf(body) });
+    const res = await window.inkwell.ttsSpeak({ text: body, lang: ttsLangOf(body), rate: Number(state.ttsSpeed) || 1 });
     if (!res || !res.ok) return false;
     ttsState.mode = 'os';
     ttsState.osPlaying = true;
@@ -3709,11 +3709,27 @@ if (els.ttsSeek) {
   });
 }
 if (els.ttsSpeed) {
-  els.ttsSpeed.addEventListener('change', () => {
+  els.ttsSpeed.addEventListener('change', async () => {
     const rate = parseFloat(els.ttsSpeed.value || '1');
-    if (els.ttsAudio) els.ttsAudio.playbackRate = rate;
     state.ttsSpeed = rate;
     savePreferences();
+    // a recording follows the new speed immediately
+    if (els.ttsAudio) els.ttsAudio.playbackRate = rate;
+    // the speaking voices have no speed control, so they start the sentence
+    // again at the new rate instead of ignoring the change
+    const mode = ttsState.mode;
+    if (!readAloudPlaying()) return;
+    const text = readAloudText();
+    if (!text) return;
+    if (mode === 'os') {
+      ttsState.osPlaying = false;
+      // speakWithSystemVoice stops the current sentence itself
+      await speakWithSystemVoice(text);
+    } else if (mode === 'live') {
+      const synth = ttsSynth();
+      if (synth) { try { synth.cancel(); } catch (_) {} }
+      speakWithSynth(text);
+    }
   });
 }
 
