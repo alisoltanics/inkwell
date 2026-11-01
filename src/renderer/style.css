@@ -6001,33 +6001,38 @@ html.rtl .docx-li { flex-direction: row-reverse; }
     background: var(--accent-glow);
 }
 
-/* document translation toggle: only shown once a note has a saved translation */
+/* document translation toggle: sits next to the direction buttons and only
+   appears for a note that has a saved translation */
 .doc-tr-toggle {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 30px;
-    padding: 0 10px;
-    background: transparent;
+    height: 26px;
+    margin-left: 6px;
+    padding: 0 9px;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 999px;
-    color: var(--text-secondary);
+    border-radius: 6px;
+    color: var(--text-muted);
     font: inherit;
-    font-size: 12px;
+    font-size: 11.5px;
+    font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
+    flex-shrink: 0;
     transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.doc-tr-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.doc-tr-toggle:hover { color: var(--text); background: var(--bg-hover); }
 .doc-tr-toggle.is-on {
-    background: rgba(56, 189, 248, 0.16);
-    border-color: rgba(56, 189, 248, 0.45);
+    background: var(--bg-active);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
     color: var(--accent);
 }
 .doc-tr-toggle svg { flex: none; }
+html[dir="rtl"] .doc-tr-toggle { margin-left: 0; margin-right: 6px; }
 @media (max-width: 900px) {
     .doc-tr-toggle span { display: none; }
-    .doc-tr-toggle { padding: 0 8px; }
+    .doc-tr-toggle { padding: 0 7px; }
 }
 
 /* ============ READ ALOUD ============ */

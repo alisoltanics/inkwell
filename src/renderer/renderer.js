@@ -3335,8 +3335,12 @@ async function sendDocToTelegram() {
   if (btn) btn.classList.add('busy');
   try {
     const payload = await buildPrintPayload();
-    toast('Sending document to Telegram\u2026', 'info', 2500);
-    const res = await window.inkwell.sendDocToTelegram(state.currentFile, payload);
+    // what is on screen is what gets sent: in translation view that is the
+    // translated text, and the file name says which language it is
+    const tr = docTranslationActive() ? docTranslationFor() : null;
+    const name = tr ? `${baseName(state.currentFile)}-${tr.to}` : state.currentFile;
+    toast(tr ? `Sending the ${langLabel(tr.to)} translation to Telegram\u2026` : 'Sending document to Telegram\u2026', 'info', 2500);
+    const res = await window.inkwell.sendDocToTelegram(name, payload);
     if (res && res.success) {
       toast('Sent to Telegram', 'success', 3600);
     } else {
@@ -3437,7 +3441,11 @@ function openTrPop(mark) {
   closeTrPop();
   trState.openedId = id;
   if (els.trPopLang) els.trPopLang.textContent = `${langLabel(entry.from)} → ${langLabel(entry.to)}`;
-  if (els.trPopBody) els.trPopBody.innerHTML = md.render(entry.text || '');
+  if (els.trPopBody) {
+    // the saved text reads in its own language
+    els.trPopBody.setAttribute('dir', directionOfLanguage(entry.to) || 'auto');
+    els.trPopBody.innerHTML = md.render(entry.text || '');
+  }
   els.trPop.classList.remove('hidden');
   const rect = mark.getBoundingClientRect();
   const width = els.trPop.offsetWidth || 320;
@@ -3605,7 +3613,11 @@ async function runTranslate() {
     trState.engine = ai.engine;
   }
   if (els.trEngine) els.trEngine.textContent = `${trState.engine} · ${langLabel(from)} → ${langLabel(to)}`;
-  if (els.trResult) els.trResult.innerHTML = md.render(trState.result);
+  if (els.trResult) {
+    // the result reads in the target language, not in the app's direction
+    els.trResult.setAttribute('dir', directionOfLanguage(to) || 'auto');
+    els.trResult.innerHTML = md.render(trState.result);
+  }
   if (els.trSave) els.trSave.disabled = !trState.result.trim();
 }
 
@@ -4584,15 +4596,33 @@ function applyDirection() {
     els.editorHighlight.classList.toggle('bidi-plaintext', els.editor.classList.contains('bidi-plaintext'));
   }
 
-  // preview: pick effective direction from what the preview actually shows, so
-  // a Persian translation of an English note reads right-to-left
-  const shownTranslation = docTranslationActive() ? String((docTranslationFor() || {}).text || '') : '';
-  const effective = state.direction === 'auto'
-    ? detectDirection(shownTranslation || els.editor.value)
-    : state.direction;
+  // preview: a displayed translation is laid out in its own language, whatever
+  // LTR/RTL the note itself was given: only the translation turns RTL, the note
+  // and the editor keep the direction the user chose for them
+  const translation = docTranslationActive() ? docTranslationFor() : null;
+  let effective;
+  if (translation) {
+    effective = directionOfLanguage(translation.to)
+      || detectDirection(String(translation.text || ''))
+      || 'ltr';
+  } else {
+    effective = state.direction === 'auto'
+      ? detectDirection(els.editor.value)
+      : state.direction;
+  }
   els.previewContent.setAttribute('dir', effective);
   applyBidiBlocks();
   applyQuestionDirection();
+}
+
+// Languages written right-to-left, so a translation can be laid out correctly
+// even when its text is short or mostly numbers.
+const RTL_LANGUAGES = new Set(['fa', 'ar', 'he', 'ur', 'yi', 'ps', 'sd', 'ug', 'ku', 'dv', 'ckb']);
+
+function directionOfLanguage(code) {
+  const key = String(code || '').toLowerCase().split(/[-_]/)[0];
+  if (!key) return '';
+  return RTL_LANGUAGES.has(key) ? 'rtl' : 'ltr';
 }
 
 // The boxes where the user writes a question follow the app's text direction:
