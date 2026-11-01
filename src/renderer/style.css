@@ -6193,12 +6193,18 @@ html[dir="rtl"] .tts-bar { direction: rtl; }
 .settings-actions-sticky .modal-hint { margin: 0; }
 
 .settings-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
     min-height: 34px;
     padding: 0 16px;
     border-radius: 9px;
     font-size: 12.5px;
     font-weight: 600;
 }
+
+.settings-actions button svg { flex-shrink: 0; opacity: 0.9; }
 
 .sr-only {
     position: absolute;

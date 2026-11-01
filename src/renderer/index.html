@@ -817,7 +817,12 @@
                             <label for="settingsTtsBaseUrl" style="margin-top:10px;">Base URL</label>
                             <input type="text" id="settingsTtsBaseUrl" placeholder="https://api.openai.com/v1" spellcheck="false">
                             <p class="settings-desc">The system voice is free and needs no key; these two fields only make the AI voice available.</p>
-                            <button type="button" class="btn-ghost" id="settingsTtsSave" style="margin-top:10px;">Save voice settings</button>
+                            <div class="settings-actions settings-actions-inline">
+                                <button type="button" class="btn-secondary" id="settingsTtsSave">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                    <span>Save voice settings</span>
+                                </button>
+                            </div>
                         </div>
                         </div>
 
