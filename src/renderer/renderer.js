@@ -2143,19 +2143,18 @@ function setupEditorEvents() {
       if (!text.trim() || !node || !els.previewContent.contains(node)) return;
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      // a selection made while reading the translation belongs to the original
-      // block, so the comment stays readable in both views
-      const mapped = mapTranslatedSelection(text);
-      if (mapped) {
-        showAIFloat(rect.right, rect.bottom + 4, { text: mapped.quote, start: mapped.start, end: mapped.end });
-        return;
-      }
       const idx = els.editor.value.indexOf(text);
       const unique = idx !== -1 && idx === els.editor.value.lastIndexOf(text);
+      // a translation is shown: the note-side anchor is the matching source
+      // block, while the selected (translated) text stays the passage itself
+      const previewAt = previewTextOffsetOf(node, range.startOffset);
+      const mapped = mapTranslatedSelection(text, previewAt);
       showAIFloat(rect.right, rect.bottom + 4, {
         text,
         start: unique ? idx : null,
         end: unique ? idx + text.length : null,
+        anchor: mapped ? { text: mapped.quote, start: mapped.start, end: mapped.end } : null,
+        previewAt,
       });
     });
   }
@@ -3618,8 +3617,24 @@ function answersFor(path = state.currentFile) {
 // whatever is selected now.
 function answerAnchorContext() {
   for (const ctx of [aiThreadContext, aiContext]) {
-    if (ctx && ctx.text && String(ctx.text).trim()) {
-      return { text: String(ctx.text).trim(), start: ctx.start == null ? null : ctx.start, end: ctx.end == null ? null : ctx.end };
+    if (!ctx) continue;
+    // a selection made in the translation view points at the source block
+    const anchor = ctx.anchor && String(ctx.anchor.text || '').trim() ? ctx.anchor : null;
+    if (anchor) {
+      return {
+        text: String(anchor.text).trim(),
+        start: anchor.start == null ? null : anchor.start,
+        end: anchor.end == null ? null : anchor.end,
+        previewAt: null,
+      };
+    }
+    if (ctx.text && String(ctx.text).trim()) {
+      return {
+        text: String(ctx.text).trim(),
+        start: ctx.start == null ? null : ctx.start,
+        end: ctx.end == null ? null : ctx.end,
+        previewAt: ctx.previewAt == null ? null : ctx.previewAt,
+      };
     }
   }
   return null;
@@ -3641,6 +3656,9 @@ function saveAnswerToPassage(text, kind) {
     start: ctx.start,
     end: ctx.end,
     question: question ? String(question.text || '').slice(0, 400) : '',
+    // where the passage sat in the preview when it was saved, so a phrase that
+    // appears more than once is marked in the right place
+    previewAt: ctx.previewAt == null ? null : ctx.previewAt,
     kind: kind || aiAnswerKind || 'answer',
     text: body,
     createdAt: Date.now(),
@@ -3652,6 +3670,31 @@ function saveAnswerToPassage(text, kind) {
   savePreferences();
   renderPreview(true);
   toast(t('Answer saved on this passage'), 'success');
+}
+
+// The occurrence of a saved passage that was actually selected: the one closest
+// to the remembered preview position, or inside the block the note offset points
+// at. Without this a phrase that appears twice would be marked in the first.
+function locateSavedPassage(text, needle, item) {
+  const matches = previewMatches(text, needle);
+  if (!matches.length) return previewFind(text, needle);
+  const hint = Number(item.previewAt);
+  if (matches.length > 1 && Number.isFinite(hint)) {
+    const best = matches.reduce((a, b) => (Math.abs(b - hint) < Math.abs(a - hint) ? b : a), matches[0]);
+    return { index: best, length: needle.length };
+  }
+  const start = Number(item.start);
+  if (matches.length > 1 && Number.isFinite(start)) {
+    const blocks = mdBlocks(els.editor.value);
+    const at = blocks.findIndex((b) => start >= b.start && start < b.end);
+    const blockText = at >= 0 ? blockPlainText(blocks[at].text) : '';
+    const blockFound = blockText ? previewFind(text, blockText) : null;
+    if (blockFound) {
+      const inside = text.slice(blockFound.index, blockFound.index + blockFound.length).indexOf(needle);
+      if (inside >= 0) return { index: blockFound.index + inside, length: needle.length };
+    }
+  }
+  return { index: matches[0], length: needle.length };
 }
 
 // The passage gets a quiet mark; clicking it opens the answer in a card.
@@ -3680,7 +3723,7 @@ function decoratePreviewAnswers() {
     }
     if (needle.length < 2 || seen.has(needle)) continue;
     const { text, items } = previewTextItems();
-    const found = previewFind(text, needle);
+    const found = tr ? previewFind(text, needle) : locateSavedPassage(text, needle, item);
     if (found) {
       seen.add(needle);
       wrapPreviewRange(item.id, found.index, found.length, items, { className: 'ans-mark', dataKey: 'ans' });
@@ -5919,6 +5962,29 @@ function previewTextItems() {
   return { text, items };
 }
 
+// Where a node of the preview sits in its plain text, so a selection can be
+// remembered by position rather than only by what it says.
+function previewTextOffsetOf(node, offset = 0) {
+  if (!node) return null;
+  const { items } = previewTextItems();
+  for (const item of items) {
+    if (item.node === node) return item.start + offset;
+  }
+  return null;
+}
+
+// Every exact occurrence of a passage in the preview text.
+function previewMatches(text, needle) {
+  const out = [];
+  if (!needle) return out;
+  let at = text.indexOf(needle);
+  while (at !== -1 && out.length < 100) {
+    out.push(at);
+    at = text.indexOf(needle, at + 1);
+  }
+  return out;
+}
+
 function previewLocate(items, index, isEnd) {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
@@ -6057,7 +6123,7 @@ function mdBlocks(text) {
 // the quote cannot be found in a translated document. The note and its
 // translation share their block order, so the same block is marked instead and
 // the comment stays readable in both views.
-function mapTranslatedSelection(text) {
+function mapTranslatedSelection(text, previewAt) {
   const tr = docTranslationActive() ? docTranslationFor() : null;
   if (!tr || !String(tr.text || '').trim()) return null;
   const src = mdBlocks(els.editor.value);
@@ -6065,8 +6131,25 @@ function mapTranslatedSelection(text) {
   if (!src.length || src.length !== dst.length) return null;
   const needle = mdPlain(text || '').trim();
   if (needle.length < 2) return null;
-  const at = dst.findIndex((b) => mdPlain(b.text).includes(needle));
-  if (at < 0 || !src[at]) return null;
+  const hits = [];
+  dst.forEach((block, i) => { if (mdPlain(block.text).includes(needle)) hits.push(i); });
+  if (!hits.length) return null;
+  let at = hits[0];
+  // the same words can sit in several paragraphs: follow the one that was
+  // selected on screen
+  const hint = Number(previewAt);
+  if (hits.length > 1 && Number.isFinite(hint)) {
+    const { text: preview } = previewTextItems();
+    let best = Infinity;
+    for (const i of hits) {
+      const plain = blockPlainText(dst[i].text);
+      const found = plain ? previewFind(preview, plain) : null;
+      if (!found) continue;
+      const distance = Math.abs(found.index - hint);
+      if (distance < best) { best = distance; at = i; }
+    }
+  }
+  if (!src[at]) return null;
   return {
     quote: blockPlainText(src[at].text),
     start: src[at].start,
@@ -6984,7 +7067,16 @@ function selectionLooksLikeCode(ctx) {
 }
 
 function showAIFloat(x, y, ctx) {
-  const next = { text: ctx.text, start: ctx.start == null ? null : ctx.start, end: ctx.end == null ? null : ctx.end };
+  // anchor: where the same passage lives in the note (a selection made in the
+  // translation view points at the translated text); previewAt: its position in
+  // the preview text, so a repeated phrase is not confused with another one
+  const next = {
+    text: ctx.text,
+    start: ctx.start == null ? null : ctx.start,
+    end: ctx.end == null ? null : ctx.end,
+    anchor: ctx.anchor || null,
+    previewAt: ctx.previewAt == null ? null : ctx.previewAt,
+  };
   // A conversation in progress owns the panel: highlighting something else must
   // not replace it. The float buttons start a new chat when they are used.
   if (!aiThread.length) {
@@ -7035,6 +7127,8 @@ function openAIPanel(mode = 'selection', contextOverride = null, options = {}) {
         text: contextOverride.text,
         start: contextOverride.start == null ? null : contextOverride.start,
         end: contextOverride.end == null ? null : contextOverride.end,
+        anchor: contextOverride.anchor || null,
+        previewAt: contextOverride.previewAt == null ? null : contextOverride.previewAt,
         doc: !!contextOverride.doc,
       };
     } else if (aiScopeAvailable(requested)) {
@@ -10915,7 +11009,9 @@ function setupAI() {
     if (!live.text || !live.text.trim()) { toast('Select some text first', 'info'); return; }
     const x = parseFloat(els.selFloat.dataset.anchorX || '0');
     const y = parseFloat(els.selFloat.dataset.anchorY || '0');
-    openCommentComposer({ quote: live.text, start: live.start, end: live.end }, x, y);
+    // a comment belongs to the note, so a translated selection uses its source
+    const anchor = live.anchor && live.anchor.text ? live.anchor : live;
+    openCommentComposer({ quote: anchor.text, start: anchor.start, end: anchor.end }, x, y);
   });
   setupTopbarOverflow();
   els.aiClose.addEventListener('click', closeAIPanel);
