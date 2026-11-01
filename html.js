@@ -63,22 +63,41 @@ function buildStandaloneHtml(payload) {
 
   const screenCss = `
 @media screen {
-  body { background: #eef1f5; padding: 0 16px 56px; }
+  /* The page fills the window: a wide column with a small gutter, so a table or
+     a screenshot is not squeezed into a narrow strip. */
+  html { background: #eef1f5; }
+  body {
+    background: #eef1f5;
+    padding: 20px 20px 56px;
+    box-sizing: border-box;
+    min-height: 100vh;
+  }
   .doc-header, .markdown-body {
-    max-width: 860px;
+    width: 100%;
+    max-width: 1400px;
     margin-left: auto;
     margin-right: auto;
+    box-sizing: border-box;
     background: #ffffff;
   }
+  /* Header and body form one sheet: no gap between them on screen. */
   .doc-header {
-    margin-top: 32px;
-    padding: 34px 48px 16px;
+    margin: 0;
+    padding: 30px 44px 14px;
+    border-radius: 14px 14px 0 0;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
   }
   .markdown-body {
-    padding: 26px 48px 64px;
+    margin: 0;
+    padding: 22px 44px 64px;
+    border-radius: 0 0 14px 14px;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
   }
+}
+@media screen and (max-width: 760px) {
+  body { padding: 10px 10px 36px; }
+  .doc-header { padding: 22px 18px 10px; }
+  .markdown-body { padding: 16px 18px 44px; }
 }`;
 
   return `<!DOCTYPE html>
