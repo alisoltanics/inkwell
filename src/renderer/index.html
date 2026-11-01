@@ -1107,6 +1107,7 @@
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
                         Save .md
                     </button>
+                    <button class="hidden" id="aiSavePassageBtn" type="button" data-ai="passage" title="Keep this answer on the selected passage">Save to passage</button>
                     <button class="ai-answer-standard-action" type="button" data-ai="insert" title="Add to the end of the document">Insert</button>
                     <button class="ai-answer-standard-action" type="button" data-ai="replace" id="aiReplaceBtn" title="Replace the selection">Replace</button>
                     <button class="ai-answer-standard-action" type="button" data-ai="copy" title="Copy to clipboard">Copy</button>
@@ -1150,6 +1151,7 @@
             <button type="button" role="menuitem" data-turn-action="page">View as page</button>
             <button type="button" role="menuitem" data-turn-action="save">Save as .md</button>
             <button type="button" role="menuitem" data-turn-action="telegram">Send to Telegram</button>
+            <button type="button" role="menuitem" data-turn-action="passage">Save to passage</button>
             <div class="ai-turn-menu-sep"></div>
             <div class="ai-turn-menu-heading">Document AI tools</div>
             <button type="button" role="menuitem" data-turn-action="summary">Summary of this answer</button>
@@ -1262,6 +1264,19 @@
     </div>
 
     <!-- A saved translation, reopened from the highlighted passage -->
+    <div class="ans-pop hidden" id="ansPop" role="dialog" aria-label="Saved answer">
+        <div class="ans-pop-head">
+            <span class="ans-pop-title" id="ansPopTitle">Explanation</span>
+            <button type="button" class="ans-pop-close" id="ansPopClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="ans-pop-quote" id="ansPopQuote" dir="auto"></div>
+        <div class="ans-pop-body markdown-body" id="ansPopBody" dir="auto"></div>
+        <div class="ans-pop-foot">
+            <button type="button" class="tts-action" id="ansPopCopy">Copy</button>
+            <button type="button" class="tts-action" id="ansPopRemove">Remove</button>
+        </div>
+    </div>
+
     <div class="tr-pop hidden" id="trPop" role="dialog" aria-label="Saved translation">
         <div class="tr-pop-head">
             <span class="tr-pop-lang" id="trPopLang"></span>

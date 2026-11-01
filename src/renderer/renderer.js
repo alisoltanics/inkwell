@@ -252,6 +252,8 @@ let state = {
   commentsByFile: {},
   // translations saved per note: the passage and its translation
   translationsByFile: {},
+  // AI answers kept on the passage they explain
+  passageAnswers: {},
   // a whole-document translation, kept per note so it can be toggled
   docTranslations: {},
   docTranslationView: {},
@@ -373,6 +375,14 @@ const els = {
   trPopClose: $('trPopClose'),
   trPopCopy: $('trPopCopy'),
   trPopRemove: $('trPopRemove'),
+  ansPop: $('ansPop'),
+  ansPopTitle: $('ansPopTitle'),
+  ansPopQuote: $('ansPopQuote'),
+  ansPopBody: $('ansPopBody'),
+  ansPopClose: $('ansPopClose'),
+  ansPopCopy: $('ansPopCopy'),
+  ansPopRemove: $('ansPopRemove'),
+  aiSavePassageBtn: $('aiSavePassageBtn'),
   findBar: $('findBar'),
   findInput: $('findInput'),
   findCount: $('findCount'),
@@ -771,6 +781,7 @@ function loadPreferences() {
       if (Array.isArray(p.aiProviders)) state.aiProviders = p.aiProviders.filter((pp) => pp && typeof pp === 'object' && pp.id && pp.name && pp.command);
       if (p.commentsByFile && typeof p.commentsByFile === 'object') state.commentsByFile = p.commentsByFile;
       if (p.translationsByFile && typeof p.translationsByFile === 'object') state.translationsByFile = p.translationsByFile;
+      if (p.passageAnswers && typeof p.passageAnswers === 'object') state.passageAnswers = p.passageAnswers;
       if (p.docTranslations && typeof p.docTranslations === 'object') state.docTranslations = p.docTranslations;
       if (p.docTranslationView && typeof p.docTranslationView === 'object') state.docTranslationView = p.docTranslationView;
       if (p.docTranslationDir && typeof p.docTranslationDir === 'object') state.docTranslationDir = p.docTranslationDir;
@@ -820,6 +831,7 @@ function savePreferences() {
       externalFiles: state.externalFiles,
       commentsByFile: state.commentsByFile,
       translationsByFile: state.translationsByFile,
+      passageAnswers: state.passageAnswers,
       docTranslations: state.docTranslations,
       docTranslationView: state.docTranslationView,
       docTranslationDir: state.docTranslationDir,
@@ -2286,6 +2298,7 @@ function renderPreview(force = false) {
     schedulePaginate(60);
   });
   applyDirection();
+  decoratePreviewAnswers();
   decoratePreviewComments();
   decoratePreviewTranslations();
   if (findState.open && findState.query) applyFindMarks();
@@ -3203,7 +3216,7 @@ function stripPrintDecorations(root) {
   // unwrap comment/find/translation highlight wrappers (keep genuine
   // ==highlight== marks): a printed or sent document is plain text, the marks
   // only mean something inside the app
-  root.querySelectorAll('mark.cmt-mark, mark.find-mark, mark.tr-mark, span.cmt-hl, [data-cmt], [data-tr]').forEach((el) => {
+  root.querySelectorAll('mark.cmt-mark, mark.find-mark, mark.tr-mark, mark.ans-mark, span.cmt-hl, [data-cmt], [data-tr], [data-ans]').forEach((el) => {
     const parent = el.parentNode;
     if (!parent) return;
     while (el.firstChild) parent.insertBefore(el.firstChild, el);
@@ -3576,6 +3589,134 @@ function saveDocTranslation() {
   toast(`Translation saved · showing ${langLabel(trState.to)}`, 'success');
 }
 
+/* ---- AI answers kept on the passage they explain ---- */
+// The answer to "Explain" belongs to the passage that was selected, so it can be
+// kept there and read again next to the text it talks about.
+let ansPopId = '';
+
+function answersFor(path = state.currentFile) {
+  if (!path) return [];
+  const list = state.passageAnswers[path];
+  return Array.isArray(list) ? list : [];
+}
+
+// The passage an answer belongs to: the conversation's own context first, then
+// whatever is selected now.
+function answerAnchorContext() {
+  for (const ctx of [aiThreadContext, aiContext]) {
+    if (ctx && ctx.text && String(ctx.text).trim()) {
+      return { text: String(ctx.text).trim(), start: ctx.start == null ? null : ctx.start, end: ctx.end == null ? null : ctx.end };
+    }
+  }
+  return null;
+}
+
+function saveAnswerToPassage(text, kind) {
+  if (!state.currentFile) { toast('Open a note first', 'info'); return; }
+  const body = String(text || '').trim();
+  if (!body) { toast('Ask something first', 'info'); return; }
+  const ctx = answerAnchorContext();
+  if (!ctx) { toast(t('Select the passage first, then ask'), 'info'); return; }
+  const quote = ctx.text.slice(0, 600);
+  const question = [...aiThread].reverse().find((turn) => turn.role === 'user');
+  if (!Array.isArray(state.passageAnswers[state.currentFile])) state.passageAnswers[state.currentFile] = [];
+  const list = state.passageAnswers[state.currentFile];
+  const entry = {
+    id: 'ans-' + Date.now().toString(36),
+    quote,
+    start: ctx.start,
+    end: ctx.end,
+    question: question ? String(question.text || '').slice(0, 400) : '',
+    kind: kind || aiAnswerKind || 'answer',
+    text: body,
+    createdAt: Date.now(),
+  };
+  // the same passage explained again keeps one card: the newest answer wins
+  const at = list.findIndex((item) => item.quote === quote);
+  if (at >= 0) { entry.id = list[at].id; list[at] = entry; }
+  else list.push(entry);
+  savePreferences();
+  renderPreview(true);
+  toast(t('Answer saved on this passage'), 'success');
+}
+
+// The passage gets a quiet mark; clicking it opens the answer in a card.
+function decoratePreviewAnswers() {
+  if (!state.currentFile) return;
+  const list = state.passageAnswers[state.currentFile];
+  if (!Array.isArray(list) || !list.length) return;
+  const tr = docTranslationActive() ? docTranslationFor() : null;
+  const srcBlocks = tr ? mdBlocks(els.editor.value) : [];
+  const dstBlocks = tr ? mdBlocks(String(tr.text || '')) : [];
+  const mapped = srcBlocks.length > 0 && srcBlocks.length === dstBlocks.length;
+  const ordered = [...list].sort((a, b) => String(b.quote || '').length - String(a.quote || '').length);
+  const seen = new Set();
+  for (const item of ordered) {
+    const plain = mdPlain(item.quote || '').trim();
+    if (plain.length < 2) continue;
+    let needle = plain;
+    if (tr) {
+      // the quote is in the note's language: mark the same block of the translation
+      if (!mapped) continue;
+      const at = Number.isFinite(Number(item.start))
+        ? srcBlocks.findIndex((b) => Number(item.start) >= b.start && Number(item.start) < b.end)
+        : srcBlocks.findIndex((b) => blockPlainText(b.text).includes(plain));
+      if (at < 0 || !dstBlocks[at]) continue;
+      needle = blockPlainText(dstBlocks[at].text);
+    }
+    if (needle.length < 2 || seen.has(needle)) continue;
+    const { text, items } = previewTextItems();
+    const found = previewFind(text, needle);
+    if (found) {
+      seen.add(needle);
+      wrapPreviewRange(item.id, found.index, found.length, items, { className: 'ans-mark', dataKey: 'ans' });
+    }
+  }
+}
+
+function closeAnsPop() {
+  if (els.ansPop) els.ansPop.classList.add('hidden');
+  ansPopId = '';
+}
+
+function openAnsPop(mark) {
+  const id = mark && mark.dataset ? mark.dataset.ans : '';
+  const entry = answersFor().find((item) => item.id === id);
+  if (!entry || !els.ansPop) return;
+  closeAnsPop();
+  closeTrPop();
+  ansPopId = id;
+  if (els.ansPopTitle) {
+    els.ansPopTitle.textContent = entry.kind === 'code' ? t('Code explanation') : t('Explanation');
+  }
+  if (els.ansPopQuote) {
+    els.ansPopQuote.textContent = entry.quote || '';
+    els.ansPopQuote.setAttribute('dir', detectDirection(entry.quote || ''));
+  }
+  if (els.ansPopBody) {
+    els.ansPopBody.setAttribute('dir', 'auto');
+    els.ansPopBody.innerHTML = md.render(entry.text || '');
+  }
+  els.ansPop.classList.remove('hidden');
+  const rect = mark.getBoundingClientRect();
+  const width = els.ansPop.offsetWidth || 360;
+  const height = els.ansPop.offsetHeight || 200;
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+  const top = rect.bottom + height + 12 <= window.innerHeight ? rect.bottom + 8 : Math.max(8, rect.top - height - 8);
+  els.ansPop.style.left = left + 'px';
+  els.ansPop.style.top = top + 'px';
+}
+
+// The "Save to passage" action only makes sense when a passage is the subject.
+function syncSavePassageButton() {
+  const btn = els.aiSavePassageBtn;
+  if (!btn) return;
+  const turnBtn = els.aiTurnMenu ? els.aiTurnMenu.querySelector('[data-turn-action="passage"]') : null;
+  const available = !!answerAnchorContext() && !!state.currentFile;
+  btn.classList.toggle('hidden', !available);
+  if (turnBtn) turnBtn.classList.toggle('hidden', !available);
+}
+
 function openTranslate(selection) {
   const text = String((selection && selection.text) || '').trim();
   if (!text) { toast('Select some text first', 'info'); return; }
@@ -3719,6 +3860,28 @@ if (els.docTrToggle) {
     applyDirection();
   });
 }
+if (els.ansPopClose) els.ansPopClose.addEventListener('click', closeAnsPop);
+if (els.ansPopCopy) {
+  els.ansPopCopy.addEventListener('click', async () => {
+    const entry = answersFor().find((item) => item.id === ansPopId);
+    if (!entry) return;
+    const ok = await copyText(entry.text || '');
+    toast(ok ? 'Copied' : 'Could not copy', ok ? 'success' : 'error');
+  });
+}
+if (els.ansPopRemove) {
+  els.ansPopRemove.addEventListener('click', () => {
+    const list = answersFor();
+    const i = list.findIndex((item) => item.id === ansPopId);
+    if (i === -1) return;
+    list.splice(i, 1);
+    if (!list.length) delete state.passageAnswers[state.currentFile];
+    savePreferences();
+    closeAnsPop();
+    renderPreview(true);
+    toast(t('Saved answer removed'), 'info');
+  });
+}
 if (els.trPopClose) els.trPopClose.addEventListener('click', closeTrPop);
 if (els.trPopCopy) {
   els.trPopCopy.addEventListener('click', async () => {
@@ -3753,6 +3916,12 @@ document.addEventListener('mousedown', (e) => {
   if (els.trPop.contains(e.target)) return;
   if (e.target.closest && e.target.closest('.tr-mark')) return;
   closeTrPop();
+});
+document.addEventListener('mousedown', (e) => {
+  if (!els.ansPop || els.ansPop.classList.contains('hidden')) return;
+  if (els.ansPop.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('.ans-mark')) return;
+  closeAnsPop();
 });
 
 /* ============ READ ALOUD (text to speech) ============ */
@@ -5110,6 +5279,7 @@ $('deleteFileConfirm').addEventListener('click', async () => {
     if (state.dirByFile[path] !== undefined) { delete state.dirByFile[path]; savePreferences(); }
     if (state.commentsByFile[path] !== undefined) { delete state.commentsByFile[path]; savePreferences(); }
     if (state.translationsByFile[path] !== undefined) { delete state.translationsByFile[path]; savePreferences(); }
+    if (state.passageAnswers[path] !== undefined) { delete state.passageAnswers[path]; savePreferences(); }
     if (state.docTranslations[path] !== undefined) { delete state.docTranslations[path]; delete state.docTranslationView[path]; delete state.docTranslationDir[path]; savePreferences(); }
     if (state.currentFile === path) {
       state.currentFile = null;
@@ -5239,6 +5409,11 @@ async function doRename() {
     if (state.translationsByFile[oldPath] !== undefined) {
       state.translationsByFile[newPath] = state.translationsByFile[oldPath];
       delete state.translationsByFile[oldPath];
+      savePreferences();
+    }
+    if (state.passageAnswers[oldPath] !== undefined) {
+      state.passageAnswers[newPath] = state.passageAnswers[oldPath];
+      delete state.passageAnswers[oldPath];
       savePreferences();
     }
     if (state.docTranslations[oldPath] !== undefined) {
@@ -5992,6 +6167,11 @@ function setupComments() {
     const translation = e.target.closest('.tr-mark');
     if (translation) {
       openTrPop(translation);
+      return;
+    }
+    const answer = e.target.closest('.ans-mark');
+    if (answer) {
+      openAnsPop(answer);
       return;
     }
     const mark = e.target.closest('.cmt-mark');
@@ -7598,6 +7778,7 @@ function renderAIThread(pending) {
   // for single-shot results (a proposed edit, a document tool card)
   const chatting = aiThread.some((turn) => turn.role === 'assistant');
   if (els.aiAnswerActions) els.aiAnswerActions.classList.toggle('hidden', chatting || !aiAnswer);
+  syncSavePassageButton();
   // the conversation needs the room the starter chips were using
   if (els.aiPrompts) els.aiPrompts.classList.toggle('hidden', chatting);
   applyAIDirection();
@@ -7626,6 +7807,7 @@ function openTurnMenu(button) {
   // Replace only makes sense while a passage is still the context
   const replaceBtn = menu.querySelector('[data-turn-action="replace"]');
   if (replaceBtn) replaceBtn.classList.toggle('hidden', aiContext.start == null || aiContext.end == null);
+  syncSavePassageButton();
   menu.classList.remove('hidden');
   button.setAttribute('aria-expanded', 'true');
   const r = button.getBoundingClientRect();
@@ -7649,6 +7831,7 @@ function runTurnAction(action) {
   else if (action === 'page') openAnswerDoc(text, kind);
   else if (action === 'save') saveAIAnswerAsFile(text, kind);
   else if (action === 'telegram') sendAIAnswerToTelegram(null, text, kind);
+  else if (action === 'passage') saveAnswerToPassage(text, kind);
   else if (action === 'summary') askAISubTask('summary', text, 'Summarize this answer.');
   else if (action === 'flashcards') askAISubTask('flashcards', text, 'Make flashcards from this answer.');
   else if (action === 'glossary') askAISubTask('glossary', text, 'Build a glossary from this answer.');
@@ -10831,6 +11014,7 @@ function setupAI() {
     else if (btn.dataset.ai === 'telegram') sendAIAnswerToTelegram(btn);
     else if (btn.dataset.ai === 'page') openAnswerDoc();
     else if (btn.dataset.ai === 'save') saveAIAnswerAsFile();
+    else if (btn.dataset.ai === 'passage') saveAnswerToPassage(aiAnswer, aiAnswerKind);
   });
 
   if (els.explainCodeSubmit) els.explainCodeSubmit.addEventListener('click', submitExplainCode);

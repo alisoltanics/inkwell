@@ -6297,6 +6297,112 @@ mark.tr-mark:hover {
     box-shadow: inset 0 -1.5px 0 rgba(56, 189, 248, 0.75);
 }
 
+/* ---- answers saved on a passage ----
+   A quieter mark than a translation, in the AI panel's violet, so an explained
+   passage is recognisable in the text without shouting. */
+mark.ans-mark {
+    background: rgba(167, 139, 250, 0.16);
+    box-shadow: inset 0 -1.5px 0 rgba(167, 139, 250, 0.55);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0 1.5px;
+    cursor: pointer;
+    transition: background 0.12s, box-shadow 0.12s;
+}
+
+mark.ans-mark:hover {
+    background: rgba(167, 139, 250, 0.28);
+    box-shadow: inset 0 -1.5px 0 rgba(167, 139, 250, 0.8);
+}
+
+/* the card that opens from a saved answer */
+.ans-pop {
+    position: fixed;
+    z-index: 9500;
+    width: 400px;
+    max-width: calc(100vw - 24px);
+    background: var(--bg-panel);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+    color: var(--text);
+    overflow: hidden;
+}
+
+.ans-pop.hidden { display: none; }
+
+.ans-pop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+}
+
+.ans-pop-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #a78bfa;
+}
+
+.ans-pop-close {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+    width: 22px;
+    height: 22px;
+}
+
+.ans-pop-close:hover { background: var(--bg-hover); color: var(--text); }
+
+/* the passage the answer was written about, kept small above the answer */
+.ans-pop-quote {
+    margin: 10px 14px 0;
+    padding: 6px 9px;
+    border-left: 2px solid rgba(167, 139, 250, 0.6);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.55;
+    max-height: 92px;
+    overflow: auto;
+    text-align: start;
+}
+
+html[dir="rtl"] .ans-pop-quote {
+    border-left: none;
+    border-right: 2px solid rgba(167, 139, 250, 0.6);
+}
+
+.ans-pop-body {
+    padding: 10px 14px 12px;
+    max-height: 320px;
+    overflow: auto;
+    font-size: 13.5px;
+    line-height: 1.7;
+    text-align: start;
+}
+
+.ans-pop-body.markdown-body { padding: 10px 14px 12px; margin: 0; max-width: none; }
+.ans-pop-body p:first-child { margin-top: 0; }
+.ans-pop-body p:last-child { margin-bottom: 0; }
+
+.ans-pop-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--border);
+}
+
 /* the result follows its own language, so Persian reads right to left */
 .tr-result, .tr-pop-body { text-align: start; }
 

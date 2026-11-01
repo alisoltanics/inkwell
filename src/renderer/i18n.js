@@ -3407,6 +3407,13 @@
     "Save translation": "ذخیرهٔ ترجمه",
     "Save to note": "ذخیره در یادداشت",
     "Translated": "ترجمه‌شده",
+    "Save to passage": "ذخیره روی این قسمت",
+    "Explanation": "توضیح",
+    "Code explanation": "توضیح کد",
+    "Answer": "پاسخ",
+    "Answer saved on this passage": "پاسخ روی این قسمت ذخیره شد",
+    "Saved answer removed": "پاسخ ذخیره‌شده حذف شد",
+    "Select the passage first, then ask": "اول قسمت را انتخاب کن، بعد بپرس",
   });
 
   Object.assign(ar, {
@@ -3416,6 +3423,13 @@
     "Save translation": "حفظ الترجمة",
     "Save to note": "حفظ في الملاحظة",
     "Translated": "مترجم",
+    "Save to passage": "حفظ على المقطع",
+    "Explanation": "شرح",
+    "Code explanation": "شرح الشيفرة",
+    "Answer": "إجابة",
+    "Answer saved on this passage": "تم حفظ الإجابة على هذا المقطع",
+    "Saved answer removed": "تمت إزالة الإجابة المحفوظة",
+    "Select the passage first, then ask": "حدّد المقطع أولاً ثم اسأل",
   });
 
   Object.assign(fr, {
@@ -3425,6 +3439,13 @@
     "Save translation": "Enregistrer la traduction",
     "Save to note": "Enregistrer dans la note",
     "Translated": "Traduit",
+    "Save to passage": "Enregistrer sur le passage",
+    "Explanation": "Explication",
+    "Code explanation": "Explication du code",
+    "Answer": "Réponse",
+    "Answer saved on this passage": "Réponse enregistrée sur ce passage",
+    "Saved answer removed": "Réponse enregistrée supprimée",
+    "Select the passage first, then ask": "Sélectionnez d’abord le passage, puis posez la question",
   });
 
   Object.assign(de, {
@@ -3434,6 +3455,13 @@
     "Save translation": "Übersetzung speichern",
     "Save to note": "In Notiz speichern",
     "Translated": "Übersetzt",
+    "Save to passage": "Am Absatz speichern",
+    "Explanation": "Erklärung",
+    "Code explanation": "Code-Erklärung",
+    "Answer": "Antwort",
+    "Answer saved on this passage": "Antwort am Absatz gespeichert",
+    "Saved answer removed": "Gespeicherte Antwort entfernt",
+    "Select the passage first, then ask": "Wähle zuerst den Absatz, dann frage",
   });
 
   Object.assign(it, {
@@ -3443,6 +3471,13 @@
     "Save translation": "Salva la traduzione",
     "Save to note": "Salva nella nota",
     "Translated": "Tradotto",
+    "Save to passage": "Salva sul passaggio",
+    "Explanation": "Spiegazione",
+    "Code explanation": "Spiegazione del codice",
+    "Answer": "Risposta",
+    "Answer saved on this passage": "Risposta salvata sul passaggio",
+    "Saved answer removed": "Risposta salvata rimossa",
+    "Select the passage first, then ask": "Seleziona prima il passaggio, poi chiedi",
   });
 
   Object.assign(tr, {
@@ -3452,6 +3487,13 @@
     "Save translation": "Çeviriyi kaydet",
     "Save to note": "Nota kaydet",
     "Translated": "Çevrildi",
+    "Save to passage": "Bölüme kaydet",
+    "Explanation": "Açıklama",
+    "Code explanation": "Kod açıklaması",
+    "Answer": "Yanıt",
+    "Answer saved on this passage": "Yanıt bu bölüme kaydedildi",
+    "Saved answer removed": "Kaydedilen yanıt kaldırıldı",
+    "Select the passage first, then ask": "Önce bölümü seç, sonra sor",
   });
 
   Object.assign(es, {
@@ -3461,6 +3503,13 @@
     "Save translation": "Guardar la traducción",
     "Save to note": "Guardar en la nota",
     "Translated": "Traducido",
+    "Save to passage": "Guardar en el pasaje",
+    "Explanation": "Explicación",
+    "Code explanation": "Explicación del código",
+    "Answer": "Respuesta",
+    "Answer saved on this passage": "Respuesta guardada en el pasaje",
+    "Saved answer removed": "Respuesta guardada eliminada",
+    "Select the passage first, then ask": "Selecciona primero el pasaje y luego pregunta",
   });
 
   Object.assign(zh, {
@@ -3470,6 +3519,13 @@
     "Save translation": "保存译文",
     "Save to note": "保存到笔记",
     "Translated": "已翻译",
+    "Save to passage": "保存到该段落",
+    "Explanation": "解释",
+    "Code explanation": "代码解释",
+    "Answer": "回答",
+    "Answer saved on this passage": "回答已保存到该段落",
+    "Saved answer removed": "已删除保存的回答",
+    "Select the passage first, then ask": "请先选择段落再提问",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };
