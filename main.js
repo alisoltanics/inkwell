@@ -990,12 +990,29 @@ ipcMain.handle('tts:generate', async (event, payload) => {
 
 // The last resort, when nothing can write an audio file: hand the text to the
 // operating system's own speaker. Nothing is saved, but the note is read aloud.
+// Only one utterance at a time: starting a new one stops whatever is still
+// being said, otherwise two voices talk over each other.
+let osSpeaker = null;
+
+async function stopOsSpeaker() {
+  if (osSpeaker) {
+    try { osSpeaker.kill(); } catch (_) {}
+    osSpeaker = null;
+  }
+  if (process.platform === 'linux') {
+    try { await runCommand('spd-say', ['-C']); } catch (_) {}
+  } else if (process.platform === 'darwin') {
+    try { await runCommand('killall', ['say']); } catch (_) {}
+  }
+}
+
 ipcMain.handle('tts:speak', async (event, payload) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkwell-say-'));
   try {
     const text = String((payload && payload.text) || '').trim();
     if (!text) throw new Error('There is no text to read');
     const lang = String((payload && payload.lang) || ttsLanguage(text));
+    await stopOsSpeaker();
     if (process.platform === 'win32') {
       const file = path.join(tempDir, 'speech.txt');
       fs.writeFileSync(file, text, 'utf8');
@@ -1004,33 +1021,35 @@ ipcMain.handle('tts:speak', async (event, payload) => {
         '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
         `$s.Speak([System.IO.File]::ReadAllText('${file.replace(/'/g, "''")}'));`,
       ].join(' ');
-      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, detached: true, stdio: 'ignore' });
-      child.unref();
+      osSpeaker = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, detached: true, stdio: 'ignore' });
+      osSpeaker.on('exit', () => { osSpeaker = null; });
+      osSpeaker.unref();
       return { ok: true, engine: 'sapi' };
     }
     if (process.platform === 'darwin') {
       const file = path.join(tempDir, 'speech.txt');
       fs.writeFileSync(file, text, 'utf8');
-      const child = spawn('say', ['-f', file], { detached: true, stdio: 'ignore' });
-      child.unref();
+      osSpeaker = spawn('say', ['-f', file], { detached: true, stdio: 'ignore' });
+      osSpeaker.on('exit', () => { osSpeaker = null; });
+      osSpeaker.unref();
       return { ok: true, engine: 'say' };
     }
     // speech-dispatcher: speaks without writing a file
-    const child = spawn('spd-say', ['-l', lang, text], { detached: true, stdio: 'ignore' });
-    child.unref();
+    osSpeaker = spawn('spd-say', ['-l', lang, text], { detached: true, stdio: 'ignore' });
+    osSpeaker.on('exit', () => { osSpeaker = null; });
+    osSpeaker.unref();
     return { ok: true, engine: 'spd-say' };
   } catch (e) {
     return { ok: false, error: e.message };
   } finally {
     // the child already read the file by the time it matters; clean up later
-    setTimeout(() => { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {} }, 15000);
+    setTimeout(() => { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {} }, 20000);
   }
 });
 
 ipcMain.handle('tts:cancel', async () => {
   try {
-    if (process.platform === 'linux') await runCommand('spd-say', ['-C']);
-    else if (process.platform === 'darwin') await runCommand('killall', ['say']);
+    await stopOsSpeaker();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };

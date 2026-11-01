@@ -3488,6 +3488,8 @@ function speakWithSynth(body) {
 
 async function speakWithSystemVoice(body) {
   try {
+    // never stack two utterances: the previous sentence stops first
+    await window.inkwell.ttsCancel();
     const res = await window.inkwell.ttsSpeak({ text: body, lang: ttsLangOf(body) });
     if (!res || !res.ok) return false;
     ttsState.mode = 'os';
@@ -3499,6 +3501,27 @@ async function speakWithSystemVoice(body) {
   } catch (_) {
     return false;
   }
+}
+
+function readAloudPlaying() {
+  if (ttsState.mode === 'file') return !!els.ttsAudio && !els.ttsAudio.paused && !els.ttsAudio.ended;
+  if (ttsState.mode === 'live') {
+    const synth = ttsSynth();
+    return !!synth && synth.speaking && !synth.paused;
+  }
+  if (ttsState.mode === 'os') return ttsState.osPlaying === true;
+  return false;
+}
+
+async function stopReading() {
+  if (ttsState.mode === 'os') await stopSystemVoice();
+  else if (ttsState.mode === 'live') {
+    const synth = ttsSynth();
+    if (synth) { try { synth.cancel(); } catch (_) {} }
+  } else if (ttsState.mode === 'file' && els.ttsAudio) {
+    try { els.ttsAudio.pause(); } catch (_) {}
+  }
+  syncTtsPlayIcon();
 }
 
 async function stopSystemVoice() {
@@ -3556,6 +3579,14 @@ async function ensureReadAloud(force) {
   if (!text || !state.currentFile) return false;
   if (ttsState.url && !force) return true;
   if (ttsState.busy) return false;
+  // one voice at a time: whatever is playing gives way to the new recording
+  if (els.ttsAudio && !els.ttsAudio.paused) {
+    try { els.ttsAudio.pause(); } catch (_) {}
+  }
+  const speaking = ttsSynth();
+  if (speaking && speaking.speaking) {
+    try { speaking.cancel(); } catch (_) {}
+  }
   ttsState.busy = true;
   if (els.ttsPlay) els.ttsPlay.disabled = true;
   setTtsStatus(t('Preparing audio…'));
@@ -3616,7 +3647,14 @@ async function startReadAloud(force) {
   syncTtsPlayIcon();
 }
 
-if (els.ttsBtn) els.ttsBtn.addEventListener('click', () => startReadAloud(false));
+// One button, two jobs: start reading, or stop what is being read. Starting a
+// second voice while the first is still talking sounds like two people at once.
+async function toggleReadAloud() {
+  if (readAloudPlaying()) { await stopReading(); return; }
+  await startReadAloud(false);
+}
+
+if (els.ttsBtn) els.ttsBtn.addEventListener('click', () => toggleReadAloud());
 if (els.editor) els.editor.addEventListener('input', scheduleTtsButton);
 if (els.ttsPlay) {
   els.ttsPlay.addEventListener('click', async () => {
