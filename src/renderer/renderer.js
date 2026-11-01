@@ -363,6 +363,9 @@ const els = {
   docTrToggleLabel: $('docTrToggleLabel'),
   trFrom: $('trFrom'),
   trTo: $('trTo'),
+  trSwap: $('trSwap'),
+  trScope: $('trScope'),
+  trSourceMeta: $('trSourceMeta'),
   trGo: $('trGo'),
   trEngine: $('trEngine'),
   trSource: $('trSource'),
@@ -3454,6 +3457,20 @@ function fillTrLanguages() {
   }
 }
 
+// The passage (or the note) the dialog is about, with its size in words.
+function setTranslateSource(text) {
+  const body = String(text || '');
+  if (els.trSource) els.trSource.textContent = body.length > 400 ? `${body.slice(0, 400)}…` : body;
+  if (els.trSourceMeta) {
+    const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+    els.trSourceMeta.textContent = words ? t('%n% words', { n: words.toLocaleString() }) : '';
+  }
+}
+
+function setTranslateScope(documentScope) {
+  if (els.trScope) els.trScope.textContent = documentScope ? t('Whole document') : t('Selected text');
+}
+
 // How the dialog waits for its two languages before anything runs.
 function showTranslateHint() {
   trState.result = '';
@@ -3463,7 +3480,8 @@ function showTranslateHint() {
     els.trResult.replaceChildren();
     const hint = document.createElement('div');
     hint.className = 'tr-hint';
-    hint.textContent = t('Choose the languages, then press Translate.');
+    hint.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h10M9 3v2M12 5c0 5-3.5 9-8 11"/><path d="m6 12 5 5"/><path d="M14 21l4-10 4 10M15.5 17h5"/></svg>'
+      + `<span>${escapeHtml(t('Choose the languages, then press Translate.'))}</span>`;
     els.trResult.appendChild(hint);
   }
   if (els.trSave) els.trSave.disabled = true;
@@ -3578,7 +3596,8 @@ async function openDocumentTranslate() {
   const wanted = langCodeOfName(getAIResponseLanguage());
   trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
   fillTrLanguages();
-  if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+  setTranslateSource(text);
+  setTranslateScope(true);
   if (els.trSave) els.trSave.textContent = t('Save translation');
   showTranslateHint();
   closeTrPop();
@@ -3803,7 +3822,8 @@ function openTranslate(selection) {
   const wanted = langCodeOfName(getAIResponseLanguage());
   trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
   fillTrLanguages();
-  if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+  setTranslateSource(text);
+  setTranslateScope(false);
   if (els.trSave) els.trSave.textContent = t('Save to note');
   showTranslateHint();
   closeTrPop();
@@ -3913,6 +3933,17 @@ if (els.trFloatBtn) {
       })();
     hideAIFloat();
     openTranslate(selection);
+  });
+}
+if (els.trSwap) {
+  els.trSwap.addEventListener('click', () => {
+    const from = els.trFrom ? els.trFrom.value : trState.from;
+    const to = els.trTo ? els.trTo.value : trState.to;
+    if (els.trFrom) els.trFrom.value = to;
+    if (els.trTo) els.trTo.value = from;
+    trState.from = to;
+    trState.to = from;
+    setStatus('');
   });
 }
 // choosing a language only records it: Translate is what runs the job

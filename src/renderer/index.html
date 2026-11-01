@@ -1241,25 +1241,53 @@
     <!-- Translate a passage: shown before it is saved on the note -->
     <div class="modal-overlay hidden" id="modalTranslate">
         <div class="modal translate-modal">
-            <div class="modal-header">
-                <h3>Translate</h3>
+            <div class="modal-header tr-modal-head">
+                <div class="tr-heading">
+                    <span class="tr-heading-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h10M9 3v2M12 5c0 5-3.5 9-8 11"/><path d="m6 12 5 5"/><path d="M14 21l4-10 4 10M15.5 17h5"/></svg>
+                    </span>
+                    <div class="tr-heading-text">
+                        <h3>Translate</h3>
+                        <p class="tr-scope" id="trScope">Selected text</p>
+                    </div>
+                </div>
                 <button class="modal-close" data-close="translate">&times;</button>
             </div>
-            <div class="modal-body">
-                <div class="tr-head">
-                    <select id="trFrom" class="tr-lang tr-source" aria-label="Translate from"></select>
-                    <span class="tr-arrow" aria-hidden="true">&rarr;</span>
-                    <select id="trTo" class="tr-target" aria-label="Translate to"></select>
+            <div class="modal-body tr-body">
+                <div class="tr-langs">
+                    <label class="tr-field">
+                        <span class="tr-field-label">From</span>
+                        <select id="trFrom" class="tr-select" aria-label="Translate from"></select>
+                    </label>
+                    <button class="tr-swap" id="trSwap" type="button" title="Swap languages" aria-label="Swap languages">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4"/><path d="M3 8h13a4 4 0 0 1 0 8h-3"/><path d="m17 20 4-4-4-4"/></svg>
+                    </button>
+                    <label class="tr-field">
+                        <span class="tr-field-label">Into</span>
+                        <select id="trTo" class="tr-select" aria-label="Translate to"></select>
+                    </label>
                 </div>
                 <p class="tr-engine" id="trEngine"></p>
-                <blockquote class="tr-source" id="trSource" dir="auto"></blockquote>
-                <div class="tr-result markdown-body" id="trResult" dir="auto"></div>
-                <div class="tr-actions">
-                    <button class="btn-primary hidden" id="trGo" type="button">Translate</button>
-                    <button class="btn-secondary" id="trSave" type="button">Save to note</button>
-                    <button class="btn-secondary" id="trCopy" type="button">Copy</button>
-                    <button class="btn-secondary hidden" id="trRetry" type="button">Try again</button>
+                <div class="tr-panes">
+                    <section class="tr-pane">
+                        <header class="tr-pane-head">
+                            <span class="tr-pane-title">Original</span>
+                            <span class="tr-pane-meta" id="trSourceMeta"></span>
+                        </header>
+                        <div class="tr-source" id="trSource" dir="auto"></div>
+                    </section>
+                    <section class="tr-pane tr-pane-result">
+                        <header class="tr-pane-head">
+                            <span class="tr-pane-title">Translation</span>
+                            <button class="tr-pane-action hidden" id="trCopy" type="button">Copy</button>
+                        </header>
+                        <div class="tr-result markdown-body" id="trResult" dir="auto"></div>
+                    </section>
                 </div>
+            </div>
+            <div class="tr-actions tr-modal-foot">
+                <button class="btn-primary hidden" id="trGo" type="button">Translate</button>
+                <button class="btn-secondary hidden" id="trSave" type="button">Save to note</button>
             </div>
         </div>
     </div>

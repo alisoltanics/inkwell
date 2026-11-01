@@ -3417,6 +3417,7 @@
     "Choose the language to translate into, then press Translate.": "زبان مقصد را انتخاب کن، بعد Translate را بزن.",
     "Choose the languages, then press Translate.": "زبان‌ها را انتخاب کن، بعد Translate را بزن.",
     "Choose two different languages": "دو زبان متفاوت انتخاب کن",
+    "%n% words": "%n% واژه",
   });
 
   Object.assign(ar, {
@@ -3436,6 +3437,7 @@
     "Choose the language to translate into, then press Translate.": "اختر لغة الهدف ثم اضغط Translate.",
     "Choose the languages, then press Translate.": "اختر اللغتين ثم اضغط Translate.",
     "Choose two different languages": "اختر لغتين مختلفتين",
+    "%n% words": "%n% كلمة",
   });
 
   Object.assign(fr, {
@@ -3455,6 +3457,7 @@
     "Choose the language to translate into, then press Translate.": "Choisissez la langue cible, puis appuyez sur Translate.",
     "Choose the languages, then press Translate.": "Choisissez les deux langues, puis appuyez sur Translate.",
     "Choose two different languages": "Choisissez deux langues différentes",
+    "%n% words": "%n% mots",
   });
 
   Object.assign(de, {
@@ -3474,6 +3477,7 @@
     "Choose the language to translate into, then press Translate.": "Zielsprache wählen, dann auf Translate drücken.",
     "Choose the languages, then press Translate.": "Beide Sprachen wählen, dann auf Translate drücken.",
     "Choose two different languages": "Wähle zwei verschiedene Sprachen",
+    "%n% words": "%n% Wörter",
   });
 
   Object.assign(it, {
@@ -3493,6 +3497,7 @@
     "Choose the language to translate into, then press Translate.": "Scegli la lingua di destinazione, poi premi Translate.",
     "Choose the languages, then press Translate.": "Scegli le due lingue, poi premi Translate.",
     "Choose two different languages": "Scegli due lingue diverse",
+    "%n% words": "%n% parole",
   });
 
   Object.assign(tr, {
@@ -3512,6 +3517,7 @@
     "Choose the language to translate into, then press Translate.": "Hedef dili seç, sonra Translate'e bas.",
     "Choose the languages, then press Translate.": "İki dili seç, sonra Translate'e bas.",
     "Choose two different languages": "İki farklı dil seç",
+    "%n% words": "%n% kelime",
   });
 
   Object.assign(es, {
@@ -3531,6 +3537,7 @@
     "Choose the language to translate into, then press Translate.": "Elige el idioma de destino y pulsa Translate.",
     "Choose the languages, then press Translate.": "Elige los dos idiomas y pulsa Translate.",
     "Choose two different languages": "Elige dos idiomas distintos",
+    "%n% words": "%n% palabras",
   });
 
   Object.assign(zh, {
@@ -3550,6 +3557,7 @@
     "Choose the language to translate into, then press Translate.": "选择目标语言，然后点击 Translate。",
     "Choose the languages, then press Translate.": "选择两种语言，然后点击 Translate。",
     "Choose two different languages": "请选择两种不同的语言",
+    "%n% words": "%n% 个词",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

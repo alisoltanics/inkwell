@@ -48,7 +48,7 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 
 ### Translate a passage
 
-- Select text in the editor and choose **Translate**. The dialog suggests the source and target languages, both are pickers, and the translation runs when **Translate** is pressed — the same as for a whole note.
+- Select text in the editor and choose **Translate**. The dialog suggests the source and target languages, both are pickers, and the translation runs when **Translate** is pressed — the same as for a whole note. The arrow between the two pickers swaps them, and the dialog shows the passage with its word count above the result.
 - The work is done on this machine by **Argos Translate** when it is installed (`pip install argostranslate` plus the language pair); otherwise the AI provider that Ask AI uses translates it, and the dialog says which of the two produced the text.
 - **Save to note** keeps the passage marked with a light blue highlight in the preview. Clicking the highlight reopens the translation in a small card, where it can be copied or removed. **Try again** re-runs the translation, and the target picker translates again immediately.
 - Saved translations are stored with the app settings per note, like comments, and follow a rename or a delete.

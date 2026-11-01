@@ -6403,82 +6403,202 @@ html[dir="rtl"] .ans-pop-quote {
     border-top: 1px solid var(--border);
 }
 
-/* the result follows its own language, so Persian reads right to left */
+/* ============ TRANSLATE DIALOG ============ */
+/* The result follows its own language, so Persian reads right to left. */
 .tr-result, .tr-pop-body { text-align: start; }
 
-.translate-modal { width: 620px; max-width: 94vw; }
-
-.tr-head {
+.translate-modal {
+    width: 660px;
+    max-width: 94vw;
+    max-height: min(88vh, 780px);
     display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
+    flex-direction: column;
 }
 
-.tr-lang {
-    padding: 7px 10px;
-    border-radius: 9px;
+/* the body scrolls, the actions stay where they are */
+.translate-modal .tr-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.tr-modal-head { padding: 16px 20px 14px; }
+
+.tr-heading {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+}
+
+.tr-heading-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: 10px;
+    background: var(--accent-glow);
+    color: var(--accent);
+}
+
+.tr-heading-text { min-width: 0; }
+.tr-heading-text h3 { margin: 0; }
+
+.tr-scope {
+    margin: 2px 0 0;
+    font-size: 11.5px;
+    letter-spacing: 0.01em;
+    color: var(--text-muted);
+}
+
+.tr-body { padding: 16px 20px 18px; }
+
+/* two labelled pickers with a swap button between them */
+.tr-langs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: end;
+    gap: 8px;
+}
+
+.modal-body .tr-field {
+    display: block;
+    min-width: 0;
+    margin: 0;
+}
+
+.tr-field-label {
+    display: block;
+    margin: 0 0 6px 2px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.tr-select {
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    padding: 0 10px;
     border: 1px solid var(--border-strong);
+    border-radius: 9px;
     background: var(--bg);
     color: var(--text);
     font-family: inherit;
     font-size: 12.5px;
     font-weight: 500;
-    white-space: nowrap;
-    max-width: 44%;
+    cursor: pointer;
+    transition: border-color 0.12s, box-shadow 0.12s;
 }
 
-/* the two pickers share the row, the target takes the room left over */
-.tr-source { flex: 0 1 auto; min-width: 0; }
+.tr-select:hover { border-color: var(--accent); }
+.tr-select:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
 
-.tr-arrow { color: var(--text-muted); }
-
-.tr-target {
-    flex: 1 1 auto;
-    min-width: 0;
-    padding: 7px 10px;
-    border-radius: 9px;
+.tr-swap {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 2px;
+    display: grid;
+    place-items: center;
     border: 1px solid var(--border-strong);
-    background: var(--bg);
-    color: var(--text);
-    font-family: inherit;
-    font-size: 12.5px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, transform 0.2s;
 }
 
-.tr-engine {
-    margin: 0 0 10px;
+.tr-swap:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    transform: rotate(180deg);
+}
+
+.modal-body .tr-engine {
+    min-height: 1em;
+    margin: 10px 2px 12px;
     font-size: 11.5px;
     color: var(--text-muted);
 }
 
-.tr-source {
-    margin: 0 0 12px;
-    padding: 10px 12px;
-    border-left: 3px solid var(--border-strong);
-    border-radius: 0 8px 8px 0;
+/* original and translation, each in its own labelled card */
+.tr-panes { display: grid; gap: 10px; }
+
+.tr-pane {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.tr-pane-result { border-color: var(--border-strong); }
+
+.tr-pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 12px;
     background: var(--bg-elevated);
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.6;
-    max-height: 110px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tr-pane-title {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.tr-pane-meta { font-size: 11px; color: var(--text-muted); }
+
+.tr-pane-action {
+    border: none;
+    background: transparent;
+    padding: 2px 7px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+}
+
+.tr-pane-action:hover { color: var(--accent); background: var(--accent-glow); }
+
+.tr-source {
+    margin: 0;
+    padding: 10px 12px;
+    max-height: 96px;
     overflow: auto;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    line-height: 1.65;
     white-space: pre-wrap;
+    text-align: start;
 }
 
 .tr-result {
-    min-height: 84px;
-    max-height: 320px;
+    min-height: 96px;
+    max-height: 300px;
     overflow: auto;
-    padding: 14px 16px;
-    border-radius: 12px;
-    border: 1px solid var(--border-strong);
-    background: var(--bg);
-    font-size: 14.5px;
-    line-height: 1.7;
+    padding: 12px 14px;
     color: var(--text);
+    font-size: 14px;
+    line-height: 1.75;
+    text-align: start;
 }
 
-.tr-result.markdown-body { padding: 14px 16px; max-width: none; margin: 0; }
+.tr-result.markdown-body { padding: 12px 14px; margin: 0; max-width: none; }
 .tr-result p:first-child { margin-top: 0; }
 .tr-result p:last-child { margin-bottom: 0; }
 
@@ -6490,31 +6610,41 @@ html[dir="rtl"] .ans-pop-quote {
     font-size: 13px;
 }
 
-/* a document waits here until a target language is picked */
+/* nothing runs until the two languages are chosen and Translate is pressed */
 .tr-hint {
-    padding: 14px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
     border: 1px dashed var(--border);
-    border-radius: 8px;
+    border-radius: 9px;
     background: var(--bg-elevated);
     color: var(--text-muted);
-    font-size: 13px;
-    line-height: 1.6;
-    text-align: center;
+    font-size: 12.5px;
+    line-height: 1.55;
 }
+
+.tr-hint svg { flex: none; opacity: 0.75; }
 
 .tr-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
-    margin-top: 16px;
+    gap: 8px;
+}
+
+.tr-modal-foot {
+    flex: none;
+    padding: 12px 20px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-elevated);
 }
 
 .tr-actions button {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    min-height: 34px;
-    padding: 0 16px;
+    min-height: 36px;
+    padding: 0 18px;
     border-radius: 9px;
     font-size: 12.5px;
     font-weight: 600;
