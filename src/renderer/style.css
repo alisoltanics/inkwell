@@ -6528,6 +6528,18 @@ html[dir="rtl"] .ans-pop-quote {
     color: var(--text-muted);
 }
 
+/* which engine does the work, and through which AI */
+.tr-choice {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.tr-choice .tr-select { height: 34px; }
+.tr-choice .tr-select:disabled { opacity: 0.55; cursor: default; }
+.tr-field-off { opacity: 0.55; }
+
 /* original and translation, each in its own labelled card */
 .tr-panes { display: grid; gap: 10px; }
 

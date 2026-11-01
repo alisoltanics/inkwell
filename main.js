@@ -2350,8 +2350,8 @@ function runAIProcess(spec, cmdPath, event, outputFile, providerConfig) {
 
     const timer = setTimeout(() => {
       try { proc.kill('SIGKILL'); } catch (_) {}
-      done({ ok: false, error: 'Timed out after ' + Math.round(AI_TIMEOUT / 1000) + 's' });
-    }, AI_TIMEOUT);
+      done({ ok: false, error: 'Timed out after ' + Math.round(waitMs / 1000) + 's' });
+    }, waitMs);
 
     aiProcs.set(event.sender.id, { proc, timer });
 
@@ -2408,6 +2408,11 @@ ipcMain.handle('ai:ask', async (event, payload) => {
     }
     return last;
   }
+
+  const requestedTimeout = Number(payload && payload.timeout);
+  const waitMs = Number.isFinite(requestedTimeout) && requestedTimeout >= 15000
+    ? Math.min(requestedTimeout, AI_TIMEOUT)
+    : AI_TIMEOUT;
 
   let isolation = [];
   if (claudeRequested(provider, providerConfig)) {

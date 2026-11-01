@@ -3421,6 +3421,16 @@
     "Translation saved · showing %lang%": "ترجمه ذخیره شد · نمایش %lang%",
     "Translation replaced · showing %lang%": "ترجمه جایگزین شد · نمایش %lang%",
     "Added from outside: %name%": "از بیرون اضافه شد: %name%",
+    "Offline first, then AI": "اول آفلاین، بعد AI",
+    "Offline only": "فقط آفلاین",
+    "AI only": "فقط AI",
+    "Translating…": "در حال ترجمه…",
+    "Translating… (%done% of %total%)": "در حال ترجمه… (%done% از %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "مترجم آفلاین (Argos) نصب نیست. در بخش Engine یک AI انتخاب کن.",
+    "The offline translator returned nothing": "مترجم آفلاین چیزی برنگرداند",
+    "No AI provider is set up, and no offline translator was found.": "هیچ AI تنظیم نشده و مترجم آفلاین هم پیدا نشد.",
+    "The AI returned nothing.": "AI چیزی برنگرداند.",
+    "The AI request failed.": "درخواست AI انجام نشد.",
   });
 
   Object.assign(ar, {
@@ -3444,6 +3454,16 @@
     "Translation saved · showing %lang%": "تم حفظ الترجمة · عرض %lang%",
     "Translation replaced · showing %lang%": "تم استبدال الترجمة · عرض %lang%",
     "Added from outside: %name%": "أُضيف من الخارج: %name%",
+    "Offline first, then AI": "المترجم المحلي أولاً ثم الذكاء الاصطناعي",
+    "Offline only": "المترجم المحلي فقط",
+    "AI only": "الذكاء الاصطناعي فقط",
+    "Translating…": "جارٍ الترجمة…",
+    "Translating… (%done% of %total%)": "جارٍ الترجمة… (%done% من %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "المترجم المحلي (Argos) غير مثبّت. اختر ذكاءً اصطناعياً في حقل Engine.",
+    "The offline translator returned nothing": "لم يُرجِع المترجم المحلي شيئاً",
+    "No AI provider is set up, and no offline translator was found.": "لا يوجد مزوّد ذكاء اصطناعي مُعدّ ولم يُعثر على مترجم محلي.",
+    "The AI returned nothing.": "لم يُرجِع الذكاء الاصطناعي شيئاً.",
+    "The AI request failed.": "فشل طلب الذكاء الاصطناعي.",
   });
 
   Object.assign(fr, {
@@ -3467,6 +3487,16 @@
     "Translation saved · showing %lang%": "Traduction enregistrée · affichage %lang%",
     "Translation replaced · showing %lang%": "Traduction remplacée · affichage %lang%",
     "Added from outside: %name%": "Ajouté de l’extérieur : %name%",
+    "Offline first, then AI": "Hors ligne d’abord, puis l’IA",
+    "Offline only": "Hors ligne seulement",
+    "AI only": "IA seulement",
+    "Translating…": "Traduction…",
+    "Translating… (%done% of %total%)": "Traduction… (%done% sur %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "Le traducteur hors ligne (Argos) n’est pas installé. Choisissez une IA dans le champ Engine.",
+    "The offline translator returned nothing": "Le traducteur hors ligne n’a rien renvoyé",
+    "No AI provider is set up, and no offline translator was found.": "Aucune IA n’est configurée et aucun traducteur hors ligne n’a été trouvé.",
+    "The AI returned nothing.": "L’IA n’a rien renvoyé.",
+    "The AI request failed.": "La requête IA a échoué.",
   });
 
   Object.assign(de, {
@@ -3490,6 +3520,16 @@
     "Translation saved · showing %lang%": "Übersetzung gespeichert · Anzeige %lang%",
     "Translation replaced · showing %lang%": "Übersetzung ersetzt · Anzeige %lang%",
     "Added from outside: %name%": "Von außen hinzugefügt: %name%",
+    "Offline first, then AI": "Erst offline, dann KI",
+    "Offline only": "Nur offline",
+    "AI only": "Nur KI",
+    "Translating…": "Übersetze…",
+    "Translating… (%done% of %total%)": "Übersetze… (%done% von %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "Der Offline-Übersetzer (Argos) ist nicht installiert. Wähle im Feld Engine eine KI.",
+    "The offline translator returned nothing": "Der Offline-Übersetzer hat nichts zurückgegeben",
+    "No AI provider is set up, and no offline translator was found.": "Es ist keine KI eingerichtet und kein Offline-Übersetzer gefunden.",
+    "The AI returned nothing.": "Die KI hat nichts zurückgegeben.",
+    "The AI request failed.": "Die KI-Anfrage ist fehlgeschlagen.",
   });
 
   Object.assign(it, {
@@ -3513,6 +3553,16 @@
     "Translation saved · showing %lang%": "Traduzione salvata · visualizzazione %lang%",
     "Translation replaced · showing %lang%": "Traduzione sostituita · visualizzazione %lang%",
     "Added from outside: %name%": "Aggiunto dall’esterno: %name%",
+    "Offline first, then AI": "Prima offline, poi AI",
+    "Offline only": "Solo offline",
+    "AI only": "Solo AI",
+    "Translating…": "Traduzione…",
+    "Translating… (%done% of %total%)": "Traduzione… (%done% di %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "Il traduttore offline (Argos) non è installato. Scegli un’AI nel campo Engine.",
+    "The offline translator returned nothing": "Il traduttore offline non ha restituito nulla",
+    "No AI provider is set up, and no offline translator was found.": "Nessuna AI è configurata e nessun traduttore offline è stato trovato.",
+    "The AI returned nothing.": "L’AI non ha restituito nulla.",
+    "The AI request failed.": "La richiesta AI è fallita.",
   });
 
   Object.assign(tr, {
@@ -3536,6 +3586,16 @@
     "Translation saved · showing %lang%": "Çeviri kaydedildi · %lang% gösteriliyor",
     "Translation replaced · showing %lang%": "Çeviri değiştirildi · %lang% gösteriliyor",
     "Added from outside: %name%": "Dışarıdan eklendi: %name%",
+    "Offline first, then AI": "Önce çevrimdışı, sonra AI",
+    "Offline only": "Yalnızca çevrimdışı",
+    "AI only": "Yalnızca AI",
+    "Translating…": "Çevriliyor…",
+    "Translating… (%done% of %total%)": "Çevriliyor… (%done% / %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "Çevrimdışı çevirmen (Argos) kurulu değil. Engine alanından bir AI seç.",
+    "The offline translator returned nothing": "Çevrimdışı çevirmen bir şey döndürmedi",
+    "No AI provider is set up, and no offline translator was found.": "Ayarlı bir AI yok ve çevrimdışı çevirmen bulunamadı.",
+    "The AI returned nothing.": "AI bir şey döndürmedi.",
+    "The AI request failed.": "AI isteği başarısız oldu.",
   });
 
   Object.assign(es, {
@@ -3559,6 +3619,16 @@
     "Translation saved · showing %lang%": "Traducción guardada · mostrando %lang%",
     "Translation replaced · showing %lang%": "Traducción reemplazada · mostrando %lang%",
     "Added from outside: %name%": "Añadido desde fuera: %name%",
+    "Offline first, then AI": "Primero sin conexión, luego IA",
+    "Offline only": "Solo sin conexión",
+    "AI only": "Solo IA",
+    "Translating…": "Traduciendo…",
+    "Translating… (%done% of %total%)": "Traduciendo… (%done% de %total%)",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "El traductor sin conexión (Argos) no está instalado. Elige una IA en el campo Engine.",
+    "The offline translator returned nothing": "El traductor sin conexión no devolvió nada",
+    "No AI provider is set up, and no offline translator was found.": "No hay ninguna IA configurada y no se encontró un traductor sin conexión.",
+    "The AI returned nothing.": "La IA no devolvió nada.",
+    "The AI request failed.": "La petición a la IA falló.",
   });
 
   Object.assign(zh, {
@@ -3582,6 +3652,16 @@
     "Translation saved · showing %lang%": "译文已保存 · 显示 %lang%",
     "Translation replaced · showing %lang%": "译文已替换 · 显示 %lang%",
     "Added from outside: %name%": "已从外部添加：%name%",
+    "Offline first, then AI": "先离线，再用 AI",
+    "Offline only": "仅离线",
+    "AI only": "仅 AI",
+    "Translating…": "正在翻译…",
+    "Translating… (%done% of %total%)": "正在翻译…（%done%/%total%）",
+    "The offline translator (Argos) is not installed. Pick an AI in the Engine field.": "离线翻译器（Argos）未安装。请在 Engine 中选择一个 AI。",
+    "The offline translator returned nothing": "离线翻译器没有返回内容",
+    "No AI provider is set up, and no offline translator was found.": "没有配置 AI，也没找到离线翻译器。",
+    "The AI returned nothing.": "AI 没有返回内容。",
+    "The AI request failed.": "AI 请求失败。",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

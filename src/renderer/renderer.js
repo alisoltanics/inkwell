@@ -254,6 +254,10 @@ let state = {
   translationsByFile: {},
   // AI answers kept on the passage they explain
   passageAnswers: {},
+  // how the translate dialog runs: which engine and which AI
+  translateEngine: 'auto',
+  translateProvider: '',
+  translateModel: '',
   // a whole-document translation, kept per note so it can be toggled
   docTranslations: {},
   docTranslationView: {},
@@ -364,6 +368,11 @@ const els = {
   trFrom: $('trFrom'),
   trTo: $('trTo'),
   trSwap: $('trSwap'),
+  trEngineSel: $('trEngineSel'),
+  trAiProvider: $('trAiProvider'),
+  trAiModel: $('trAiModel'),
+  trProviderField: $('trProviderField'),
+  trModelField: $('trModelField'),
   trScope: $('trScope'),
   trSourceMeta: $('trSourceMeta'),
   trGo: $('trGo'),
@@ -819,6 +828,9 @@ function loadPreferences() {
       if (p.commentsByFile && typeof p.commentsByFile === 'object') state.commentsByFile = p.commentsByFile;
       if (p.translationsByFile && typeof p.translationsByFile === 'object') state.translationsByFile = p.translationsByFile;
       if (p.passageAnswers && typeof p.passageAnswers === 'object') state.passageAnswers = p.passageAnswers;
+      if (typeof p.translateEngine === 'string' && p.translateEngine) state.translateEngine = p.translateEngine;
+      if (typeof p.translateProvider === 'string') state.translateProvider = p.translateProvider;
+      if (typeof p.translateModel === 'string') state.translateModel = p.translateModel;
       if (p.docTranslations && typeof p.docTranslations === 'object') state.docTranslations = p.docTranslations;
       if (p.docTranslationView && typeof p.docTranslationView === 'object') state.docTranslationView = p.docTranslationView;
       if (p.docTranslationDir && typeof p.docTranslationDir === 'object') state.docTranslationDir = p.docTranslationDir;
@@ -869,6 +881,9 @@ function savePreferences() {
       commentsByFile: state.commentsByFile,
       translationsByFile: state.translationsByFile,
       passageAnswers: state.passageAnswers,
+      translateEngine: state.translateEngine,
+      translateProvider: state.translateProvider,
+      translateModel: state.translateModel,
       docTranslations: state.docTranslations,
       docTranslationView: state.docTranslationView,
       docTranslationDir: state.docTranslationDir,
@@ -3632,6 +3647,7 @@ async function openDocumentTranslate() {
   const wanted = langCodeOfName(getAIResponseLanguage());
   trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
   fillTrLanguages();
+  fillTranslateEngines();
   setTranslateSource(text);
   setTranslateScope(true);
   if (els.trSave) els.trSave.textContent = t('Save translation');
@@ -3863,6 +3879,7 @@ function openTranslate(selection) {
   const wanted = langCodeOfName(getAIResponseLanguage());
   trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
   fillTrLanguages();
+  fillTranslateEngines();
   setTranslateSource(text);
   setTranslateScope(false);
   if (els.trSave) els.trSave.textContent = t('Save to note');
@@ -3871,9 +3888,132 @@ function openTranslate(selection) {
   openModal('translate');
 }
 
+/* ---- who does the translating ---- */
+// A whole note can be long: the text is sent in paragraph-sized pieces so no
+// command line gets too long for the CLI engines, the model keeps its place in
+// the document, and the progress is visible.
+const TR_CHUNK_CHARS = 3500;
+
+function translateChunks(text) {
+  const blocks = String(text || '').split(/\n{2,}/);
+  const chunks = [];
+  let current = '';
+  for (const block of blocks) {
+    if (current && current.length + block.length + 2 > TR_CHUNK_CHARS) {
+      chunks.push(current);
+      current = block;
+    } else {
+      current = current ? current + '\n\n' + block : block;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : [String(text || '')];
+}
+
+function fillTranslateEngines() {
+  if (!els.trEngineSel) return;
+  els.trEngineSel.replaceChildren();
+  const options = [
+    ['auto', t('Offline first, then AI')],
+    ['offline', t('Offline only')],
+    ['ai', t('AI only')],
+  ];
+  for (const [value, label] of options) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    els.trEngineSel.appendChild(option);
+  }
+  els.trEngineSel.value = state.translateEngine || 'auto';
+
+  if (els.trAiProvider) {
+    els.trAiProvider.replaceChildren();
+    for (const provider of getAIProviders()) {
+      const option = document.createElement('option');
+      option.value = provider.id;
+      option.textContent = providerLabel(provider.id);
+      els.trAiProvider.appendChild(option);
+    }
+    const wanted = state.translateProvider || state.aiProvider || (els.aiProvider && els.aiProvider.value) || '';
+    els.trAiProvider.value = getAIProviderById(wanted) ? wanted : (getAIProviders()[0] || {}).id || '';
+  }
+  fillTranslateModels();
+  syncTranslateEngineFields();
+  // the model list comes from the provider, so it may arrive a moment later
+  const providerId = els.trAiProvider ? els.trAiProvider.value : '';
+  if (providerId) {
+    loadAIModelOptions(providerId)
+      .then(() => { if (els.trAiProvider && els.trAiProvider.value === providerId) fillTranslateModels(); })
+      .catch(() => {});
+  }
+}
+
+function fillTranslateModels() {
+  if (!els.trAiModel || !els.trAiProvider) return;
+  const providerId = els.trAiProvider.value;
+  els.trAiModel.replaceChildren();
+  const models = (aiModelCatalogs && aiModelCatalogs.get(providerId)) || [];
+  const def = document.createElement('option');
+  def.value = '';
+  def.textContent = t('Provider default');
+  els.trAiModel.appendChild(def);
+  for (const model of models) {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.name || model.id;
+    els.trAiModel.appendChild(option);
+  }
+  const wanted = state.translateProvider === providerId ? state.translateModel || '' : '';
+  els.trAiModel.value = models.some((model) => model.id === wanted) ? wanted : '';
+}
+
+// Offline means nothing for the AI pickers, so they are dimmed out of the way.
+function syncTranslateEngineFields() {
+  const engine = els.trEngineSel ? els.trEngineSel.value : 'auto';
+  const offlineOnly = engine === 'offline';
+  for (const [field, select] of [[els.trProviderField, els.trAiProvider], [els.trModelField, els.trAiModel]]) {
+    if (!field || !select) continue;
+    select.disabled = offlineOnly;
+    field.classList.toggle('tr-field-off', offlineOnly);
+  }
+}
+
+function rememberTranslateChoice() {
+  state.translateEngine = els.trEngineSel ? els.trEngineSel.value : 'auto';
+  state.translateProvider = els.trAiProvider ? els.trAiProvider.value : '';
+  state.translateModel = els.trAiModel ? els.trAiModel.value : '';
+  savePreferences();
+}
+
+function currentTranslateEngine() {
+  return els.trEngineSel && els.trEngineSel.value ? els.trEngineSel.value : 'auto';
+}
+
+async function translatePiece(text, from, to) {
+  const engine = currentTranslateEngine();
+  let offlineError = '';
+  if (engine !== 'ai') {
+    let local = null;
+    try { local = await window.inkwell.translateText({ text, from, to }); } catch (_) { local = null; }
+    if (local && local.ok && String(local.text || '').trim()) {
+      return { ok: true, text: String(local.text).trim(), engine: 'Argos · offline' };
+    }
+    offlineError = (local && local.error) || '';
+    if (engine === 'offline') {
+      return {
+        ok: false,
+        error: offlineError === 'no-engine'
+          ? t('The offline translator (Argos) is not installed. Pick an AI in the Engine field.')
+          : (offlineError || t('The offline translator returned nothing')),
+      };
+    }
+  }
+  return translateWithAI(text, from, to);
+}
+
 async function runTranslate() {
   const text = trState.text;
-  // the two pickers are the source of truth: the user chose them
+  // the pickers are the source of truth: the user chose them
   if (els.trFrom && els.trFrom.value) trState.from = els.trFrom.value;
   if (els.trTo && els.trTo.value) trState.to = els.trTo.value;
   const from = trState.from;
@@ -3883,29 +4023,35 @@ async function runTranslate() {
     toast(t('Choose two different languages'), 'info');
     return;
   }
+  rememberTranslateChoice();
   trState.result = '';
   trState.engine = '';
   if (els.trSave) els.trSave.classList.remove('hidden');
   if (els.trCopy) els.trCopy.classList.remove('hidden');
   if (els.trRetry) els.trRetry.classList.add('hidden');
-  if (els.trResult) els.trResult.innerHTML = '<div class="tr-busy"><span class="ai-spinner"></span><span>Translating…</span></div>';
   if (els.trEngine) els.trEngine.textContent = '';
   if (els.trSave) els.trSave.disabled = true;
-  let local = null;
-  try { local = await window.inkwell.translateText({ text, from, to }); } catch (_) { local = null; }
-  if (local && local.ok && String(local.text || '').trim()) {
-    trState.result = String(local.text).trim();
-    trState.engine = 'Argos · offline';
-  } else {
-    const ai = await translateWithAI(text, from, to);
-    if (!ai.ok) {
-      if (els.trResult) els.trResult.textContent = ai.error;
-      if (els.trEngine) els.trEngine.textContent = 'No translator available';
+
+  const chunks = translateChunks(text);
+  const parts = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    if (els.trResult) {
+      const progress = chunks.length > 1
+        ? t('Translating… (%done% of %total%)', { done: index + 1, total: chunks.length })
+        : t('Translating…');
+      els.trResult.innerHTML = `<div class="tr-busy"><span class="ai-spinner"></span><span>${escapeHtml(progress)}</span></div>`;
+    }
+    const piece = await translatePiece(chunks[index], from, to);
+    if (!piece.ok) {
+      if (els.trResult) els.trResult.textContent = piece.error;
+      if (els.trEngine) els.trEngine.textContent = currentTranslateEngine() === 'offline' ? '' : t('No translator available');
       return;
     }
-    trState.result = ai.text;
-    trState.engine = ai.engine;
+    trState.engine = piece.engine;
+    parts.push(piece.text);
   }
+  trState.result = parts.join('\n\n').trim();
+
   if (els.trEngine) els.trEngine.textContent = `${trState.engine} · ${langLabel(from)} → ${langLabel(to)}`;
   if (els.trResult) {
     // the result reads in the target language, not in the app's direction
@@ -3916,10 +4062,10 @@ async function runTranslate() {
 }
 
 async function translateWithAI(text, from, to) {
-  const provider = els.aiProvider ? els.aiProvider.value : state.aiProvider;
+  const provider = (els.trAiProvider && els.trAiProvider.value) || state.aiProvider || (els.aiProvider ? els.aiProvider.value : '');
   const cfg = getAIProviderById(provider);
-  if (!cfg) return { ok: false, error: 'No AI provider is set up, and no offline translator was found.' };
-  const model = selectedAIModel(els.aiModel, els.aiModelCustom);
+  if (!cfg) return { ok: false, error: t('No AI provider is set up, and no offline translator was found.') };
+  const model = (els.trAiModel && els.trAiModel.value) || '';
   const prompt = [
     `Translate the following ${langLabel(from)} text into ${langLabel(to)}.`,
     'Keep Markdown, code, names, numbers and links exactly as they are, and preserve the paragraph and list structure.',
@@ -3928,13 +4074,14 @@ async function translateWithAI(text, from, to) {
     String(text || ''),
   ].join('\n');
   try {
-    const res = await window.inkwell.askAI({ provider, prompt, model, providerConfig: cfg });
+    // one piece at a time, so a stalled CLI is reported instead of waited on
+    const res = await window.inkwell.askAI({ provider, prompt, model, providerConfig: cfg, timeout: 150000 });
     if (res && res.ok && String(res.text || '').trim()) {
       return { ok: true, text: String(res.text).trim(), engine: `AI · ${providerLabel(provider)}` };
     }
-    return { ok: false, error: (res && res.error) || 'The AI returned nothing.' };
+    return { ok: false, error: (res && res.error) || t('The AI returned nothing.') };
   } catch (e) {
-    return { ok: false, error: e.message || 'The AI request failed.' };
+    return { ok: false, error: e.message || t('The AI request failed.') };
   }
 }
 
@@ -3978,6 +4125,25 @@ if (els.trFloatBtn) {
     hideAIFloat();
     openTranslate(selection);
   });
+}
+if (els.trEngineSel) {
+  els.trEngineSel.addEventListener('change', () => {
+    syncTranslateEngineFields();
+    rememberTranslateChoice();
+  });
+}
+if (els.trAiProvider) {
+  els.trAiProvider.addEventListener('change', () => {
+    fillTranslateModels();
+    rememberTranslateChoice();
+    const providerId = els.trAiProvider.value;
+    loadAIModelOptions(providerId)
+      .then(() => { if (els.trAiProvider && els.trAiProvider.value === providerId) fillTranslateModels(); })
+      .catch(() => {});
+  });
+}
+if (els.trAiModel) {
+  els.trAiModel.addEventListener('change', () => rememberTranslateChoice());
 }
 if (els.trSwap) {
   els.trSwap.addEventListener('click', () => {
