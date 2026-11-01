@@ -3449,7 +3449,10 @@ function decoratePreviewTranslations() {
   if (!state.currentFile) return;
   const list = state.translationsByFile[state.currentFile];
   if (!Array.isArray(list) || !list.length) return;
-  for (const item of list) {
+  // The longest passage goes first: a translation saved on a sentence can hold
+  // the mark of a word inside it, and the word keeps its own card.
+  const ordered = [...list].sort((a, b) => String(b.quote || '').length - String(a.quote || '').length);
+  for (const item of ordered) {
     const plain = mdPlain(item.quote || '').trim();
     if (plain.length < 2) continue;
     const { text, items } = previewTextItems();
@@ -3534,6 +3537,10 @@ function saveTranslation() {
   if (!trState.result.trim()) return;
   if (!state.currentFile) { toast('Open a note first', 'info'); return; }
   const list = translationsFor();
+  // the same passage, translated to the same language again, replaces its note
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].quote === trState.text.slice(0, 600) && list[i].to === trState.to) list.splice(i, 1);
+  }
   list.push({
     id: 'tr-' + Date.now().toString(36),
     quote: trState.text.slice(0, 600),
@@ -5510,7 +5517,7 @@ function previewTextItems() {
   while ((n = walker.nextNode())) {
     const p = n.parentNode;
     if (!p) continue;
-    if (p.closest && p.closest('.cmt-mark, .tr-mark, .code-head')) continue;
+    if (p.closest && p.closest('.cmt-mark, .code-head')) continue;
     if (!n.nodeValue) continue;
     items.push({ node: n, start: text.length });
     text += n.nodeValue;
