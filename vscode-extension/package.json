@@ -58,12 +58,19 @@
       },
       {
         "command": "inkwell.preview.sendToVault",
-        "title": "Send to Inkwell Vault",
+        "title": "Send Note to Inkwell Vault",
         "category": "Inkwell",
         "icon": "$(inbox)"
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "inkwell.preview.sendToVault",
+          "when": "resourceExtname == .md || resourceExtname == .markdown",
+          "group": "inkwell@10"
+        }
+      ],
       "editor/title": [
         {
           "command": "inkwell.preview.openToSide",
