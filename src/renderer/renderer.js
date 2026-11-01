@@ -3189,8 +3189,10 @@ async function saveFile(silent = false) {
 // rendered markdown with vault images inlined as data URIs, comment/find
 // decorations stripped, and the document direction resolved.
 function stripPrintDecorations(root) {
-  // unwrap comment/find highlight wrappers (keep genuine ==highlight== marks)
-  root.querySelectorAll('mark.cmt-mark, mark.find-mark, span.cmt-hl, [data-cmt]').forEach((el) => {
+  // unwrap comment/find/translation highlight wrappers (keep genuine
+  // ==highlight== marks): a printed or sent document is plain text, the marks
+  // only mean something inside the app
+  root.querySelectorAll('mark.cmt-mark, mark.find-mark, mark.tr-mark, span.cmt-hl, [data-cmt], [data-tr]').forEach((el) => {
     const parent = el.parentNode;
     if (!parent) return;
     while (el.firstChild) parent.insertBefore(el.firstChild, el);
