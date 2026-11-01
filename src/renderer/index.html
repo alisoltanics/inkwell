@@ -919,10 +919,10 @@
                             <label class="sr-only">Custom providers</label>
                             <div class="ai-providers-list" id="aiProvidersList"></div>
                             <button class="btn-secondary" id="aiProviderAdd" type="button" style="margin-top:6px;">Add custom provider</button>
-                            <form class="ai-provider-form hidden" id="aiProviderForm" autocomplete="off">
-                                <input type="text" id="aiProviderFormId" placeholder="ID (short, no spaces)" spellcheck="false" required>
+                            <form class="ai-provider-form hidden" id="aiProviderForm" autocomplete="off" novalidate>
+                                <input type="text" id="aiProviderFormId" placeholder="ID (short, no spaces)" spellcheck="false">
                                 <input type="text" id="aiProviderFormName" placeholder="Display name" spellcheck="false">
-                                <input type="text" id="aiProviderFormCommand" placeholder="Command (e.g. gemini, aichat)" spellcheck="false" required>
+                                <input type="text" id="aiProviderFormCommand" placeholder="Command (e.g. gemini, aichat)" spellcheck="false">
                                 <select id="aiProviderFormType" title="Type">
                                     <option value="generic">generic</option>
                                     <option value="api">api (OpenAI compatible)</option>

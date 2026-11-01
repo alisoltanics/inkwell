@@ -7233,25 +7233,47 @@ function setupSettings() {
     $('aiProviderFormType').addEventListener('change', syncEnvNames);
     syncEnvNames();
     $('aiProviderFormCancel').addEventListener('click', () => { form.reset(); syncEnvNames(); form.classList.add('hidden'); });
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = field('aiProviderFormId');
       const type = $('aiProviderFormType').value || 'generic';
       // HTTP providers call the API themselves, so they have no command.
       const command = field('aiProviderFormCommand') || (type === 'api' ? 'api' : '');
-      if (!id || !command) { toast('ID and command required', 'error'); return; }
+      if (!id) { toast('Give the provider a short ID', 'error'); $('aiProviderFormId').focus(); return; }
+      if (!command) { toast('ID and command required', 'error'); $('aiProviderFormCommand').focus(); return; }
       const cleanId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
       state.aiProviders = Array.isArray(state.aiProviders) ? state.aiProviders : [];
       if (getAIProviders().some((p) => p.id === cleanId)) { toast('Provider ID already exists', 'error'); return; }
       const customProvider = { id: cleanId, name: field('aiProviderFormName') || id, command, type };
       const modelFlag = field('aiProviderFormModelFlag');
-      if (modelFlag) customProvider.modelFlag = modelFlag;
-      const baseUrl = field('aiProviderFormBaseUrl');
+      // an HTTP provider takes the model from the model picker: no flag, no env
+      if (modelFlag && type !== 'api') customProvider.modelFlag = modelFlag;
+      const baseUrl = field('aiProviderFormBaseUrl').replace(/\/+$/, '');
       const apiKey = $('aiProviderFormApiKey').value.trim();
       if (baseUrl && !/^https?:\/\//i.test(baseUrl)) { toast('Base URL must start with http:// or https://', 'error'); return; }
       if (type === 'api' && !baseUrl) { toast('Base URL is required for API providers', 'error'); return; }
       if (baseUrl) { customProvider.baseUrl = baseUrl; customProvider.baseUrlEnv = field('aiProviderFormBaseUrlEnv'); }
-      if (apiKey) { customProvider.apiKey = apiKey; customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv'); }
+      if (type === 'api') {
+        // an HTTP provider's key belongs in the app's settings file (written by
+        // the main process), never in the preferences this page keeps
+        customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv') || cleanId.toUpperCase() + '_API_KEY';
+        if (apiKey) {
+          let saved = null;
+          try {
+            saved = await window.inkwell.saveAIKey({ id: cleanId, apiKey, baseUrl });
+          } catch (err) {
+            saved = { ok: false, error: err && err.message ? err.message : String(err) };
+          }
+          if (!saved || !saved.ok) {
+            toast((saved && saved.error) || 'Could not save the API key', 'error');
+            return;
+          }
+          aiKeyStatus.set(cleanId, { hasKey: !!saved.hasKey, baseUrl });
+        }
+      } else if (apiKey) {
+        customProvider.apiKey = apiKey;
+        customProvider.apiKeyEnv = field('aiProviderFormApiKeyEnv');
+      }
       state.aiProviders.push(customProvider);
       state.aiProvider = cleanId;
       form.reset();
@@ -7260,6 +7282,10 @@ function setupSettings() {
       populateAISettings();
       renderAIProvidersList();
       syncAIProvider();
+      populateAIProviderSelect();
+      // a provider with a key can list the models of its service right away
+      aiModelCatalogs.delete(cleanId);
+      loadAIModelOptions(cleanId, true);
       savePreferences();
       toast('Provider added', 'success');
     });
