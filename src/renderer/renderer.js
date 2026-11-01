@@ -2157,6 +2157,9 @@ function setupEditorEvents() {
         start: unique ? idx : null,
         end: unique ? idx + text.length : null,
         anchor: mapped ? { text: mapped.quote, start: mapped.start, end: mapped.end } : null,
+        // what is on screen decides where the passage is marked, even when the
+        // translation no longer lines up block by block with the note
+        fromTranslation: docTranslationActive(),
         previewAt,
       });
     });
@@ -3608,6 +3611,8 @@ async function openDocumentTranslate() {
 
 function saveDocTranslation() {
   if (!trState.result.trim() || !state.currentFile) return;
+  // a note keeps one document translation: saving again replaces it
+  const replaced = !!state.docTranslations[state.currentFile];
   state.docTranslations[state.currentFile] = {
     from: trState.from,
     to: trState.to,
@@ -3622,7 +3627,9 @@ function saveDocTranslation() {
   updateDocTrToggle();
   renderPreview(true);
   applyDirection();
-  toast(`Translation saved · showing ${langLabel(trState.to)}`, 'success');
+  toast(replaced
+    ? t('Translation replaced · showing %lang%', { lang: langLabel(trState.to) })
+    : t('Translation saved · showing %lang%', { lang: langLabel(trState.to) }), 'success');
 }
 
 /* ---- AI answers kept on the passage they explain ---- */
@@ -3653,7 +3660,7 @@ function answerAnchorContext() {
         anchorText: anchor ? String(anchor.text).trim() : '',
         anchorStart: anchor && anchor.start != null ? anchor.start : null,
         anchorEnd: anchor && anchor.end != null ? anchor.end : null,
-        fromTranslation: !!anchor,
+        fromTranslation: !!(ctx.fromTranslation || anchor),
       };
     }
   }
@@ -3902,13 +3909,16 @@ function saveTranslation() {
   if (!state.currentFile) { toast('Open a note first', 'info'); return; }
   if (trState.mode === 'document') { saveDocTranslation(); return; }
   const list = translationsFor();
-  // the same passage, translated to the same language again, replaces its note
+  const quote = trState.text.slice(0, 600);
+  // a passage keeps one translation: translating it again — into the same
+  // language or another one — replaces the earlier note instead of stacking a
+  // second mark on the same words
   for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i].quote === trState.text.slice(0, 600) && list[i].to === trState.to) list.splice(i, 1);
+    if (list[i].quote === quote) list.splice(i, 1);
   }
   list.push({
     id: 'tr-' + Date.now().toString(36),
-    quote: trState.text.slice(0, 600),
+    quote,
     from: trState.from,
     to: trState.to,
     text: trState.result,
@@ -3918,7 +3928,7 @@ function saveTranslation() {
   savePreferences();
   closeModal('translate');
   renderPreview(true);
-  toast('Translation saved on this passage', 'success');
+  toast(t('Translation saved on this passage'), 'success');
 }
 
 if (els.trFloatBtn) {
@@ -6172,29 +6182,35 @@ function mapTranslatedSelection(text, previewAt) {
   const tr = docTranslationActive() ? docTranslationFor() : null;
   if (!tr || !String(tr.text || '').trim()) return null;
   const src = mdBlocks(els.editor.value);
-  const dst = mdBlocks(tr.text);
-  if (!src.length || src.length !== dst.length) return null;
+  const dst = mdBlocks(String(tr.text || ''));
+  if (!src.length || !dst.length) return null;
   const needle = mdPlain(text || '').trim();
   if (needle.length < 2) return null;
-  const hits = [];
-  dst.forEach((block, i) => { if (mdPlain(block.text).includes(needle)) hits.push(i); });
-  if (!hits.length) return null;
-  let at = hits[0];
-  // the same words can sit in several paragraphs: follow the one that was
-  // selected on screen
-  const hint = Number(previewAt);
-  if (hits.length > 1 && Number.isFinite(hint)) {
-    const { text: preview } = previewTextItems();
-    let best = Infinity;
-    for (const i of hits) {
-      const plain = blockPlainText(dst[i].text);
-      const found = plain ? previewFind(preview, plain) : null;
-      if (!found) continue;
-      const distance = Math.abs(found.index - hint);
-      if (distance < best) { best = distance; at = i; }
+  const hit = dst.findIndex((block) => mdPlain(block.text).includes(needle));
+  if (hit < 0) return null;
+  let at = -1;
+  if (src.length === dst.length) {
+    // the usual case: the translation keeps the note's blocks, so block n of
+    // the translation is block n of the note
+    at = hit;
+  } else {
+    // an AI translation may merge or split paragraphs: follow how far into the
+    // document the passage sits instead
+    const hint = Number(previewAt);
+    if (Number.isFinite(hint)) {
+      const { text: preview } = previewTextItems();
+      const total = preview.length || 1;
+      const ratio = hint / total;
+      const docLength = els.editor.value.length || 1;
+      let best = Infinity;
+      src.forEach((block, i) => {
+        const middle = ((block.start + block.end) / 2) / docLength;
+        const distance = Math.abs(middle - ratio);
+        if (distance < best) { best = distance; at = i; }
+      });
     }
   }
-  if (!src[at]) return null;
+  if (at < 0 || !src[at]) return null;
   return {
     quote: blockPlainText(src[at].text),
     start: src[at].start,
@@ -7173,6 +7189,7 @@ function openAIPanel(mode = 'selection', contextOverride = null, options = {}) {
         start: contextOverride.start == null ? null : contextOverride.start,
         end: contextOverride.end == null ? null : contextOverride.end,
         anchor: contextOverride.anchor || null,
+        fromTranslation: !!contextOverride.fromTranslation,
         previewAt: contextOverride.previewAt == null ? null : contextOverride.previewAt,
         doc: !!contextOverride.doc,
       };

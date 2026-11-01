@@ -51,12 +51,12 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Select text in the editor and choose **Translate**. The dialog suggests the source and target languages, both are pickers, and the translation runs when **Translate** is pressed — the same as for a whole note. The arrow between the two pickers swaps them, and the dialog shows the passage with its word count above the result.
 - The work is done on this machine by **Argos Translate** when it is installed (`pip install argostranslate` plus the language pair); otherwise the AI provider that Ask AI uses translates it, and the dialog says which of the two produced the text.
 - **Save to note** keeps the passage marked with a light blue highlight in the preview. Clicking the highlight reopens the translation in a small card, where it can be copied or removed. **Try again** re-runs the translation, and the target picker translates again immediately.
-- Saved translations are stored with the app settings per note, like comments, and follow a rename or a delete.
+- Saved translations are stored with the app settings per note, like comments, and follow a rename or a delete. A passage keeps one translation, so translating it again replaces the earlier one instead of stacking a second highlight.
 
 ### Translate a whole note
 
 - Pick **Translate** in the header's AI tools menu to translate the entire note. The dialog shows the text it is about and both languages — where it comes from and where it goes — suggested but yours to change, and nothing is translated until **Translate** is pressed.
-- **Save translation** keeps the result with the note and switches the preview to the translated text, laid out in the direction of the target language. The editor keeps the original.
+- **Save translation** keeps the result with the note and switches the preview to the translated text, laid out in the direction of the target language. The editor keeps the original, and translating the note again replaces the stored translation instead of adding a second one.
 - A translation button then appears in the toolbar next to the direction buttons: click it to switch the preview between the note and its saved translation, and back. It only shows for notes that have a saved translation, and only the translation turns right-to-left when its language needs it — the note and the editor keep the direction you chose for them.
 - While a translation is on screen the direction buttons lay out the translation only, so picking LTR for the translated text leaves the note's own direction alone.
 - Comments stay usable in both views: a comment written on the note is marked on the same paragraph of the translation, and a comment added while reading the translation is stored against the original passage, so it appears in both.

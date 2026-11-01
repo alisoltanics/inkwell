@@ -3418,6 +3418,8 @@
     "Choose the languages, then press Translate.": "زبان‌ها را انتخاب کن، بعد Translate را بزن.",
     "Choose two different languages": "دو زبان متفاوت انتخاب کن",
     "%n% words": "%n% واژه",
+    "Translation saved · showing %lang%": "ترجمه ذخیره شد · نمایش %lang%",
+    "Translation replaced · showing %lang%": "ترجمه جایگزین شد · نمایش %lang%",
   });
 
   Object.assign(ar, {
@@ -3438,6 +3440,8 @@
     "Choose the languages, then press Translate.": "اختر اللغتين ثم اضغط Translate.",
     "Choose two different languages": "اختر لغتين مختلفتين",
     "%n% words": "%n% كلمة",
+    "Translation saved · showing %lang%": "تم حفظ الترجمة · عرض %lang%",
+    "Translation replaced · showing %lang%": "تم استبدال الترجمة · عرض %lang%",
   });
 
   Object.assign(fr, {
@@ -3458,6 +3462,8 @@
     "Choose the languages, then press Translate.": "Choisissez les deux langues, puis appuyez sur Translate.",
     "Choose two different languages": "Choisissez deux langues différentes",
     "%n% words": "%n% mots",
+    "Translation saved · showing %lang%": "Traduction enregistrée · affichage %lang%",
+    "Translation replaced · showing %lang%": "Traduction remplacée · affichage %lang%",
   });
 
   Object.assign(de, {
@@ -3478,6 +3484,8 @@
     "Choose the languages, then press Translate.": "Beide Sprachen wählen, dann auf Translate drücken.",
     "Choose two different languages": "Wähle zwei verschiedene Sprachen",
     "%n% words": "%n% Wörter",
+    "Translation saved · showing %lang%": "Übersetzung gespeichert · Anzeige %lang%",
+    "Translation replaced · showing %lang%": "Übersetzung ersetzt · Anzeige %lang%",
   });
 
   Object.assign(it, {
@@ -3498,6 +3506,8 @@
     "Choose the languages, then press Translate.": "Scegli le due lingue, poi premi Translate.",
     "Choose two different languages": "Scegli due lingue diverse",
     "%n% words": "%n% parole",
+    "Translation saved · showing %lang%": "Traduzione salvata · visualizzazione %lang%",
+    "Translation replaced · showing %lang%": "Traduzione sostituita · visualizzazione %lang%",
   });
 
   Object.assign(tr, {
@@ -3518,6 +3528,8 @@
     "Choose the languages, then press Translate.": "İki dili seç, sonra Translate'e bas.",
     "Choose two different languages": "İki farklı dil seç",
     "%n% words": "%n% kelime",
+    "Translation saved · showing %lang%": "Çeviri kaydedildi · %lang% gösteriliyor",
+    "Translation replaced · showing %lang%": "Çeviri değiştirildi · %lang% gösteriliyor",
   });
 
   Object.assign(es, {
@@ -3538,6 +3550,8 @@
     "Choose the languages, then press Translate.": "Elige los dos idiomas y pulsa Translate.",
     "Choose two different languages": "Elige dos idiomas distintos",
     "%n% words": "%n% palabras",
+    "Translation saved · showing %lang%": "Traducción guardada · mostrando %lang%",
+    "Translation replaced · showing %lang%": "Traducción reemplazada · mostrando %lang%",
   });
 
   Object.assign(zh, {
@@ -3558,6 +3572,8 @@
     "Choose the languages, then press Translate.": "选择两种语言，然后点击 Translate。",
     "Choose two different languages": "请选择两种不同的语言",
     "%n% words": "%n% 个词",
+    "Translation saved · showing %lang%": "译文已保存 · 显示 %lang%",
+    "Translation replaced · showing %lang%": "译文已替换 · 显示 %lang%",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };
