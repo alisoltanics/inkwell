@@ -6001,6 +6001,35 @@ html.rtl .docx-li { flex-direction: row-reverse; }
     background: var(--accent-glow);
 }
 
+/* document translation toggle: only shown once a note has a saved translation */
+.doc-tr-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.doc-tr-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.doc-tr-toggle.is-on {
+    background: rgba(56, 189, 248, 0.16);
+    border-color: rgba(56, 189, 248, 0.45);
+    color: var(--accent);
+}
+.doc-tr-toggle svg { flex: none; }
+@media (max-width: 900px) {
+    .doc-tr-toggle span { display: none; }
+    .doc-tr-toggle { padding: 0 8px; }
+}
+
 /* ============ READ ALOUD ============ */
 /* A player for the note's recording: the audio lives in the vault, so this is
    only a control surface. It sits above the status bar and stays out of the way. */

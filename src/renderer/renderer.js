@@ -252,6 +252,9 @@ let state = {
   commentsByFile: {},
   // translations saved per note: the passage and its translation
   translationsByFile: {},
+  // a whole-document translation, kept per note so it can be toggled
+  docTranslations: {},
+  docTranslationView: {},
   lastFile: null,
   lastOpenFromFavorites: false,
   scrollByFile: {},
@@ -352,6 +355,8 @@ const els = {
   settingsTtsTest: $('settingsTtsTest'),
   settingsAiModeBadge: $('settingsAiModeBadge'),
   trFloatBtn: $('trFloatBtn'),
+  docTrToggle: $('docTrToggle'),
+  docTrToggleLabel: $('docTrToggleLabel'),
   trFrom: $('trFrom'),
   trTo: $('trTo'),
   trEngine: $('trEngine'),
@@ -764,6 +769,8 @@ function loadPreferences() {
       if (Array.isArray(p.aiProviders)) state.aiProviders = p.aiProviders.filter((pp) => pp && typeof pp === 'object' && pp.id && pp.name && pp.command);
       if (p.commentsByFile && typeof p.commentsByFile === 'object') state.commentsByFile = p.commentsByFile;
       if (p.translationsByFile && typeof p.translationsByFile === 'object') state.translationsByFile = p.translationsByFile;
+      if (p.docTranslations && typeof p.docTranslations === 'object') state.docTranslations = p.docTranslations;
+      if (p.docTranslationView && typeof p.docTranslationView === 'object') state.docTranslationView = p.docTranslationView;
       if (typeof p.lastFile === 'string') state.lastFile = p.lastFile;
       if (typeof p.lastOpenFromFavorites === 'boolean') state.lastOpenFromFavorites = p.lastOpenFromFavorites;
       if (p.scrollByFile && typeof p.scrollByFile === 'object') state.scrollByFile = p.scrollByFile;
@@ -810,6 +817,8 @@ function savePreferences() {
       externalFiles: state.externalFiles,
       commentsByFile: state.commentsByFile,
       translationsByFile: state.translationsByFile,
+      docTranslations: state.docTranslations,
+      docTranslationView: state.docTranslationView,
       lastFile: state.lastFile,
       lastOpenFromFavorites: state.lastOpenFromFavorites,
       scrollByFile: state.scrollByFile,
@@ -1968,6 +1977,7 @@ async function selectFile(path, options = {}) {
     // a recording belongs to the note that was open when it was made
     resetReadAloud();
     updateTtsButton();
+    updateDocTrToggle();
     updateCommentsBadge();
     if (isHtmlFile || isDocx) {
       els.viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
@@ -2250,7 +2260,7 @@ function renderPreview(force = false) {
     document.body.classList.remove('html-preview-fullscreen');
   }
   els.previewContent.classList.add('markdown-body');
-  els.previewContent.innerHTML = md.render(els.editor.value || welcomeHtml());
+  els.previewContent.innerHTML = md.render(previewSourceText());
   enhanceCodeBlocks();
   hydrateFlashcards(els.previewContent);
   els._imgPromise = Promise.all([
@@ -3377,7 +3387,7 @@ const TR_LANGS = [
   ['fr', 'French'], ['de', 'German'], ['es', 'Spanish'], ['it', 'Italian'],
   ['ru', 'Russian'], ['zh', 'Chinese'], ['hi', 'Hindi'], ['pt', 'Portuguese'], ['ja', 'Japanese'],
 ];
-const trState = { text: '', from: 'en', to: 'fa', result: '', engine: '' };
+const trState = { text: '', from: 'en', to: 'fa', result: '', engine: '', mode: 'selection' };
 
 function langLabel(code) {
   const found = TR_LANGS.find(([id]) => id === code);
@@ -3468,9 +3478,88 @@ function decoratePreviewTranslations() {
   }
 }
 
+// The whole note can be translated and kept: the preview then switches between
+// the note and its translation, and the editor always holds the original.
+function docTranslationFor(file) {
+  const key = file || state.currentFile;
+  return key && state.docTranslations ? state.docTranslations[key] || null : null;
+}
+
+function docTranslationActive(file) {
+  const key = file || state.currentFile;
+  return !!(docTranslationFor(key) && state.docTranslationView && state.docTranslationView[key]);
+}
+
+function previewSourceText() {
+  if (state.currentFile && !/\.(?:html?|docx)$/i.test(state.currentFile) && docTranslationActive()) {
+    const tr = docTranslationFor();
+    if (tr && String(tr.text || '').trim()) return tr.text;
+  }
+  return els.editor.value || welcomeHtml();
+}
+
+function updateDocTrToggle() {
+  if (!els.docTrToggle) return;
+  const translatable = !!state.currentFile && !/\.(?:html?|docx)$/i.test(state.currentFile);
+  const saved = translatable ? docTranslationFor() : null;
+  els.docTrToggle.classList.toggle('hidden', !saved);
+  if (!saved) return;
+  const showingTranslation = docTranslationActive();
+  els.docTrToggle.classList.toggle('is-on', showingTranslation);
+  if (els.docTrToggleLabel) els.docTrToggleLabel.textContent = showingTranslation ? t('Original') : t('Translation');
+  els.docTrToggle.title = showingTranslation
+    ? `Show the ${langLabel(saved.from)} original`
+    : `Show the ${langLabel(saved.to)} translation`;
+}
+
+async function openDocumentTranslate() {
+  if (!state.currentFile) { toast('Open a document first', 'info'); return; }
+  const raw = /\.(?:html?|docx)$/i.test(state.currentFile) ? documentTextForAI() : els.editor.value;
+  const text = String(raw || '').trim();
+  if (!text) { toast('This document is empty', 'info'); return; }
+  trState.mode = 'document';
+  trState.text = text;
+  trState.from = guessTextLanguage(text);
+  const wanted = langCodeOfName(getAIResponseLanguage());
+  trState.to = wanted && wanted !== trState.from ? wanted : (trState.from === 'en' ? 'fa' : 'en');
+  fillTrLanguages();
+  if (els.trFrom) els.trFrom.textContent = `${langLabel(trState.from)} (${trState.from})`;
+  if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+  if (els.trEngine) els.trEngine.textContent = '';
+  if (els.trResult) els.trResult.replaceChildren();
+  if (els.trSave) {
+    els.trSave.disabled = true;
+    els.trSave.textContent = t('Save translation');
+  }
+  closeTrPop();
+  openModal('translate');
+  runTranslate();
+}
+
+function saveDocTranslation() {
+  if (!trState.result.trim() || !state.currentFile) return;
+  state.docTranslations[state.currentFile] = {
+    from: trState.from,
+    to: trState.to,
+    text: trState.result,
+    engine: trState.engine,
+    createdAt: Date.now(),
+  };
+  // the point of saving it is to read it: show the translation right away
+  state.docTranslationView[state.currentFile] = true;
+  savePreferences();
+  closeModal('translate');
+  updateDocTrToggle();
+  renderPreview(true);
+  applyDirection();
+  toast(`Translation saved · showing ${langLabel(trState.to)}`, 'success');
+}
+
 function openTranslate(selection) {
   const text = String((selection && selection.text) || '').trim();
   if (!text) { toast('Select some text first', 'info'); return; }
+  // a passage, not the whole note: Save must only keep this quote
+  trState.mode = 'selection';
   trState.text = text;
   trState.from = guessTextLanguage(text);
   // the language the app answers in is the best guess for where it is going
@@ -3481,7 +3570,10 @@ function openTranslate(selection) {
   if (els.trSource) els.trSource.textContent = text.length > 400 ? `${text.slice(0, 400)}…` : text;
   if (els.trEngine) els.trEngine.textContent = '';
   if (els.trResult) els.trResult.replaceChildren();
-  if (els.trSave) els.trSave.disabled = true;
+  if (els.trSave) {
+    els.trSave.disabled = true;
+    els.trSave.textContent = t('Save to note');
+  }
   closeTrPop();
   openModal('translate');
   runTranslate();
@@ -3543,6 +3635,7 @@ async function translateWithAI(text, from, to) {
 function saveTranslation() {
   if (!trState.result.trim()) return;
   if (!state.currentFile) { toast('Open a note first', 'info'); return; }
+  if (trState.mode === 'document') { saveDocTranslation(); return; }
   const list = translationsFor();
   // the same passage, translated to the same language again, replaces its note
   for (let i = list.length - 1; i >= 0; i--) {
@@ -3589,6 +3682,16 @@ if (els.trCopy) {
   els.trCopy.addEventListener('click', async () => {
     if (!trState.result) return;
     try { await navigator.clipboard.writeText(trState.result); toast('Copied', 'success'); } catch (_) {}
+  });
+}
+if (els.docTrToggle) {
+  els.docTrToggle.addEventListener('click', () => {
+    if (!state.currentFile) return;
+    state.docTranslationView[state.currentFile] = !docTranslationActive();
+    savePreferences();
+    updateDocTrToggle();
+    renderPreview(true);
+    applyDirection();
   });
 }
 if (els.trPopClose) els.trPopClose.addEventListener('click', closeTrPop);
@@ -4481,9 +4584,11 @@ function applyDirection() {
     els.editorHighlight.classList.toggle('bidi-plaintext', els.editor.classList.contains('bidi-plaintext'));
   }
 
-  // preview: pick effective direction
+  // preview: pick effective direction from what the preview actually shows, so
+  // a Persian translation of an English note reads right-to-left
+  const shownTranslation = docTranslationActive() ? String((docTranslationFor() || {}).text || '') : '';
   const effective = state.direction === 'auto'
-    ? detectDirection(els.editor.value)
+    ? detectDirection(shownTranslation || els.editor.value)
     : state.direction;
   els.previewContent.setAttribute('dir', effective);
   applyBidiBlocks();
@@ -4944,6 +5049,7 @@ $('deleteFileConfirm').addEventListener('click', async () => {
     if (state.dirByFile[path] !== undefined) { delete state.dirByFile[path]; savePreferences(); }
     if (state.commentsByFile[path] !== undefined) { delete state.commentsByFile[path]; savePreferences(); }
     if (state.translationsByFile[path] !== undefined) { delete state.translationsByFile[path]; savePreferences(); }
+    if (state.docTranslations[path] !== undefined) { delete state.docTranslations[path]; delete state.docTranslationView[path]; savePreferences(); }
     if (state.currentFile === path) {
       state.currentFile = null;
       state.dirty = false;
@@ -5072,6 +5178,15 @@ async function doRename() {
     if (state.translationsByFile[oldPath] !== undefined) {
       state.translationsByFile[newPath] = state.translationsByFile[oldPath];
       delete state.translationsByFile[oldPath];
+      savePreferences();
+    }
+    if (state.docTranslations[oldPath] !== undefined) {
+      state.docTranslations[newPath] = state.docTranslations[oldPath];
+      delete state.docTranslations[oldPath];
+      if (state.docTranslationView[oldPath] !== undefined) {
+        state.docTranslationView[newPath] = state.docTranslationView[oldPath];
+        delete state.docTranslationView[oldPath];
+      }
       savePreferences();
     }
     await refreshFiles();
@@ -8698,6 +8813,8 @@ function setupDocAiBar() {
     if (btn.dataset.doc === 'glossary') { glossaryDocument(); return; }
     if (btn.dataset.doc === 'compare') { openCompareDialog(); return; }
     if (btn.dataset.doc === 'askfiles') { openAskFilesDialog(); return; }
+    // translating the document asks for a target language first
+    if (btn.dataset.doc === 'translate') { openDocumentTranslate(); return; }
     const prompt = getAIDocumentPrompt(btn.dataset.doc);
     if (prompt) askAboutDocument(prompt, btn.dataset.doc);
   });

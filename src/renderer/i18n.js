@@ -3403,41 +3403,73 @@
   Object.assign(fa, {
     "Open containing folder": "باز کردن پوشهٔ محل فایل",
     "Could not open the folder": "باز کردن پوشه انجام نشد",
+    "Original": "نمایش متن اصلی",
+    "Save translation": "ذخیرهٔ ترجمه",
+    "Save to note": "ذخیره در یادداشت",
+    "Translated": "ترجمه‌شده",
   });
 
   Object.assign(ar, {
     "Open containing folder": "فتح المجلد الذي يحتوي عليه",
     "Could not open the folder": "تعذّر فتح المجلد",
+    "Original": "إظهار النص الأصلي",
+    "Save translation": "حفظ الترجمة",
+    "Save to note": "حفظ في الملاحظة",
+    "Translated": "مترجم",
   });
 
   Object.assign(fr, {
     "Open containing folder": "Ouvrir le dossier contenant",
     "Could not open the folder": "Impossible d’ouvrir le dossier",
+    "Original": "Afficher l’original",
+    "Save translation": "Enregistrer la traduction",
+    "Save to note": "Enregistrer dans la note",
+    "Translated": "Traduit",
   });
 
   Object.assign(de, {
     "Open containing folder": "Enthaltenden Ordner öffnen",
     "Could not open the folder": "Ordner konnte nicht geöffnet werden",
+    "Original": "Original anzeigen",
+    "Save translation": "Übersetzung speichern",
+    "Save to note": "In Notiz speichern",
+    "Translated": "Übersetzt",
   });
 
   Object.assign(it, {
     "Open containing folder": "Apri la cartella che lo contiene",
     "Could not open the folder": "Impossibile aprire la cartella",
+    "Original": "Mostra l’originale",
+    "Save translation": "Salva la traduzione",
+    "Save to note": "Salva nella nota",
+    "Translated": "Tradotto",
   });
 
   Object.assign(tr, {
     "Open containing folder": "İçeren klasörü aç",
     "Could not open the folder": "Klasör açılamadı",
+    "Original": "Orijinali göster",
+    "Save translation": "Çeviriyi kaydet",
+    "Save to note": "Nota kaydet",
+    "Translated": "Çevrildi",
   });
 
   Object.assign(es, {
     "Open containing folder": "Abrir la carpeta contenedora",
     "Could not open the folder": "No se pudo abrir la carpeta",
+    "Original": "Mostrar el original",
+    "Save translation": "Guardar la traducción",
+    "Save to note": "Guardar en la nota",
+    "Translated": "Traducido",
   });
 
   Object.assign(zh, {
     "Open containing folder": "打开所在文件夹",
     "Could not open the folder": "无法打开文件夹",
+    "Original": "显示原文",
+    "Save translation": "保存译文",
+    "Save to note": "保存到笔记",
+    "Translated": "已翻译",
   });
 
   window.__i18n = { LANGS, STRINGS: { fa, ar, fr, de, it, tr, es, zh } };

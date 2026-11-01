@@ -53,6 +53,12 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - **Save to note** keeps the passage marked with a light blue highlight in the preview. Clicking the highlight reopens the translation in a small card, where it can be copied or removed. **Try again** re-runs the translation, and the target picker translates again immediately.
 - Saved translations are stored with the app settings per note, like comments, and follow a rename or a delete.
 
+### Translate a whole note
+
+- Pick **Translate** in the header's AI tools menu to translate the entire note. It asks which language to translate into first; change the picker and it translates again straight away.
+- **Save translation** keeps the result with the note and switches the preview to the translated text, right-to-left when the target language needs it. The editor keeps the original.
+- A translation button then appears in the header: click it to switch the preview between the note and its saved translation, and back. It only shows for notes that have a saved translation.
+
 ### Ask AI
 
 - Open the Ask AI panel to ask a question. The document actions (summarize, explain, translate, extract notes, create a quiz, make flashcards, proofread) are in the AI tools menu in the header.
