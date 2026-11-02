@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('inkwell', {
   writeExternal: (absPath, content) => ipcRenderer.invoke('file:writeExternal', absPath, content),
   // show a note or folder in the OS file manager
   revealItem: (payload) => ipcRenderer.invoke('shell:reveal', payload),
+  // open a file with the program the system has for it (a PDF, an image)
+  openPath: (payload) => ipcRenderer.invoke('shell:openPath', payload),
   // open a web link in the system browser (the app window never navigates)
   openExternalLink: (url) => ipcRenderer.invoke('shell:openExternal', url),
   // read aloud: build (or reuse) the note's audio file and stream it back

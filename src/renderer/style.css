@@ -601,6 +601,26 @@ button { font-family: inherit; }
 .list-header-fav { color: var(--text-muted); }
 .list-header-fav .list-header-icon { color: var(--star); }
 
+/* what arrived from the phone: a tinted block of its own, easy to pick out */
+.list-header-tg,
+.list-header-toggle.list-header-tg {
+    color: var(--tg, #37a3e0);
+}
+.list-header-tg .list-header-icon { color: var(--tg, #37a3e0); }
+.list-header-tg .list-count {
+    color: var(--tg, #37a3e0);
+    background: color-mix(in srgb, var(--tg, #37a3e0) 14%, transparent);
+}
+.file-item.in-telegram {
+    background: color-mix(in srgb, var(--tg, #37a3e0) 6%, transparent);
+    border-inline-start: 2px solid color-mix(in srgb, var(--tg, #37a3e0) 45%, transparent);
+}
+.file-item.in-telegram.active {
+    background: color-mix(in srgb, var(--tg, #37a3e0) 13%, transparent);
+    border-inline-start-color: var(--tg, #37a3e0);
+}
+.file-item.in-telegram .file-item-icon { color: color-mix(in srgb, var(--tg, #37a3e0) 80%, var(--text-secondary)); }
+
 /* dashed hairline that fades out at both ends, separating Favorites from notes */
 .list-divider {
     flex: 0 0 auto;
@@ -1690,8 +1710,84 @@ button { font-family: inherit; }
 .html-preview-action svg { flex: none; }
 .html-preview-action:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-hover); }
 .html-preview-action:active { transform: translateY(1px); }
-.html-preview-shell.is-fullscreen {
-  position: fixed;
+
+/* images and PDFs: the shell reuses the HTML preview bar, the body scrolls
+   the picture (with its own zoom) or hands the frame to chromium's PDF viewer */
+.media-preview-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: auto;
+  min-height: calc(100vh - 194px);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+.media-preview-shell .html-preview-indicator.pdf { background: #d9534f; box-shadow: 0 0 0 3px color-mix(in srgb, #d9534f 22%, transparent); }
+.media-preview-spacer { margin-left: auto; }
+.media-preview-meta {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.media-preview-meta + .html-preview-action { margin-left: 8px; }
+.media-preview-shell .html-preview-filename + .html-preview-action { margin-left: auto; }
+.media-preview-body {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+  background:
+    linear-gradient(45deg, var(--bg) 25%, transparent 25%, transparent 75%, var(--bg) 75%),
+    linear-gradient(45deg, var(--bg) 25%, transparent 25%, transparent 75%, var(--bg) 75%);
+  background-position: 0 0, 10px 10px;
+  background-size: 20px 20px;
+  background-color: var(--bg-elevated);
+}
+.media-preview-shell.is-pdf .media-preview-body { padding: 0; background: var(--bg-elevated); }
+/* margin:auto keeps a zoomed picture centred instead of clipping it once the
+   body starts scrolling */
+.media-preview-image {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  margin: auto;
+  border-radius: 6px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
+}
+.media-preview-frame {
+  width: 100%;
+  height: calc(100vh - 240px);
+  min-height: 420px;
+  border: 0;
+  background: #fff;
+}
+.media-preview-note {
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.media-preview-note.is-error { color: var(--danger, #d9534f); }
+.media-preview-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 28px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  text-align: center;
+}
+.media-preview-fallback strong { color: var(--text); font-size: 13px; }
+.file-item-media .file-item-icon { color: var(--text-secondary); }
+.html-preview-shell.is-fullscreen {  position: fixed;
   inset: 0;
   z-index: 9500;
   flex: none;

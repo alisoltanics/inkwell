@@ -231,6 +231,22 @@ function joinLogical(dirPath, name) {
   return dirPath ? dirPath + '/' + name : name;
 }
 
+// What a note can be: text to edit, or a file the app only shows (an image, a
+// PDF, an HTML page). Files sent from the phone land in the same list, so a
+// photo or a scanned PDF is where the notes are.
+const VAULT_FILE_KINDS = {
+  md: 'note', markdown: 'note',
+  html: 'html', htm: 'html',
+  pdf: 'pdf',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image',
+  webp: 'image', svg: 'image', bmp: 'image', avif: 'image',
+};
+
+function vaultFileKind(name) {
+  const ext = String(name || '').split('.').pop().toLowerCase();
+  return VAULT_FILE_KINDS[ext] || '';
+}
+
 function walkNotes(dirAbs, prefix, files, folders) {
   for (const ent of listDirSafe(dirAbs)) {
     if (ent.name.startsWith('.')) continue;
@@ -243,9 +259,11 @@ function walkNotes(dirAbs, prefix, files, folders) {
         walkNotes(abs, logical, files, folders);
         continue;
       }
-      if (!ent.isFile() || !/\.(?:md|html?)$/i.test(ent.name)) continue;
+      if (!ent.isFile()) continue;
+      const kind = vaultFileKind(ent.name);
+      if (!kind) continue;
       const st = fs.statSync(abs);
-      files.push({ name: ent.name, path: logical, modified: st.mtimeMs, size: st.size });
+      files.push({ name: ent.name, path: logical, modified: st.mtimeMs, size: st.size, kind });
     } catch (_) {}
   }
 }
@@ -265,6 +283,9 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      // Chromium's own PDF viewer: a PDF sent from the phone is read in the
+      // app instead of being handed to another program
+      plugins: true,
     },
     // no OS title bar / window chrome — the app draws its own controls
     frame: false,
@@ -404,9 +425,16 @@ ipcMain.handle('fs:rename', async (event, oldPath, newPath) => {
   try {
     const src = resolveLogical(oldPath);
     if (!fs.existsSync(src.abs)) throw new Error('Source file does not exist');
+    if (!fs.statSync(src.abs).isFile()) throw new Error('Not a file');
     const newSegments = normalizeSegments(newPath);
-    if (!newSegments[newSegments.length - 1].toLowerCase().endsWith('.md')) {
-      throw new Error('Filename must end with .md');
+    const lastSegment = newSegments[newSegments.length - 1];
+    // A file keeps its extension, whether it is a note, a PDF or a picture: a
+    // move only changes the folder, and the rename dialog cannot turn a note
+    // into something the app no longer opens.
+    const srcExt = path.extname(src.abs).toLowerCase();
+    const dstExt = path.extname(lastSegment).toLowerCase();
+    if (dstExt !== srcExt) {
+      throw new Error('The name must keep its extension (' + (srcExt || 'none') + ')');
     }
     // A rename must never create folders: the destination directory has to
     // already exist, otherwise the note would land in a freshly built tree.
@@ -580,7 +608,7 @@ ipcMain.handle('fs:chooseNotesDir', async (event) => {
 const MIME_BY_EXT = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
   webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif',
-  ico: 'image/x-icon',
+  ico: 'image/x-icon', pdf: 'application/pdf',
 };
 
 ipcMain.handle('fs:readBinary', async (event, logicalPath) => {
@@ -590,6 +618,11 @@ ipcMain.handle('fs:readBinary', async (event, logicalPath) => {
     if (!fs.statSync(res.abs).isFile()) throw new Error('Not a file');
     const buf = fs.readFileSync(res.abs);
     const ext = path.extname(logicalPath).slice(1).toLowerCase();
+    // Chromium's PDF viewer is fed the bytes straight from disk: a file that
+    // only pretends to be a PDF would take the preview (or the page) down.
+    if (ext === 'pdf' && !buf.subarray(0, 5).toString('latin1').startsWith('%PDF-')) {
+      return { success: false, error: 'This file is not a PDF.' };
+    }
     return {
       success: true,
       base64: buf.toString('base64'),
@@ -831,6 +864,22 @@ ipcMain.handle('shell:reveal', async (event, payload) => {
     const abs = payload && payload.external ? path.resolve(target) : resolveLogical(target).abs;
     if (!fs.existsSync(abs)) throw new Error('Not found');
     shell.showItemInFolder(abs);
+    return { success: true, path: abs };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Hand a vault file to the program the OS has for it — the way out of a PDF
+// the built-in viewer cannot show.
+ipcMain.handle('shell:openPath', async (event, payload) => {
+  try {
+    const target = typeof payload === 'string' ? payload : String((payload && payload.path) || '');
+    if (!target) throw new Error('No path');
+    const abs = payload && payload.external ? path.resolve(target) : resolveLogical(target).abs;
+    if (!fs.existsSync(abs)) throw new Error('Not found');
+    const error = await shell.openPath(abs);
+    if (error) throw new Error(error);
     return { success: true, path: abs };
   } catch (e) {
     return { success: false, error: e.message };
@@ -1602,7 +1651,10 @@ ipcMain.handle('telegram:test', async (event, config) => {
 // add to a note without any sync service. Only the configured chat is accepted,
 // bot commands are ignored, and the update offset is stored so a restart does
 // not import the same message twice.
-const TELEGRAM_INBOX_FOLDER = 'Inbox';
+// Everything the phone sends is kept together in one folder of the vault, text
+// and files alike, so a note written on the phone never mixes with the user's
+// own notes unless /to asks for that on purpose.
+const TELEGRAM_INBOX_FOLDER = 'Telegram';
 let telegramInbox = { running: false, lastAt: 0, lastPath: '', lastError: '', abort: null };
 
 function telegramInboxSaved() {
@@ -1699,9 +1751,9 @@ async function saveTelegramInboxFile(message, settings) {
     const res = await fetch('https://api.telegram.org/file/bot' + creds.botToken + '/' + filePath);
     if (!res.ok) throw new Error('The download failed (HTTP ' + res.status + ').');
     const buffer = Buffer.from(await res.arrayBuffer());
-    // files land beside the note the messages go into, so the two stay together
-    const folder = settings.target ? path.posix.dirname(settings.target) : TELEGRAM_INBOX_FOLDER;
-    const relDir = folder === '.' || folder === '' ? '' : folder;
+    // every file from the phone lands in the Telegram folder, whatever note the
+    // messages are being written into
+    const relDir = TELEGRAM_INBOX_FOLDER;
     const rel = uniqueVaultPath(relDir, name);
     const absolute = path.join(NOTES_DIR, rel);
     await fs.promises.mkdir(path.dirname(absolute), { recursive: true });
@@ -1806,16 +1858,45 @@ function vaultRelativePath(raw) {
 // The note a /to command names: an exact vault path, or the one note with that
 // file name. A path that does not exist yet is created for /to (writing into a
 // note that is not there yet is reasonable), never for /clear.
+// A phone keyboard does not know about case: every folder in the path is matched
+// against the real names on disk, so "/to telegram/inbox.md" writes into the
+// existing Telegram/ folder instead of creating a lowercase twin beside it.
+function matchExistingPath(root, segments) {
+  let current = root;
+  const real = [];
+  for (const segment of segments) {
+    const wanted = String(segment).toLowerCase();
+    let hit = null;
+    try {
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        if (entry.name.toLowerCase() === wanted) { hit = entry; break; }
+      }
+    } catch (_) {
+      return null;
+    }
+    if (!hit) return null;
+    real.push(hit.name);
+    current = path.join(current, hit.name);
+  }
+  return real.join('/');
+}
+
 function resolveInboxTarget(query, options = {}) {
   const create = options.create !== false;
   const safe = vaultRelativePath(query);
   if (safe.error) return { error: safe.error };
+  const root = path.resolve(NOTES_DIR);
   const withExt = safe.rel;
-  const direct = safe.absolute;
-  if (fs.existsSync(direct)) {
-    if (!fs.statSync(direct).isFile()) return { error: '«' + withExt + '» is a folder, not a note.' };
-    return { target: withExt, created: false };
+  const segments = withExt.split('/');
+  // the path as typed, or the same path with the real spelling of each folder
+  const exact = matchExistingPath(root, segments);
+  if (exact) {
+    const absolute = path.join(root, exact);
+    if (!fs.statSync(absolute).isFile()) return { error: '«' + exact + '» is a folder, not a note.' };
+    return { target: exact, created: false };
   }
+  const realDir = segments.length > 1 ? matchExistingPath(root, segments.slice(0, -1)) : '';
+  const relTarget = realDir ? realDir + '/' + segments[segments.length - 1] : withExt;
   const wanted = path.basename(withExt).toLowerCase();
   const matches = [];
   const walk = (dir, prefix, depth) => {
@@ -1834,13 +1915,14 @@ function resolveInboxTarget(query, options = {}) {
   if (matches.length > 1) {
     return { error: 'Several notes are called ' + wanted + ': ' + matches.slice(0, 8).join(', ') + '. Send the folder too, e.g. /to ' + matches[0] };
   }
-  if (!create) return { target: withExt, created: false, missing: true };
+  if (!create) return { target: relTarget, created: false, missing: true };
+  const absolute = path.join(root, relTarget);
   try {
-    fs.mkdirSync(path.dirname(direct), { recursive: true });
-    fs.writeFileSync(direct, '', 'utf8');
-    return { target: withExt, created: true };
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, '', 'utf8');
+    return { target: relTarget, created: true };
   } catch (e) {
-    return { error: 'Could not create ' + withExt + ': ' + (e && e.message ? e.message : String(e)) };
+    return { error: 'Could not create ' + relTarget + ': ' + (e && e.message ? e.message : String(e)) };
   }
 }
 
@@ -1903,8 +1985,8 @@ function telegramInboxCommand(text) {
     return [
       'Write from your phone:',
       '• send a message — it goes into ' + where,
-      '• send a file — it is saved next to that note (Markdown files open as notes)',
-      '• /to <note> — write into that note from now on (it is created if it does not exist)',
+      '• send a file — it is saved in ' + TELEGRAM_INBOX_FOLDER + '/ (images and PDFs open in the app)',
+      '• /to <note> — write into that note from now on (a folder path works too, and the note is created if it is missing)',
       '• /new — back to one note per message, in ' + TELEGRAM_INBOX_FOLDER + '/',
       '• /list [word] — the notes in the vault',
       '• /clear <note> — empty a note (asks for the same command once more)',
@@ -1921,7 +2003,7 @@ function telegramInboxCommand(text) {
     return 'Every message now becomes a new note in ' + TELEGRAM_INBOX_FOLDER + '/.';
   }
   if (command === '/to') {
-    if (!argument) return 'Send /to <note>, for example /to Inbox.md';
+    if (!argument) return 'Send /to <note>, for example /to ' + TELEGRAM_INBOX_FOLDER + '/inbox.md or /to Notes/idea.md';
     const found = resolveInboxTarget(argument);
     if (found.error) return found.error;
     store.set('telegramInbox', { enabled: saved.enabled, target: found.target });

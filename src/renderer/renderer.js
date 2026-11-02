@@ -767,6 +767,14 @@ async function initApp() {
   loadPreferences();
   loadAIChats();
   try { await updateVaultDisplay(await window.inkwell.getNotesDir()); } catch (_) {}
+  // the name of the folder the bot writes into, so its rows can be grouped
+  // before the settings dialog is ever opened
+  try {
+    const inbox = await window.inkwell.getTelegramInbox();
+    if (inbox && inbox.folder && inbox.folder !== telegramInboxFolder) {
+      telegramInboxFolder = inbox.folder;
+    }
+  } catch (_) {}
   await refreshFiles();
   setupEditorEvents();
   setupToolbar();
@@ -1098,6 +1106,10 @@ function renderFileList() {
   const searching = state.searchQuery.trim().length > 0;
   const folders = (state.filteredFolders || []).slice().sort((a, b) => a.path.localeCompare(b.path));
   const files = state.filtered;
+  // everything that arrived from the phone lives in one folder; it is shown as
+  // its own section (like Favorites) instead of inside the notes tree
+  const tgFiles = searching ? [] : files.filter((f) => isTelegramPath(f.path));
+  const treeFiles = searching ? files : files.filter((f) => !isTelegramPath(f.path));
 
   // Favorites section (starred docs; collapsed by default, hidden while searching)
   if (!searching) {
@@ -1135,6 +1147,37 @@ function renderFileList() {
     }
   }
 
+  // Telegram section: what the bot wrote, its own block. It starts closed on
+  // launch — the rows are one click away, the notes tree stays in view.
+  if (tgFiles.length) {
+    const open = !!state.telegramOpen;
+    const tgHeader = document.createElement('button');
+    tgHeader.type = 'button';
+    tgHeader.className = 'list-header list-header-tg list-header-toggle';
+    tgHeader.setAttribute('aria-expanded', open ? 'true' : 'false');
+    tgHeader.title = t(open ? 'Hide what came from Telegram' : 'Show what came from Telegram');
+    tgHeader.innerHTML = `
+      ${iconChevron(open)}
+      <span class="list-header-icon">${telegramSvg}</span>
+      <span>${t('Telegram')}</span>
+      <span class="list-count">${tgFiles.length}</span>
+    `;
+    tgHeader.addEventListener('click', () => {
+      state.telegramOpen = !state.telegramOpen;
+      renderFileList();
+    });
+    els.fileList.appendChild(tgHeader);
+    if (open) {
+      for (const f of tgFiles.slice().sort((a, b) => b.modified - a.modified)) {
+        els.fileList.appendChild(buildFileItem(f, 0, false));
+      }
+    }
+    const divider = document.createElement('div');
+    divider.className = 'list-divider';
+    divider.setAttribute('role', 'separator');
+    els.fileList.appendChild(divider);
+  }
+
   const header = document.createElement('div');
   header.className = 'list-header';
   header.innerHTML = `
@@ -1147,7 +1190,7 @@ function renderFileList() {
   els.fileList.appendChild(header);
 
   const fileItems = new Map();
-  for (const f of files) {
+  for (const f of treeFiles) {
     const parent = f.path.split('/').slice(0, -1).join('/');
     if (!fileItems.has(parent)) fileItems.set(parent, []);
     fileItems.get(parent).push(f);
@@ -1160,6 +1203,8 @@ function renderFileList() {
   // folder subtree
   const childrenOf = new Map();
   for (const fd of folders) {
+    // the Telegram folder is a section of its own above, not a tree node
+    if (!searching && isTelegramPath(fd.path)) continue;
     const parts = fd.path.split('/');
     const parent = parts.slice(0, -1).join('/');
     if (!childrenOf.has(parent)) childrenOf.set(parent, []);
@@ -1290,6 +1335,26 @@ function buildFolderNode(folder, childrenOf, fileItems, forcedOpen, depth) {
 }
 
 const docIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+// images and PDFs arrive from the phone or the file manager: they live in the
+// same tree as the notes, but they are only ever previewed
+const imageSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
+const pdfSvg = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 17v-4h2a2 2 0 0 1 0 4H8z"/></svg>';
+
+const folderOpenSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const openFileSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M21 3 11 13"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>';
+const IMAGE_FILE_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const PDF_FILE_RE = /\.pdf$/i;
+function isImageFile(p) { return IMAGE_FILE_RE.test(String(p || '')); }
+function isPdfFile(p) { return PDF_FILE_RE.test(String(p || '')); }
+function isMediaFile(p) { return isImageFile(p) || isPdfFile(p); }
+
+// Everything the bot writes lives in one folder of the vault (Telegram/ by
+// default, as the main process reports it). Those rows get their own section.
+const telegramSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 3 10.5l6 2.5"/><path d="m21 3-8.5 18-3.5-8"/></svg>';
+function isTelegramPath(path) {
+  const first = String(path || '').split('/')[0].toLowerCase();
+  return !!first && first === String(telegramInboxFolder || 'Telegram').toLowerCase();
+}
 const searchSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>';
 const renameSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 const trashSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
@@ -1436,13 +1501,17 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
   const pinned = isPinned(file.path);
   const fav = isFavorite(file.path);
   const isHtmlDocument = /\.html?$/i.test(file.path);
+  const media = isMediaFile(file.path);
+  const tg = isTelegramPath(file.path);
   const item = document.createElement('div');
   item.className = 'file-item'
     + (file.path === state.currentFile ? ' active' : '')
     + (pinned ? ' has-pin' : '')
     + (fav ? ' has-fav' : '')
     + (inFavorites ? ' in-favorites' : '')
-    + (isHtmlDocument ? ' file-item-html' : '');
+    + (tg ? ' in-telegram' : '')
+    + (isHtmlDocument ? ' file-item-html' : '')
+    + (media ? ' file-item-media' : '');
   item.dataset.name = file.path;
   item.title = fullItemPath(file.path);
   item.style.paddingInlineStart = (10 + depth * 14) + 'px';
@@ -1453,10 +1522,14 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
     ? `${escapeHtml(parentDir)} · ${formatRelative(file.modified)}`
     : formatRelative(file.modified);
 
+  const icon = isImageFile(file.path) ? imageSvg : (isPdfFile(file.path) ? pdfSvg : docIcon);
+  const badge = isHtmlDocument
+    ? '<span class="file-type-badge">HTML</span>'
+    : (isPdfFile(file.path) ? '<span class="file-type-badge">PDF</span>' : (isImageFile(file.path) ? '<span class="file-type-badge">IMG</span>' : ''));
   item.innerHTML = `
-    <span class="file-item-icon">${docIcon}</span>
+    <span class="file-item-icon">${icon}</span>
     <div class="file-item-body">
-      <span class="file-item-title-row"><span class="file-item-name">${escapeHtml(file.name.replace(/\.(?:md|html?)$/i, ''))}</span>${isHtmlDocument ? '<span class="file-type-badge">HTML</span>' : ''}</span>
+      <span class="file-item-title-row"><span class="file-item-name">${escapeHtml(file.name.replace(/\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|bmp|avif)$/i, ''))}</span>${badge}</span>
       <span class="file-item-meta">${meta}</span>
     </div>
     <div class="file-item-actions">
@@ -1466,7 +1539,8 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
       <button class="danger" title="${t('Delete')}">${trashSvg}</button>
     </div>
   `;
-  if (isHtmlDocument) item.querySelector('.rename').remove();
+  // only a Markdown note can be renamed here: an image or a PDF keeps its name
+  if (isHtmlDocument || media) item.querySelector('.rename').remove();
 
   item.addEventListener('click', () => selectFile(file.path, { source: inFavorites ? 'favorites' : 'tree' }));
   item.addEventListener('contextmenu', (e) => {
@@ -1612,7 +1686,9 @@ function updateDocumentChrome() {
     els.breadcrumbVault.classList.toggle('is-external', !!ext);
   }
   if (els.breadcrumbBadge) {
-    const label = ext ? (/\\.docx$/i.test(ext.path) ? t('Word document') : t('External')) : '';
+    const label = ext
+      ? (/\\.docx$/i.test(ext.path) ? t('Word document') : t('External'))
+      : (isMediaFile(state.currentFile) ? t(isPdfFile(state.currentFile) ? 'PDF' : 'Image') : '');
     els.breadcrumbBadge.textContent = label;
     els.breadcrumbBadge.classList.toggle('hidden', !label);
   }
@@ -2022,7 +2098,7 @@ async function moveItem(src, isFolder, newPath, destDir) {
     expandAncestors(newPath);
     await refreshFiles();
     if (state.currentFile) {
-      const label = state.currentFile.replace(/\.md$/i, '');
+      const label = state.currentFile.replace(/\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|bmp|avif)$/i, '');
       els.currentFileName.textContent = label;
       els.currentFileName.title = label;
       highlightActive();
@@ -2042,38 +2118,45 @@ async function selectFile(path, options = {}) {
   }
   if (els.answerDocView && !els.answerDocView.classList.contains('hidden')) closeAnswerDoc();
 
-  try {
-    const result = await readDocument(path);
+  // an image or a PDF has no text to edit: it is opened straight into the
+  // preview, and the editor stays out of the way
+  const media = isMediaFile(path) && !isExternalPath(path);
+  let result = { success: true, content: '' };
+  if (!media) {
+    result = await readDocument(path);
     if (!result.success) {
       toast('Could not open file: ' + result.error, 'error');
       return;
     }
+  }
 
-    const external = isExternalPath(path);
-    const isDocx = external && /\.docx$/i.test(path);
+  const external = isExternalPath(path);
+  const isDocx = external && /\.docx$/i.test(path);
+  try {
     state.currentFile = path;
-    state.lastFile = path;
-    state.docxHtml = isDocx ? (result.html || '') : '';
-    // a conversation belongs to its document: switching notes starts fresh
-    // (the previous one is already stored in the per-document history)
-    if (aiThread.length && aiChatOwner && aiChatOwner !== docChatKey()) resetAIAnswer(true);
-    // remember where this note was opened from: one opened from Favorites
-    // must not pop its folder open in the tree on the next launch
-    if (options.source) state.lastOpenFromFavorites = options.source === 'favorites';
-    // write straight away (not via the debounce): if the app is closed right
-    // after opening a note, the next launch must still restore this document
-    savePreferences();
-    state.dirty = false;
-    const isHtmlFile = /\.html?$/i.test(path);
-    if (isHtmlFile || isDocx) setViewMode('preview');
-    state.direction = state.dirByFile[path] || 'auto';
-    syncDirectionButtons();
-    els.editor.value = result.content || '';
-    const shownPath = displayNotePath(path);
-    const entry = external ? externalEntry(path) : null;
-    els.currentFileName.textContent = entry
-      ? entry.name.replace(/\.(?:md|markdown|html?|docx|txt)$/i, '')
-      : shownPath.replace(/\.(?:md|html?)$/i, '');
+  state.lastFile = path;
+  state.docxHtml = isDocx ? (result.html || '') : '';
+  // a conversation belongs to its document: switching notes starts fresh
+  // (the previous one is already stored in the per-document history)
+  if (aiThread.length && aiChatOwner && aiChatOwner !== docChatKey()) resetAIAnswer(true);
+  // remember where this note was opened from: one opened from Favorites
+  // must not pop its folder open in the tree on the next launch
+  if (options.source) state.lastOpenFromFavorites = options.source === 'favorites';
+  // write straight away (not via the debounce): if the app is closed right
+  // after opening a note, the next launch must still restore this document
+  savePreferences();
+  state.dirty = false;
+  const isHtmlFile = /\.html?$/i.test(path);
+  if (isHtmlFile || isDocx || media) setViewMode('preview');
+  state.direction = state.dirByFile[path] || 'auto';
+  syncDirectionButtons();
+  els.editor.value = media ? '' : (result.content || '');
+  els.editor.readOnly = media;
+  const shownPath = displayNotePath(path);
+  const entry = external ? externalEntry(path) : null;
+  els.currentFileName.textContent = entry
+    ? entry.name.replace(/\.(?:md|markdown|html?|docx|txt|pdf|png|jpe?g|gif|webp|svg|bmp|avif)$/i, '')
+    : shownPath.replace(/\.(?:md|html?|pdf|png|jpe?g|gif|webp|svg|bmp|avif)$/i, '');
     els.currentFileName.title = entry
       ? entry.path
       : isArchivedPath(path) ? `${shownPath} (archived)` : shownPath;
@@ -2098,10 +2181,12 @@ async function selectFile(path, options = {}) {
     updateTtsButton();
     updateDocTrToggle();
     updateCommentsBadge();
-    if (isHtmlFile || isDocx) {
+    if (isHtmlFile || isDocx || media) {
       els.viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
         btn.disabled = btn.dataset.view !== 'preview';
-        setUITitle(btn, btn.dataset.view === 'preview' ? 'Preview only' : 'This document is preview-only');
+        setUITitle(btn, btn.dataset.view === 'preview'
+          ? 'Preview only'
+          : media ? 'A PDF or an image is preview-only' : 'This document is preview-only');
       });
     } else {
       els.viewToggle.querySelectorAll('.view-btn').forEach((btn) => {
@@ -2337,10 +2422,178 @@ function applyPagination() {
   els.preview.classList.remove('paged');
 }
 
+/* ============ MEDIA PREVIEW (images and PDFs) ============ */
+// bytes are read once per file and kept as a data URL (images) or an object
+// URL (PDFs, which chromium renders with its own viewer). Only the file being
+// looked at stays in memory: a 20 MB scan must not be held after switching.
+const mediaPreviewCache = new Map();
+let mediaZoom = 100;
+
+function releaseMediaPreviewCache(keep) {
+  for (const [key, entry] of [...mediaPreviewCache]) {
+    if (key === keep) continue;
+    mediaPreviewCache.delete(key);
+    if (!entry.url.startsWith('blob:')) continue;
+    // chromium's PDF viewer keeps the blob alive while it paints: revoking it
+    // under a frame that is still on screen takes the whole page down, so the
+    // teardown is left to the next render and the URL goes a moment later
+    setTimeout(() => { try { URL.revokeObjectURL(entry.url); } catch (_) {} }, 15000);
+  }
+}
+
+// A PDF frame has to be taken off screen before its blob URL is dropped.
+function disposeMediaPreview() {
+  els.previewContent.querySelectorAll('iframe.media-preview-frame').forEach((frame) => {
+    try { frame.src = 'about:blank'; } catch (_) {}
+    frame.remove();
+  });
+}
+
+async function loadMediaPreview(path) {
+  const cached = mediaPreviewCache.get(path);
+  if (cached) return cached;
+  const res = await window.inkwell.readBinary(path);
+  if (!res || !res.success) throw new Error((res && res.error) || 'Could not read the file');
+  const mime = res.mime || (isPdfFile(path) ? 'application/pdf' : 'application/octet-stream');
+  let url;
+  if (isPdfFile(path)) {
+    const binary = atob(res.base64 || '');
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  } else {
+    url = `data:${mime};base64,${res.base64 || ''}`;
+  }
+  const entry = { url, mime, size: res.size || 0 };
+  mediaPreviewCache.set(path, entry);
+  releaseMediaPreviewCache(path);
+  return entry;
+}
+
+function formatBytesShort(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderMediaPreview() {
+  const path = state.currentFile;
+  if (!path || !isMediaFile(path)) return;
+  const image = isImageFile(path);
+  // a PDF frame from the previous file must go before its blob is released
+  disposeMediaPreview();
+  els.preview.classList.remove('paged');
+  els.previewContent.classList.remove('markdown-body');
+  els.previewContent.replaceChildren();
+  els.editorArea.classList.add('html-preview');
+
+  const shell = document.createElement('div');
+  shell.className = 'media-preview-shell' + (image ? ' is-image' : ' is-pdf');
+  const topbar = document.createElement('div');
+  topbar.className = 'html-preview-topbar';
+  topbar.innerHTML = `<span class="html-preview-indicator${image ? '' : ' pdf'}"></span>`
+    + `<span class="html-preview-label">${t(image ? 'Image' : 'PDF')}</span>`
+    + `<span class="html-preview-filename">${escapeHtml(String(path).split('/').pop())}</span>`
+    + (image
+      ? `<div class="html-preview-zoom">`
+        + `<button type="button" class="html-preview-zoom-out" title="${t('Zoom out')}" aria-label="${t('Zoom out')}">−</button>`
+        + `<span class="html-preview-zoom-value">${mediaZoom}%</span>`
+        + `<button type="button" class="html-preview-zoom-in" title="${t('Zoom in')}" aria-label="${t('Zoom in')}">+</button>`
+        + `</div>`
+      : '<span class="media-preview-spacer"></span>')
+    + (image ? '' : `<button type="button" class="html-preview-action" data-media-action="open" title="${t('Open in the default app')}">${openFileSvg}<span>${t('Open in the default app')}</span></button>`)
+    + `<button type="button" class="html-preview-action" data-media-action="reveal" title="${t('Show in folder')}">${folderOpenSvg}<span>${t('Show in folder')}</span></button>`;
+  const body = document.createElement('div');
+  body.className = 'media-preview-body';
+  body.innerHTML = `<span class="media-preview-note">${t('Loading…')}</span>`;
+  shell.append(topbar, body);
+  els.previewContent.appendChild(shell);
+
+  const zoomValue = topbar.querySelector('.html-preview-zoom-value');
+  // 100% means "fit the pane and stay centred"; any other value is the real
+  // pixel size scaled, so a zoomed picture scrolls instead of being clipped
+  const applyZoom = (next) => {
+    mediaZoom = Math.max(25, Math.min(400, next));
+    if (zoomValue) zoomValue.textContent = `${mediaZoom}%`;
+    const img = body.querySelector('.media-preview-image');
+    if (!img || !img.naturalWidth) return;
+    if (mediaZoom === 100) {
+      img.style.maxWidth = '';
+      img.style.width = '';
+    } else {
+      img.style.maxWidth = 'none';
+      img.style.width = `${Math.round(img.naturalWidth * mediaZoom / 100)}px`;
+    }
+  };
+  if (image) {
+    topbar.querySelector('.html-preview-zoom-out').addEventListener('click', () => applyZoom(mediaZoom - 25));
+    topbar.querySelector('.html-preview-zoom-in').addEventListener('click', () => applyZoom(mediaZoom + 25));
+  }
+  topbar.querySelector('[data-media-action="reveal"]').addEventListener('click', () => {
+    Promise.resolve(window.inkwell.revealItem({ path, external: false })).then((res) => {
+      if (!res || !res.success) toast((res && res.error) || t('Could not open the folder'), 'error');
+    }).catch(() => toast(t('Could not open the folder'), 'error'));
+  });
+  const openButton = topbar.querySelector('[data-media-action="open"]');
+  if (openButton) {
+    openButton.addEventListener('click', () => {
+      Promise.resolve(window.inkwell.openPath({ path, external: false })).then((res) => {
+        if (!res || !res.success) toast((res && res.error) || t('Could not open the file'), 'error');
+      }).catch(() => toast(t('Could not open the file'), 'error'));
+    });
+  }
+
+  loadMediaPreview(path).then((entry) => {
+    // the user may have opened another note while the bytes were loading
+    if (state.currentFile !== path) return;
+    const meta = document.createElement('span');
+    meta.className = 'media-preview-meta';
+    meta.textContent = `${entry.mime} · ${formatBytesShort(entry.size)}`;
+    topbar.insertBefore(meta, topbar.querySelector('[data-media-action="reveal"]'));
+    body.replaceChildren();
+    if (image) {
+      const img = document.createElement('img');
+      img.className = 'media-preview-image';
+      img.alt = String(path).split('/').pop();
+      img.src = entry.url;
+      img.addEventListener('load', () => applyZoom(mediaZoom));
+      img.addEventListener('dblclick', () => applyZoom(mediaZoom === 100 ? 200 : 100));
+      body.appendChild(img);
+    } else {
+      // Chromium's own PDF viewer renders the file in place; a build without
+      // it gets a card that hands the file to the system instead of a blank box
+      const canRender = navigator.pdfViewerEnabled !== false;
+      if (!canRender) {
+        body.innerHTML = `<div class="media-preview-fallback">`
+          + `<strong>${escapeHtml(String(path).split('/').pop())}</strong>`
+          + `<span>${t('This PDF cannot be shown inside the app. Open it with the default program.')}</span>`
+          + `</div>`;
+        return;
+      }
+      const frame = document.createElement('iframe');
+      frame.className = 'media-preview-frame';
+      frame.title = `PDF: ${String(path).split('/').pop()}`;
+      frame.src = entry.url;
+      body.appendChild(frame);
+    }
+  }).catch((err) => {
+    if (state.currentFile !== path) return;
+    body.innerHTML = `<span class="media-preview-note is-error">${escapeHtml(String((err && err.message) || t('Could not open file')))}</span>`;
+  });
+}
+
 function renderPreview(force = false) {
   if (!force && els.preview.offsetParent === null && state.viewMode === 'edit') return;
+  // any PDF frame is taken down first: its blob URL is released on the next
+  // load and chromium cannot survive losing one under a live frame
+  disposeMediaPreview();
   if (state.currentFile && isExternalPath(state.currentFile) && /\.docx$/i.test(state.currentFile)) {
     renderDocxPreview();
+    return;
+  }
+  if (state.currentFile && isMediaFile(state.currentFile) && !isExternalPath(state.currentFile)) {
+    renderMediaPreview();
     return;
   }
   if (state.currentFile && /\.html?$/i.test(state.currentFile)) {
@@ -3296,6 +3549,9 @@ async function saveFile(silent = false) {
     if (!silent) toast('No file selected', 'info');
     return false;
   }
+  // an image or a PDF is previewed, never edited: writing the (empty) editor
+  // over it would destroy the file
+  if (isMediaFile(state.currentFile) && !isExternalPath(state.currentFile)) return false;
   try {
     const result = await writeDocument(state.currentFile, els.editor.value);
     if (!result.success) {
@@ -6972,6 +7228,10 @@ async function loadTelegramSettings() {
 }
 
 /* ---- phone inbox: messages to the bot become notes ---- */
+// the vault folder that holds everything arriving from Telegram; the main
+// process reports it, so renaming it there is enough
+let telegramInboxFolder = 'Telegram';
+
 function telegramInboxStatusText(status) {
   if (!status) return '';
   if (!status.ready) return 'Save a bot token and chat ID first.';
@@ -6988,11 +7248,12 @@ function telegramInboxStatusText(status) {
 function renderTelegramInboxTargets(current) {
   const select = els.settingsTelegramInboxTarget;
   if (!select) return;
-  const files = (state.files || []).filter((f) => !isArchivedPath(f.path));
+  // only a note can receive text: an image or a PDF in the vault is not a target
+  const files = (state.files || []).filter((f) => !isArchivedPath(f.path) && !isMediaFile(f.path) && !/\.html?$/i.test(f.path));
   select.innerHTML = '';
   const first = document.createElement('option');
   first.value = '';
-  first.textContent = 'A new note in Inbox/';
+  first.textContent = `A new note in ${telegramInboxFolder}/`;
   select.appendChild(first);
   for (const file of files) {
     const option = document.createElement('option');
@@ -7022,6 +7283,7 @@ async function loadTelegramInbox() {
   }
   els.settingsTelegramInbox.checked = !!(status && status.enabled);
   els.settingsTelegramInbox.disabled = !(status && status.ready);
+  if (status && status.folder) telegramInboxFolder = status.folder;
   renderTelegramInboxTargets((status && status.target) || '');
   if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.disabled = !(status && status.ready);
   const line = telegramInboxStatusText(status);
@@ -10054,10 +10316,12 @@ function setupAskFilesDialog() {
 
 function updateDocAiBar() {
   if (!els.docActions) return;
-  els.docActions.classList.toggle('hidden', !state.currentFile);
+  // the AI tools act on the text of a note; a PDF or an image has none
+  const available = !!state.currentFile && !isMediaFile(state.currentFile);
+  els.docActions.classList.toggle('hidden', !available);
   const btn = $('aiToolsMenuBtn');
-  if (btn) btn.classList.toggle('hidden', !state.currentFile);
-  if (!state.currentFile) setAIToolsMenu(false);
+  if (btn) btn.classList.toggle('hidden', !available);
+  if (!available) setAIToolsMenu(false);
 }
 
 function setAIToolsMenu(open) {
@@ -12205,7 +12469,7 @@ window.addEventListener('beforeunload', () => {
   try { rememberEditorPos(); } catch (_) {}
   clearTimeout(prefsSaveTimer);
   try { savePreferences(); } catch (_) {}
-  if (state.dirty && state.currentFile) {
+  if (state.dirty && state.currentFile && !(isMediaFile(state.currentFile) && !isExternalPath(state.currentFile))) {
     writeDocument(state.currentFile, els.editor.value);
   }
 });
