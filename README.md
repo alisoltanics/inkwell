@@ -109,6 +109,13 @@ The vault contains ordinary, unencrypted Markdown files and any images you add. 
 
 Inkwell's preferences, vault location, and Telegram settings are stored in Electron's local application data directory, not in the project files. Before committing changes, review `git status` and the staged file list. Never stage credentials, private notes, or personal files.
 
+### Who can touch your notes through the bot
+
+- **One chat, one account.** A message is only accepted when it comes from the chat ID saved in Settings, and — in a group — only from the account that wrote first after the inbox was turned on. Any other member of that group, and every other chat, is ignored without a reply. Turning the inbox off and on again re-pins it to whoever writes next, which is how you hand it over to another phone.
+- **The vault is a wall.** Every note name that arrives from the phone (`/to`, `/clear`) is resolved and refused if it leaves the vault — `../` tricks cannot read or empty a file outside it — and a file you send is stored under its plain name inside the vault.
+- **Nothing happens by accident.** `/clear` needs the same command twice within a minute, files over Telegram's 20 MB limit are refused, and a note that does not exist is reported instead of being created by `/clear`.
+- **The token is the bot.** Whoever holds the bot token can send and read as that bot, so keep it private; the settings file that stores it is written with owner-only permissions (`0600`). If the token leaks, revoke it with BotFather and paste a new one — the notes themselves are not exposed by that, because the bot never sends the vault out; it only replies to the configured chat.
+
 ## Install a release
 
 Open the [latest Inkwell release](https://github.com/alisoltanics/inkwell/releases/latest) and download the file for your operating system:

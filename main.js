@@ -12,6 +12,17 @@ app.setName('Inkwell');
 const store = new Store({ name: 'inkwell' });
 let NOTES_DIR = store.get('notesDir') || '';
 
+// The settings file holds the Telegram bot token and the API keys. It is written
+// by the store with the default mode (world readable/writable on some systems),
+// so it is pinned to the owner after every write that touches a secret.
+function protectStoreFile() {
+  try {
+    const file = (store && (store.path || store.file)) || '';
+    if (file && fs.existsSync(file)) fs.chmodSync(file, 0o600);
+  } catch (_) {}
+}
+protectStoreFile();
+
 function ensureNotesDir(dir) {
   const target = dir || NOTES_DIR;
   if (!fs.existsSync(target)) {
@@ -1554,6 +1565,7 @@ ipcMain.handle('settings:setTelegram', async (event, config) => {
       return { success: false, error: 'A chat ID is required when a bot token is set.' };
     }
     store.set('telegram', { botToken, chatId });
+    protectStoreFile();
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -1598,6 +1610,8 @@ function telegramInboxSaved() {
   return {
     enabled: !!(saved && saved.enabled === true),
     target: saved && typeof saved.target === 'string' ? saved.target : '',
+    // the Telegram account that first wrote after the inbox was turned on
+    ownerId: saved && typeof saved.ownerId === 'string' ? saved.ownerId : '',
   };
 }
 
@@ -1614,6 +1628,8 @@ function telegramInboxStatus() {
     lastPath: telegramInbox.lastPath,
     lastError: telegramInbox.lastError,
     folder: TELEGRAM_INBOX_FOLDER,
+    // the inbox only obeys the account that wrote first (shown in Settings)
+    ownerPinned: !!saved.ownerId,
   };
 }
 
@@ -1708,16 +1724,24 @@ async function saveTelegramInboxMessage(message, settings) {
   const raw = String(message.text || message.caption || '').trim();
   if (!raw || raw.startsWith('/')) return;
   const stamp = telegramInboxStamp(message.date);
-  const note = path.join(NOTES_DIR, settings.target);
+  // the append target is stored in the app settings; check it again so a stray
+  // value can never point outside the vault
+  const safe = settings.target ? vaultRelativePath(settings.target) : null;
+  if (safe && safe.error) {
+    telegramInbox.lastError = safe.error;
+    return;
+  }
+  const target = safe ? safe.rel : '';
+  const note = safe ? safe.absolute : '';
   try {
-    if (settings.target) {
+    if (target) {
       // append to the chosen note
       const existing = await fs.promises.readFile(note, 'utf8').catch(() => '');
       const tail = existing.replace(/\s*$/, '');
       const block = (tail ? '\n\n' : '') + `<!-- telegram ${stamp} -->\n${raw}\n`;
       await fs.promises.mkdir(path.dirname(note), { recursive: true });
       await fs.promises.writeFile(note, tail + block, 'utf8');
-      telegramInbox.lastPath = settings.target;
+      telegramInbox.lastPath = target;
     } else {
       // one note per message, in Inbox/
       const dir = path.join(NOTES_DIR, TELEGRAM_INBOX_FOLDER);
@@ -1761,16 +1785,37 @@ function notifyTelegramInboxChanged() {
   }
 }
 
+// Everything the phone asks for is a path *inside the vault*. A message like
+// "/to ../../.bashrc" or "/clear ../../.ssh/id_rsa" must never escape it, so
+// every name is resolved and checked against the vault root before it is used.
+function vaultRelativePath(raw) {
+  const cleaned = String(raw || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!cleaned) return { error: 'Send a note name.' };
+  if (cleaned.split('/').some((part) => part === '..' || part === '.')) {
+    return { error: 'That path leaves the vault, so it is refused.' };
+  }
+  const withExt = /\.md$/i.test(cleaned) ? cleaned : cleaned + '.md';
+  const root = path.resolve(NOTES_DIR);
+  const absolute = path.resolve(root, withExt);
+  if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+    return { error: 'That path leaves the vault, so it is refused.' };
+  }
+  return { rel: path.relative(root, absolute).split(path.sep).join('/'), absolute };
+}
+
 // The note a /to command names: an exact vault path, or the one note with that
 // file name. A path that does not exist yet is created for /to (writing into a
 // note that is not there yet is reasonable), never for /clear.
 function resolveInboxTarget(query, options = {}) {
   const create = options.create !== false;
-  const raw = String(query || '').trim().replace(/^\/+/, '').replace(/\\/g, '/');
-  if (!raw) return { error: '' };
-  const withExt = /\.md$/i.test(raw) ? raw : raw + '.md';
-  const direct = path.join(NOTES_DIR, withExt);
-  if (fs.existsSync(direct)) return { target: withExt, created: false };
+  const safe = vaultRelativePath(query);
+  if (safe.error) return { error: safe.error };
+  const withExt = safe.rel;
+  const direct = safe.absolute;
+  if (fs.existsSync(direct)) {
+    if (!fs.statSync(direct).isFile()) return { error: '«' + withExt + '» is a folder, not a note.' };
+    return { target: withExt, created: false };
+  }
   const wanted = path.basename(withExt).toLowerCase();
   const matches = [];
   const walk = (dir, prefix, depth) => {
@@ -2015,6 +2060,19 @@ async function telegramInboxLoop() {
       if (!message) continue;
       // a stranger messaging the bot is ignored
       if (String(message.chat && message.chat.id) !== String(creds.chatId)) continue;
+      // in a group, the first account that writes after the inbox is turned on
+      // owns it: other members of the same group cannot touch the notes
+      const senderId = message.from && message.from.id != null ? String(message.from.id) : '';
+      const owner = telegramInboxSaved();
+      if (senderId) {
+        if (!owner.ownerId) {
+          store.set('telegramInbox', { ...owner, ownerId: senderId });
+          notifyTelegramInboxChanged();
+        } else if (owner.ownerId !== senderId) {
+          telegramInbox.lastError = 'Ignored a message from another account in this chat.';
+          continue;
+        }
+      }
       if (onlySince && (message.date || 0) < onlySince) continue;
       // an attached file is saved into the vault as it is
       if (message.document || (Array.isArray(message.photo) && message.photo.length)) {
@@ -2057,17 +2115,26 @@ ipcMain.handle('telegram:inboxGet', async () => telegramInboxStatus());
 
 ipcMain.handle('telegram:inboxSet', async (_event, config) => {
   const enabled = !!(config && config.enabled === true);
-  const target = String((config && config.target) || '').trim().replace(/^\/+/, '');
+  let target = String((config && config.target) || '').trim().replace(/^\/+/, '');
   if (enabled) {
     const creds = getTelegramConfig();
     if (!creds.botToken || !creds.chatId) {
       return { ok: false, error: 'Telegram is not configured. Save a bot token and chat ID first.' };
     }
-    if (target && !/\.md$/i.test(target)) return { ok: false, error: 'Choose a Markdown note to append to.' };
-    if (target && !fs.existsSync(path.join(NOTES_DIR, target))) return { ok: false, error: 'That note does not exist any more.' };
+    if (target) {
+      if (!/\.md$/i.test(target)) return { ok: false, error: 'Choose a Markdown note to append to.' };
+      const safe = vaultRelativePath(target);
+      if (safe.error) return { ok: false, error: safe.error };
+      if (!fs.existsSync(safe.absolute)) return { ok: false, error: 'That note does not exist any more.' };
+      target = safe.rel;
+    }
   }
+  const previous = telegramInboxSaved();
   stopTelegramInbox();
-  store.set('telegramInbox', { enabled, target });
+  // turning it on again re-pins the account that writes first, so a different
+  // phone or account can be handed over deliberately
+  store.set('telegramInbox', { enabled, target, ownerId: enabled ? '' : previous.ownerId });
+  protectStoreFile();
   telegramInbox.lastError = '';
   if (enabled) startTelegramInbox();
   // the "/" menu is part of turning the inbox on, not a separate step
@@ -2897,6 +2964,7 @@ ipcMain.handle('ai:saveKey', (_event, payload) => {
     if (Object.keys(entry).length) keys[id] = entry;
     else delete keys[id];
     store.set('aiKeys', keys);
+    protectStoreFile();
     return { ok: true, hasKey: !!(keys[id] && keys[id].apiKey), engine: (keys[id] && keys[id].engine) || 'auto' };
   } catch (error) {
     return { ok: false, error: error.message || String(error) };
