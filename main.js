@@ -1676,6 +1676,101 @@ async function saveTelegramInboxMessage(message, settings) {
   }
 }
 
+// A reply goes back to the phone, so a command shows what it changed.
+async function telegramInboxReply(text) {
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) return;
+  try {
+    const form = new FormData();
+    form.append('chat_id', creds.chatId);
+    form.append('text', String(text || '').slice(0, 4000));
+    await telegramApi('sendMessage', form);
+  } catch (_) {}
+}
+
+function notifyTelegramInboxChanged() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('telegram:inbox-changed', telegramInboxStatus());
+  }
+}
+
+// The note a /to command names: an exact vault path, or the one note with that
+// file name. A path that does not exist yet is created, because "write this into
+// Notes.md" is a reasonable thing to ask for from a phone.
+function resolveInboxTarget(query) {
+  const raw = String(query || '').trim().replace(/^\/+/, '').replace(/\\/g, '/');
+  if (!raw) return { error: '' };
+  const withExt = /\.md$/i.test(raw) ? raw : raw + '.md';
+  const direct = path.join(NOTES_DIR, withExt);
+  if (fs.existsSync(direct)) return { target: withExt, created: false };
+  const wanted = path.basename(withExt).toLowerCase();
+  const matches = [];
+  const walk = (dir, prefix, depth) => {
+    if (depth > 6 || matches.length > 25) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      if (/.inkwell|node_modules|\.git/i.test(entry.name)) continue;
+      const rel = prefix ? prefix + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel, depth + 1);
+      else if (/\.md$/i.test(entry.name) && entry.name.toLowerCase() === wanted) matches.push(rel);
+    }
+  };
+  walk(NOTES_DIR, '', 0);
+  if (matches.length === 1) return { target: matches[0], created: false };
+  if (matches.length > 1) {
+    return { error: 'Several notes are called ' + wanted + ': ' + matches.slice(0, 8).join(', ') + '. Send the folder too, e.g. /to ' + matches[0] };
+  }
+  try {
+    fs.mkdirSync(path.dirname(direct), { recursive: true });
+    fs.writeFileSync(direct, '', 'utf8');
+    return { target: withExt, created: true };
+  } catch (e) {
+    return { error: 'Could not create ' + withExt + ': ' + (e && e.message ? e.message : String(e)) };
+  }
+}
+
+// Commands, so the phone decides where the next messages go:
+//   /new            one note per message, in Inbox/
+//   /to <note>      append to that note instead
+//   /status         what is happening now
+//   /help           the list
+function telegramInboxCommand(text) {
+  const [rawCommand, ...rest] = String(text || '').trim().split(/\s+/);
+  const command = String(rawCommand || '').toLowerCase().replace(/@[\w_]+$/, ''); // /to@MyBot
+  const argument = rest.join(' ').trim();
+  const saved = telegramInboxSaved();
+  const where = saved.target ? '«' + saved.target + '»' : 'a new note in ' + TELEGRAM_INBOX_FOLDER + '/';
+
+  if (command === '/start' || command === '/help') {
+    return [
+      'Write from your phone:',
+      '• send a message — it goes into ' + where,
+      '• /to <note> — write into that note from now on (it is created if it does not exist)',
+      '• /new — back to one note per message, in ' + TELEGRAM_INBOX_FOLDER + '/',
+      '• /status — where messages go right now',
+    ].join('\n');
+  }
+  if (command === '/status') {
+    return (saved.enabled ? 'Listening. ' : 'The inbox is off in Inkwell. ')
+      + 'Messages go into ' + where + '.';
+  }
+  if (command === '/new') {
+    store.set('telegramInbox', { enabled: saved.enabled, target: '' });
+    notifyTelegramInboxChanged();
+    return 'Every message now becomes a new note in ' + TELEGRAM_INBOX_FOLDER + '/.';
+  }
+  if (command === '/to') {
+    if (!argument) return 'Send /to <note>, for example /to Inbox.md';
+    const found = resolveInboxTarget(argument);
+    if (found.error) return found.error;
+    store.set('telegramInbox', { enabled: saved.enabled, target: found.target });
+    notifyTelegramInboxChanged();
+    return (found.created ? 'Created «' : 'Writing into «') + found.target + '». Send /new to go back to one note per message.';
+  }
+  return 'Unknown command. Send /help to see what the bot can do.';
+}
+
 async function telegramInboxLoop() {
   telegramInbox.running = true;
   telegramInbox.lastError = '';
@@ -1724,7 +1819,14 @@ async function telegramInboxLoop() {
       // a stranger messaging the bot is ignored
       if (String(message.chat && message.chat.id) !== String(creds.chatId)) continue;
       if (onlySince && (message.date || 0) < onlySince) continue;
-      await saveTelegramInboxMessage(message, settings);
+      const body = String(message.text || message.caption || '').trim();
+      if (!body) continue;
+      // a command changes where the next messages go
+      if (body.startsWith('/')) {
+        await telegramInboxReply(telegramInboxCommand(body));
+        continue;
+      }
+      await saveTelegramInboxMessage(message, telegramInboxSaved());
     }
     if (offset) store.set('telegramInboxOffset', offset);
     onlySince = 0;

@@ -72,6 +72,11 @@ contextBridge.exposeInMainWorld('inkwell', {
   testTelegram: (config) => ipcRenderer.invoke('telegram:test', config),
   getTelegramInbox: () => ipcRenderer.invoke('telegram:inboxGet'),
   setTelegramInbox: (config) => ipcRenderer.invoke('telegram:inboxSet', config),
+  onTelegramInboxChanged: (cb) => {
+    const handler = (_event, status) => cb(status);
+    ipcRenderer.on('telegram:inbox-changed', handler);
+    return () => ipcRenderer.removeListener('telegram:inbox-changed', handler);
+  },
 
   // ask an AI CLI (or an HTTP API provider) about a selection
   askAI: (payload) => ipcRenderer.invoke('ai:ask', payload),

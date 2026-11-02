@@ -7530,6 +7530,12 @@ function setupCustomProviderForm() {
   // the phone inbox applies as soon as the switch or the target changes
   if (els.settingsTelegramInbox) els.settingsTelegramInbox.addEventListener('change', saveTelegramInbox);
   if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.addEventListener('change', saveTelegramInbox);
+  // /to and /new sent from the phone change the same setting: keep the pane honest
+  if (window.inkwell && window.inkwell.onTelegramInboxChanged) {
+    window.inkwell.onTelegramInboxChanged(() => {
+      if (modals.settings && !modals.settings.classList.contains('hidden')) loadTelegramInbox();
+    });
+  }
 }
 
 /* ============ ASK AI ============ */
