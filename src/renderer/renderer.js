@@ -339,6 +339,7 @@ const els = {
   settingsTelegramSave: $('settingsTelegramSave'),
   settingsTelegramInbox: $('settingsTelegramInbox'),
   settingsTelegramInboxTarget: $('settingsTelegramInboxTarget'),
+  settingsTelegramCommands: $('settingsTelegramCommands'),
   settingsTelegramInboxStatus: $('settingsTelegramInboxStatus'),
   themeToggle: $('themeToggle'),
   exportBtn: $('exportBtn'),
@@ -7570,6 +7571,24 @@ function setupCustomProviderForm() {
   // the phone inbox applies as soon as the switch or the target changes
   if (els.settingsTelegramInbox) els.settingsTelegramInbox.addEventListener('change', saveTelegramInbox);
   if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.addEventListener('change', saveTelegramInbox);
+  // the "/" menu of the chat comes from the bot's command list
+  if (els.settingsTelegramCommands) {
+    els.settingsTelegramCommands.addEventListener('click', async () => {
+      els.settingsTelegramCommands.disabled = true;
+      let res = null;
+      try {
+        res = await window.inkwell.setTelegramCommands();
+      } catch (e) {
+        res = { ok: false, error: e && e.message ? e.message : String(e) };
+      }
+      els.settingsTelegramCommands.disabled = false;
+      if (res && res.ok) {
+        toast('The command menu is in the chat now — open Telegram and press /', 'success', 5000);
+      } else {
+        toast((res && res.error) || 'Could not register the commands', 'error', 5000);
+      }
+    });
+  }
   // /to and /new sent from the phone change the same setting: keep the pane honest
   if (window.inkwell && window.inkwell.onTelegramInboxChanged) {
     window.inkwell.onTelegramInboxChanged(() => {

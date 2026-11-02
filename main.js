@@ -1732,6 +1732,45 @@ function resolveInboxTarget(query) {
 
 // Commands, so the phone decides where the next messages go:
 //   /new            one note per message, in Inbox/
+// Telegram shows a command menu (the list behind the "/" button) from the
+// commands registered for the chat. They are registered for this chat only, so a
+// bot that other tools also use keeps its global list untouched.
+const TELEGRAM_COMMANDS = {
+  en: [
+    { command: 'to', description: 'Write into a note, e.g. /to Inbox.md' },
+    { command: 'new', description: 'One note per message, in Inbox/' },
+    { command: 'status', description: 'Where the next message goes' },
+    { command: 'help', description: 'What this bot can do' },
+  ],
+  fa: [
+    { command: 'to', description: 'نوشتن داخل یک نوت، مثلاً /to Inbox.md' },
+    { command: 'new', description: 'هر پیام یک نوت جدید در Inbox/' },
+    { command: 'status', description: 'پیام بعدی کجا نوشته می‌شود' },
+    { command: 'help', description: 'این ربات چه کارهایی می‌کند' },
+  ],
+};
+
+async function syncTelegramCommands() {
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) {
+    return { ok: false, error: 'Telegram is not configured. Save a bot token and chat ID first.' };
+  }
+  const chatId = /^-?\d+$/.test(creds.chatId) ? Number(creds.chatId) : creds.chatId;
+  const scope = JSON.stringify({ type: 'chat', chat_id: chatId });
+  try {
+    for (const [language, commands] of Object.entries(TELEGRAM_COMMANDS)) {
+      const form = new FormData();
+      form.append('scope', scope);
+      form.append('commands', JSON.stringify(commands));
+      if (language !== 'en') form.append('language_code', language);
+      await telegramApi('setMyCommands', form);
+    }
+    return { ok: true, commands: TELEGRAM_COMMANDS.en.map((c) => '/' + c.command) };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+
 //   /to <note>      append to that note instead
 //   /status         what is happening now
 //   /help           the list
@@ -1868,8 +1907,12 @@ ipcMain.handle('telegram:inboxSet', async (_event, config) => {
   store.set('telegramInbox', { enabled, target });
   telegramInbox.lastError = '';
   if (enabled) startTelegramInbox();
+  // the "/" menu is part of turning the inbox on, not a separate step
+  if (enabled) syncTelegramCommands().catch(() => {});
   return telegramInboxStatus();
 });
+
+ipcMain.handle('telegram:inboxCommands', async () => syncTelegramCommands());
 
 // Both formats share the same upload; only the file name and MIME type differ.
 async function sendTelegramFile(creds, filename, blob) {

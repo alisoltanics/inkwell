@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('inkwell', {
   testTelegram: (config) => ipcRenderer.invoke('telegram:test', config),
   getTelegramInbox: () => ipcRenderer.invoke('telegram:inboxGet'),
   setTelegramInbox: (config) => ipcRenderer.invoke('telegram:inboxSet', config),
+  setTelegramCommands: () => ipcRenderer.invoke('telegram:inboxCommands'),
   onTelegramInboxChanged: (cb) => {
     const handler = (_event, status) => cb(status);
     ipcRenderer.on('telegram:inbox-changed', handler);
