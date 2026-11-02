@@ -1539,8 +1539,7 @@ function buildFileItem(file, depth = 0, inFavorites = false) {
       <button class="danger" title="${t('Delete')}">${trashSvg}</button>
     </div>
   `;
-  // only a Markdown note can be renamed here: an image or a PDF keeps its name
-  if (isHtmlDocument || media) item.querySelector('.rename').remove();
+  // every file can be renamed here, and it keeps its own extension
 
   item.addEventListener('click', () => selectFile(file.path, { source: inFavorites ? 'favorites' : 'tree' }));
   item.addEventListener('contextmenu', (e) => {
@@ -6139,13 +6138,24 @@ $('deleteFolderConfirm').addEventListener('click', async () => {
 });
 
 /* ============ RENAME FILE ============ */
+// The extension is part of the file's identity: the dialog edits the name only
+// and shows the real one beside the field, so a PDF stays a PDF and a note
+// stays a note.
+function fileExtension(path) {
+  const match = String(path || '').match(/\.[^./\\]+$/);
+  return match ? match[0] : '';
+}
+
 function openRenameModal(path) {
-  // Only the base name is editable: a rename keeps the note in its folder.
-  const name = path.split('/').pop().replace(/\.md$/i, '');
+  const ext = fileExtension(path);
+  const name = ext ? path.split('/').pop().slice(0, -ext.length) : path.split('/').pop();
   const loc = $('renameLocation');
   if (loc) loc.textContent = path.split('/').slice(0, -1).join('/') || 'Library';
   $('renameInput').value = name;
+  const extLabel = $('renameExt');
+  if (extLabel) extLabel.textContent = ext;
   modals.rename.dataset.target = path;
+  modals.rename.dataset.ext = ext;
   openModal('rename');
   setTimeout(() => { const i = $('renameInput'); i.focus(); i.select(); }, 50);
 }
@@ -6161,11 +6171,18 @@ async function doRename() {
   if (!oldPath) { closeModal('rename'); return; }
 
   const dir = oldPath.split('/').slice(0, -1).join('/');
-  const base = sanitizeName($('renameInput').value.trim().replace(/\.md$/i, ''));
+  const ext = modals.rename.dataset.ext != null ? modals.rename.dataset.ext : fileExtension(oldPath);
+  const typed = $('renameInput').value.trim();
+  // a typed extension is not doubled: "report.pdf" and "report" both end up
+  // as report.pdf
+  const withoutExt = ext && typed.toLowerCase().endsWith(ext.toLowerCase())
+    ? typed.slice(0, -ext.length)
+    : typed;
+  const base = sanitizeName(withoutExt);
   if (!base) { toast('Please enter a valid name', 'error'); return; }
 
   // The folder part is fixed, so renaming can never create a folder on disk.
-  const newPath = joinPath(dir, base) + '.md';
+  const newPath = joinPath(dir, base) + ext;
 
   if (newPath === oldPath) { closeModal('rename'); return; }
   if (state.files.some(f => f.path !== oldPath && f.path.toLowerCase() === newPath.toLowerCase())) {
