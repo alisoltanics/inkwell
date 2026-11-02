@@ -661,6 +661,44 @@ function setupWindowChrome() {
 initTheme();
 setupWindowChrome();
 
+// A note changed on disk outside the app — a phone message, another editor, a
+// sync folder. When it is the note on screen and nothing unsaved is in the way,
+// the editor follows at once instead of waiting for the user to open another
+// note and come back. Unsaved edits are never thrown away.
+async function reloadOpenFileFromDisk(paths) {
+  const current = state.currentFile;
+  if (!current || state.dirty || isExternalPath(current) || isArchivedPath(current)) return false;
+  if (!(paths || []).some((item) => item === current)) return false;
+  if (/\.(?:docx|html?)$/i.test(current)) return false;
+  let res = null;
+  try {
+    res = await window.inkwell.readFile(current);
+  } catch (_) {
+    return false;
+  }
+  if (!res || !res.success) return false;
+  const content = res.content || '';
+  if (content === els.editor.value) return false;
+  const caret = { s: els.editor.selectionStart, e: els.editor.selectionEnd };
+  const scroll = els.editor.scrollTop;
+  const previewScroll = els.preview ? els.preview.scrollTop : 0;
+  els.editor.value = content;
+  state.dirty = false;
+  syncEditorHighlight();
+  renderPreview(true);
+  try {
+    const max = content.length;
+    els.editor.setSelectionRange(Math.min(caret.s, max), Math.min(caret.e, max));
+  } catch (_) {}
+  els.editor.scrollTop = scroll;
+  if (els.preview) els.preview.scrollTop = previewScroll;
+  setSaveStatus('saved');
+  // a file that changed under a conversation would make its context stale
+  if (aiThread.length && aiChatOwner === docChatKey()) aiThreadContext = { ...aiThreadContext, text: content };
+  setStatus('Updated from outside: ' + displayNotePath(current));
+  return true;
+}
+
 // Notes can arrive from outside the app (another editor, a sync folder, the VS
 // Code extension): the list follows the folder instead of waiting for a restart.
 function setupVaultWatch() {
@@ -677,6 +715,8 @@ function setupVaultWatch() {
       const fresh = notes.filter((item) => !known.has(item));
       // a note that just arrived should be visible, not hidden in a closed folder
       fresh.forEach((item) => expandAncestors(item));
+      // the note on screen follows the change too, unless it has unsaved edits
+      reloadOpenFileFromDisk(paths);
       refreshFiles().then(() => {
         // the phone-inbox line shows the note that just arrived
         if (modals.settings && !modals.settings.classList.contains('hidden')) loadTelegramInbox();

@@ -21,6 +21,7 @@ Inkwell is a desktop Markdown writing app for organizing notes as regular files 
 - Archive a note or a whole folder (right-click → Archive) to move it out of the notes tree. Archived items live in the hidden `.inkwell/archive` folder inside the vault and are listed in the Archive section of the sidebar, where they can be opened without leaving the archive, restored to their original place, or deleted permanently.
 - Pin notes to the tab bar above the editor, and switch between them without leaving the current view.
 - Changes are saved as you type. Notes can also be edited with any text editor.
+- The list follows the vault: a note created, renamed or deleted outside the app (another editor, a sync folder, the VS Code extension, a Telegram message from your phone) shows up on its own. The note you are reading reloads in place when its file changes on disk — caret and scroll stay where they were — and unsaved edits in the editor are never overwritten by that reload.
 - Add images using paths relative to the vault. Images appear in the preview and can be opened full-screen.
 - Add comments to selected passages, revisit them from the comments panel, and edit or remove them. The comment box opens toward the left when the selection is near the right edge.
 - Hover a file or folder in the sidebar to see its full path. Selecting text also offers a Copy action.
