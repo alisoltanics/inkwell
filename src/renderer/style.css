@@ -2684,7 +2684,8 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
     display: flex;
     justify-content: flex-end;
     gap: 10px;
-    margin-top: 18px;
+    /* air above and below: the row must not sit on the block that follows it */
+    margin: 18px 0;
 }
 
 .settings-status {
