@@ -1634,7 +1634,74 @@ function telegramInboxStamp(seconds) {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
-// A message becomes Markdown: the text as it was written, with the moment it
+// A file sent to the bot is saved next to the chosen note (or in Inbox/), so a
+// Markdown file from the phone opens as a document and anything else keeps its
+// own extension. Telegram lets a bot download up to 20 MB.
+const TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024;
+
+function telegramInboxFileName(raw, fallback) {
+  const base = path.basename(String(raw || '').replace(/\\/g, '/')).replace(/[\u0000-\u001f]/g, '').trim();
+  const clean = base.replace(/[\\/:*?"<>|]/g, '-').replace(/^\.+/, '').slice(0, 120).trim();
+  return clean || fallback;
+}
+
+function uniqueVaultPath(relDir, name) {
+  const ext = path.extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  let rel = relDir ? `${relDir}/${name}` : name;
+  let n = 2;
+  while (fs.existsSync(path.join(NOTES_DIR, rel))) {
+    rel = relDir ? `${relDir}/${stem} ${n}${ext}` : `${stem} ${n}${ext}`;
+    n += 1;
+  }
+  return rel;
+}
+
+async function saveTelegramInboxFile(message, settings) {
+  if (!NOTES_DIR) return;
+  const document = message.document || null;
+  const photo = !document && Array.isArray(message.photo) && message.photo.length
+    ? message.photo[message.photo.length - 1]
+    : null;
+  const fileId = document ? document.file_id : (photo ? photo.file_id : '');
+  if (!fileId) return;
+  const stamp = telegramInboxStamp(message.date).replace(/[: ]/g, '-');
+  const fallback = document ? 'telegram-file' : `photo ${stamp}.jpg`;
+  const name = telegramInboxFileName(document && document.file_name, fallback);
+  const size = Number((document && document.file_size) || (photo && photo.file_size) || 0);
+  if (size > TELEGRAM_FILE_LIMIT) {
+    await telegramInboxReply('«' + name + '» is larger than 20 MB, which Telegram does not let a bot download.');
+    return;
+  }
+  const creds = getTelegramConfig();
+  try {
+    const form = new FormData();
+    form.append('file_id', fileId);
+    const info = await telegramApi('getFile', form);
+    const filePath = info && info.file_path;
+    if (!filePath) throw new Error('Telegram did not say where the file is.');
+    const res = await fetch('https://api.telegram.org/file/bot' + creds.botToken + '/' + filePath);
+    if (!res.ok) throw new Error('The download failed (HTTP ' + res.status + ').');
+    const buffer = Buffer.from(await res.arrayBuffer());
+    // files land beside the note the messages go into, so the two stay together
+    const folder = settings.target ? path.posix.dirname(settings.target) : TELEGRAM_INBOX_FOLDER;
+    const relDir = folder === '.' || folder === '' ? '' : folder;
+    const rel = uniqueVaultPath(relDir, name);
+    const absolute = path.join(NOTES_DIR, rel);
+    await fs.promises.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.promises.writeFile(absolute, buffer);
+    telegramInbox.lastAt = Date.now();
+    telegramInbox.lastPath = rel;
+    telegramInbox.lastError = '';
+    queueVaultChange(rel);
+    await telegramInboxReply('Saved «' + rel + '»' + (/\.(?:md|markdown|txt)$/i.test(rel) ? '.' : ' as a file.'));
+  } catch (e) {
+    telegramInbox.lastError = 'Could not save the file: ' + (e && e.message ? e.message : String(e));
+    await telegramInboxReply('Could not save «' + name + '»: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+
+// A note becomes Markdown: the text as it was written, with the moment it
 // arrived kept in a comment so the note stays clean when it is rendered.
 async function saveTelegramInboxMessage(message, settings) {
   if (!NOTES_DIR) return;
@@ -1695,9 +1762,10 @@ function notifyTelegramInboxChanged() {
 }
 
 // The note a /to command names: an exact vault path, or the one note with that
-// file name. A path that does not exist yet is created, because "write this into
-// Notes.md" is a reasonable thing to ask for from a phone.
-function resolveInboxTarget(query) {
+// file name. A path that does not exist yet is created for /to (writing into a
+// note that is not there yet is reasonable), never for /clear.
+function resolveInboxTarget(query, options = {}) {
+  const create = options.create !== false;
   const raw = String(query || '').trim().replace(/^\/+/, '').replace(/\\/g, '/');
   if (!raw) return { error: '' };
   const withExt = /\.md$/i.test(raw) ? raw : raw + '.md';
@@ -1721,6 +1789,7 @@ function resolveInboxTarget(query) {
   if (matches.length > 1) {
     return { error: 'Several notes are called ' + wanted + ': ' + matches.slice(0, 8).join(', ') + '. Send the folder too, e.g. /to ' + matches[0] };
   }
+  if (!create) return { target: withExt, created: false, missing: true };
   try {
     fs.mkdirSync(path.dirname(direct), { recursive: true });
     fs.writeFileSync(direct, '', 'utf8');
@@ -1739,12 +1808,16 @@ const TELEGRAM_COMMANDS = {
   en: [
     { command: 'to', description: 'Write into a note, e.g. /to Inbox.md' },
     { command: 'new', description: 'One note per message, in Inbox/' },
+    { command: 'list', description: 'List the notes in the vault' },
+    { command: 'clear', description: 'Empty a note (asks once to confirm)' },
     { command: 'status', description: 'Where the next message goes' },
     { command: 'help', description: 'What this bot can do' },
   ],
   fa: [
     { command: 'to', description: 'نوشتن داخل یک نوت، مثلاً /to Inbox.md' },
     { command: 'new', description: 'هر پیام یک نوت جدید در Inbox/' },
+    { command: 'list', description: 'فهرست نوت‌های والت' },
+    { command: 'clear', description: 'خالی کردن یک نوت (یک بار تأیید می‌خواهد)' },
     { command: 'status', description: 'پیام بعدی کجا نوشته می‌شود' },
     { command: 'help', description: 'این ربات چه کارهایی می‌کند' },
   ],
@@ -1785,8 +1858,11 @@ function telegramInboxCommand(text) {
     return [
       'Write from your phone:',
       '• send a message — it goes into ' + where,
+      '• send a file — it is saved next to that note (Markdown files open as notes)',
       '• /to <note> — write into that note from now on (it is created if it does not exist)',
       '• /new — back to one note per message, in ' + TELEGRAM_INBOX_FOLDER + '/',
+      '• /list [word] — the notes in the vault',
+      '• /clear <note> — empty a note (asks for the same command once more)',
       '• /status — where messages go right now',
     ].join('\n');
   }
@@ -1807,7 +1883,89 @@ function telegramInboxCommand(text) {
     notifyTelegramInboxChanged();
     return (found.created ? 'Created «' : 'Writing into «') + found.target + '». Send /new to go back to one note per message.';
   }
+  if (command === '/list' || command === '/ls') {
+    return telegramInboxList(argument);
+  }
+  if (command === '/clear') {
+    return telegramInboxClear(argument, saved);
+  }
   return 'Unknown command. Send /help to see what the bot can do.';
+}
+
+// /clear empties a note, but only after the same command is sent twice within a
+// minute: a phone tap should never wipe a note by accident.
+let telegramClearPending = { target: '', at: 0 };
+
+function telegramInboxClear(argument, saved) {
+  const target = argument ? resolveInboxTarget(argument, { create: false }) : { target: saved.target };
+  if (!target || target.error) return (target && target.error) || 'Send /clear <note>, for example /clear Inbox.md';
+  if (!target.target) return 'Send /clear <note>, for example /clear Inbox.md';
+  if (target.missing) return 'There is no note called «' + target.target + '» to clear.';
+  const absolute = path.join(NOTES_DIR, target.target);
+  if (!fs.existsSync(absolute)) return 'There is no note called «' + target.target + '» to clear.';
+  const now = Date.now();
+  const confirmed = telegramClearPending.target === target.target && now - telegramClearPending.at < 60000;
+  if (!confirmed) {
+    telegramClearPending = { target: target.target, at: now };
+    const size = fs.statSync(absolute).size;
+    return 'This empties «' + target.target + '» (' + size + ' bytes). Send /clear ' + target.target + ' again within a minute to confirm.';
+  }
+  telegramClearPending = { target: '', at: 0 };
+  try {
+    fs.writeFileSync(absolute, '', 'utf8');
+    queueVaultChange(target.target);
+    notifyTelegramInboxChanged();
+    return 'Emptied «' + target.target + '».';
+  } catch (e) {
+    return 'Could not empty «' + target.target + '»: ' + (e && e.message ? e.message : String(e));
+  }
+}
+
+// /list prints the notes as a small tree, so the vault can be read from a phone
+// without opening the app.
+function telegramInboxList(argument) {
+  if (!NOTES_DIR) return 'No vault is open in Inkwell.';
+  const filter = String(argument || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  const rows = [];
+  const walk = (dir, prefix, depth) => {
+    if (depth > 4 || rows.length > 200) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    entries.sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : (a.isDirectory() ? -1 : 1)));
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      if (/^(node_modules|__pycache__)$/i.test(entry.name)) continue;
+      const rel = prefix ? prefix + '/' + entry.name : entry.name;
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), rel, depth + 1);
+        continue;
+      }
+      if (!/\.md$/i.test(entry.name)) continue;
+      rows.push(rel);
+    }
+  };
+  walk(NOTES_DIR, '', 0);
+  const matched = filter ? rows.filter((rel) => rel.toLowerCase().includes(filter)) : rows;
+  if (!matched.length) return filter ? 'No note matches «' + argument + '».' : 'The vault has no notes yet.';
+  const limit = 40;
+  const shown = matched.slice(0, limit);
+  const lines = [];
+  lines.push((filter ? filter + ' · ' : '') + matched.length + (matched.length === 1 ? ' note' : ' notes'));
+  let lastFolder = null;
+  for (const rel of shown) {
+    const folder = path.posix.dirname(rel) === '.' ? '' : path.posix.dirname(rel);
+    if (folder !== lastFolder) {
+      if (folder) lines.push(folder + '/');
+      lastFolder = folder;
+    }
+    lines.push((folder ? '  ' : '') + '• ' + path.posix.basename(rel));
+  }
+  if (matched.length > shown.length) {
+    lines.push('…and ' + (matched.length - shown.length) + ' more. Send /list <word> to narrow it down.');
+  }
+  const saved = telegramInboxSaved();
+  lines.push(saved.target ? 'Messages go into «' + saved.target + '».' : 'Messages become new notes in ' + TELEGRAM_INBOX_FOLDER + '/.');
+  return lines.join('\n');
 }
 
 async function telegramInboxLoop() {
@@ -1858,6 +2016,11 @@ async function telegramInboxLoop() {
       // a stranger messaging the bot is ignored
       if (String(message.chat && message.chat.id) !== String(creds.chatId)) continue;
       if (onlySince && (message.date || 0) < onlySince) continue;
+      // an attached file is saved into the vault as it is
+      if (message.document || (Array.isArray(message.photo) && message.photo.length)) {
+        await saveTelegramInboxFile(message, telegramInboxSaved());
+        continue;
+      }
       const body = String(message.text || message.caption || '').trim();
       if (!body) continue;
       // a command changes where the next messages go

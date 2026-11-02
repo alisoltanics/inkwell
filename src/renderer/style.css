@@ -6233,6 +6233,8 @@ html[dir="rtl"] .tts-bar { direction: rtl; }
 
 .settings-group .settings-field { margin-bottom: 12px; }
 .settings-group .settings-desc { margin: 0 0 12px; }
+/* a row of buttons inside a group must not sit on the group's edge */
+.settings-group > .settings-actions { margin-bottom: 10px; }
 .settings-group textarea { width: 100%; }
 
 /* a single checkbox row inside a settings group (phone inbox) */
