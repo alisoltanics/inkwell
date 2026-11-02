@@ -305,9 +305,14 @@ app.whenReady().then(() => {
   // warm the probe that decides which isolation flags the installed Claude CLI
   // understands, so the first answer is not delayed by it
   getClaudeIsolationFlags().catch(() => {});
+  // notes sent to the bot while the app runs are written into the vault
+  startTelegramInbox();
 });
 
-app.on('will-quit', () => stopVaultWatch());
+app.on('will-quit', () => {
+  stopVaultWatch();
+  stopTelegramInbox();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -1578,6 +1583,190 @@ ipcMain.handle('telegram:test', async (event, config) => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+/* ================= TELEGRAM INBOX (notes from the phone) ================= */
+// Messages sent to the configured bot are written into the vault, so a phone can
+// add to a note without any sync service. Only the configured chat is accepted,
+// bot commands are ignored, and the update offset is stored so a restart does
+// not import the same message twice.
+const TELEGRAM_INBOX_FOLDER = 'Inbox';
+let telegramInbox = { running: false, lastAt: 0, lastPath: '', lastError: '', abort: null };
+
+function telegramInboxSaved() {
+  const saved = store.get('telegramInbox');
+  return {
+    enabled: !!(saved && saved.enabled === true),
+    target: saved && typeof saved.target === 'string' ? saved.target : '',
+  };
+}
+
+function telegramInboxStatus() {
+  const saved = telegramInboxSaved();
+  const creds = getTelegramConfig();
+  return {
+    ok: true,
+    enabled: saved.enabled,
+    target: saved.target,
+    running: telegramInbox.running,
+    ready: !!(creds.botToken && creds.chatId),
+    lastAt: telegramInbox.lastAt,
+    lastPath: telegramInbox.lastPath,
+    lastError: telegramInbox.lastError,
+    folder: TELEGRAM_INBOX_FOLDER,
+  };
+}
+
+function telegramInboxSlug(text) {
+  const firstLine = String(text || '').split('\n').find((line) => line.trim()) || 'telegram';
+  const slug = firstLine
+    .replace(/[\\/:*?"<>|#*_`~[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48)
+    .trim();
+  return slug || 'telegram';
+}
+
+function telegramInboxStamp(seconds) {
+  const at = new Date((seconds || Math.floor(Date.now() / 1000)) * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+// A message becomes Markdown: the text as it was written, with the moment it
+// arrived kept in a comment so the note stays clean when it is rendered.
+async function saveTelegramInboxMessage(message, settings) {
+  if (!NOTES_DIR) return;
+  const raw = String(message.text || message.caption || '').trim();
+  if (!raw || raw.startsWith('/')) return;
+  const stamp = telegramInboxStamp(message.date);
+  const note = path.join(NOTES_DIR, settings.target);
+  try {
+    if (settings.target) {
+      // append to the chosen note
+      const existing = await fs.promises.readFile(note, 'utf8').catch(() => '');
+      const tail = existing.replace(/\s*$/, '');
+      const block = (tail ? '\n\n' : '') + `<!-- telegram ${stamp} -->\n${raw}\n`;
+      await fs.promises.mkdir(path.dirname(note), { recursive: true });
+      await fs.promises.writeFile(note, tail + block, 'utf8');
+      telegramInbox.lastPath = settings.target;
+    } else {
+      // one note per message, in Inbox/
+      const dir = path.join(NOTES_DIR, TELEGRAM_INBOX_FOLDER);
+      await fs.promises.mkdir(dir, { recursive: true });
+      const base = telegramInboxSlug(raw);
+      let rel = `${TELEGRAM_INBOX_FOLDER}/${base}.md`;
+      let n = 2;
+      while (fs.existsSync(path.join(NOTES_DIR, rel))) {
+        rel = `${TELEGRAM_INBOX_FOLDER}/${base} ${n}.md`;
+        n += 1;
+      }
+      const title = (raw.split('\n')[0] || base).replace(/^#+\s*/, '').slice(0, 90);
+      const content = `# ${title}\n\n${raw}\n\n<!-- telegram ${stamp} -->\n`;
+      await fs.promises.writeFile(path.join(NOTES_DIR, rel), content, 'utf8');
+      telegramInbox.lastPath = rel;
+    }
+    telegramInbox.lastAt = Date.now();
+    telegramInbox.lastError = '';
+    // the list follows the folder on its own, but this makes it instant
+    queueVaultChange(telegramInbox.lastPath);
+  } catch (e) {
+    telegramInbox.lastError = 'Could not save the message: ' + (e && e.message ? e.message : String(e));
+  }
+}
+
+async function telegramInboxLoop() {
+  telegramInbox.running = true;
+  telegramInbox.lastError = '';
+  let offset = Number(store.get('telegramInboxOffset') || 0) || 0;
+  // a first start imports the last day of messages, not the whole history
+  let onlySince = offset ? 0 : Math.floor(Date.now() / 1000) - 24 * 60 * 60;
+  while (telegramInboxSaved().enabled) {
+    const creds = getTelegramConfig();
+    if (!creds.botToken || !creds.chatId) {
+      telegramInbox.lastError = 'Telegram is not configured. Open Settings → Telegram.';
+      break;
+    }
+    const controller = new AbortController();
+    telegramInbox.abort = controller;
+    const timer = setTimeout(() => controller.abort(), 40000);
+    let updates = null;
+    try {
+      const query = '?timeout=25&allowed_updates=' + encodeURIComponent('["message","channel_post"]')
+        + (offset ? '&offset=' + offset : '');
+      const res = await fetch('https://api.telegram.org/bot' + creds.botToken + '/getUpdates' + query, { signal: controller.signal });
+      const json = await res.json().catch(() => null);
+      if (!json || json.ok !== true) {
+        let reason = (json && json.description) || ('HTTP ' + res.status);
+        // getUpdates and a webhook cannot be used on the same bot
+        if (/webhook/i.test(reason) || res.status === 409) {
+          reason = 'This bot has a webhook set. Telegram allows a webhook or the inbox, not both — remove the webhook (BotFather: /setwebhook) to use the phone inbox.';
+        }
+        throw new Error(reason);
+      }
+      updates = Array.isArray(json.result) ? json.result : [];
+    } catch (e) {
+      clearTimeout(timer);
+      if (!telegramInboxSaved().enabled) break;
+      telegramInbox.lastError = /aborted|abort/i.test(String(e && e.message)) ? '' : ('Telegram: ' + (e && e.message ? e.message : String(e)));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      continue;
+    }
+    clearTimeout(timer);
+    const settings = telegramInboxSaved();
+    for (const update of updates) {
+      // switched off while the request was in flight: save nothing more
+      if (!settings.enabled || !telegramInboxSaved().enabled) break;
+      offset = Math.max(offset, (update.update_id || 0) + 1);
+      const message = update.message || update.channel_post;
+      if (!message) continue;
+      // a stranger messaging the bot is ignored
+      if (String(message.chat && message.chat.id) !== String(creds.chatId)) continue;
+      if (onlySince && (message.date || 0) < onlySince) continue;
+      await saveTelegramInboxMessage(message, settings);
+    }
+    if (offset) store.set('telegramInboxOffset', offset);
+    onlySince = 0;
+  }
+  telegramInbox.running = false;
+  telegramInbox.abort = null;
+}
+
+function startTelegramInbox() {
+  if (telegramInbox.running) return;
+  if (!telegramInboxSaved().enabled) return;
+  telegramInboxLoop().catch((e) => {
+    telegramInbox.running = false;
+    telegramInbox.lastError = e && e.message ? e.message : String(e);
+  });
+}
+
+function stopTelegramInbox() {
+  const controller = telegramInbox.abort;
+  telegramInbox.abort = null;
+  telegramInbox.running = false;
+  if (controller) { try { controller.abort(); } catch (_) {} }
+}
+
+ipcMain.handle('telegram:inboxGet', async () => telegramInboxStatus());
+
+ipcMain.handle('telegram:inboxSet', async (_event, config) => {
+  const enabled = !!(config && config.enabled === true);
+  const target = String((config && config.target) || '').trim().replace(/^\/+/, '');
+  if (enabled) {
+    const creds = getTelegramConfig();
+    if (!creds.botToken || !creds.chatId) {
+      return { ok: false, error: 'Telegram is not configured. Save a bot token and chat ID first.' };
+    }
+    if (target && !/\.md$/i.test(target)) return { ok: false, error: 'Choose a Markdown note to append to.' };
+    if (target && !fs.existsSync(path.join(NOTES_DIR, target))) return { ok: false, error: 'That note does not exist any more.' };
+  }
+  stopTelegramInbox();
+  store.set('telegramInbox', { enabled, target });
+  telegramInbox.lastError = '';
+  if (enabled) startTelegramInbox();
+  return telegramInboxStatus();
 });
 
 // Both formats share the same upload; only the file name and MIME type differ.

@@ -337,7 +337,9 @@ const els = {
   settingsTelegramChat: $('settingsTelegramChat'),
   settingsTelegramTest: $('settingsTelegramTest'),
   settingsTelegramSave: $('settingsTelegramSave'),
-  settingsTelegramTest: $('settingsTelegramTest'),
+  settingsTelegramInbox: $('settingsTelegramInbox'),
+  settingsTelegramInboxTarget: $('settingsTelegramInboxTarget'),
+  settingsTelegramInboxStatus: $('settingsTelegramInboxStatus'),
   themeToggle: $('themeToggle'),
   exportBtn: $('exportBtn'),
   printBtn: $('printBtn'),
@@ -676,6 +678,8 @@ function setupVaultWatch() {
       // a note that just arrived should be visible, not hidden in a closed folder
       fresh.forEach((item) => expandAncestors(item));
       refreshFiles().then(() => {
+        // the phone-inbox line shows the note that just arrived
+        if (modals.settings && !modals.settings.classList.contains('hidden')) loadTelegramInbox();
         if (!fresh.length) return;
         const first = fresh[0];
         const row = Array.from(els.fileList.querySelectorAll('.file-item'))
@@ -6923,6 +6927,89 @@ async function loadTelegramSettings() {
   } catch (_) {
     settingsTelegramStatus('Could not load Telegram settings.', 'err');
   }
+  loadTelegramInbox();
+}
+
+/* ---- phone inbox: messages to the bot become notes ---- */
+function telegramInboxStatusText(status) {
+  if (!status) return '';
+  if (!status.ready) return 'Save a bot token and chat ID first.';
+  if (status.lastError) return status.lastError;
+  if (!status.enabled) return 'Off. Messages to the bot are only sent, never saved.';
+  if (!status.running) return 'Waiting for the app to start the inbox…';
+  if (status.lastAt) {
+    const when = new Date(status.lastAt).toLocaleTimeString();
+    return 'Listening · last message ' + when + (status.lastPath ? ' → ' + status.lastPath : '');
+  }
+  return 'Listening. Send the bot a message from your phone.';
+}
+
+function renderTelegramInboxTargets(current) {
+  const select = els.settingsTelegramInboxTarget;
+  if (!select) return;
+  const files = (state.files || []).filter((f) => !isArchivedPath(f.path));
+  select.innerHTML = '';
+  const first = document.createElement('option');
+  first.value = '';
+  first.textContent = 'A new note in Inbox/';
+  select.appendChild(first);
+  for (const file of files) {
+    const option = document.createElement('option');
+    option.value = file.path;
+    option.textContent = file.path;
+    select.appendChild(option);
+  }
+  if (current) {
+    const known = files.some((f) => f.path === current);
+    if (!known) {
+      const option = document.createElement('option');
+      option.value = current;
+      option.textContent = current + ' (not found)';
+      select.appendChild(option);
+    }
+    select.value = current;
+  }
+}
+
+async function loadTelegramInbox() {
+  if (!els.settingsTelegramInbox) return;
+  let status = null;
+  try {
+    status = await window.inkwell.getTelegramInbox();
+  } catch (_) {
+    status = { ok: false, ready: false, enabled: false, target: '', lastError: 'Could not read the inbox settings.' };
+  }
+  els.settingsTelegramInbox.checked = !!(status && status.enabled);
+  els.settingsTelegramInbox.disabled = !(status && status.ready);
+  renderTelegramInboxTargets((status && status.target) || '');
+  if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.disabled = !(status && status.ready);
+  const line = telegramInboxStatusText(status);
+  if (els.settingsTelegramInboxStatus) {
+    els.settingsTelegramInboxStatus.textContent = line;
+    els.settingsTelegramInboxStatus.className = 'settings-status' + (status && status.lastError ? ' err' : (status && status.enabled ? ' ok' : ''));
+  }
+}
+
+async function saveTelegramInbox() {
+  const enabled = !!(els.settingsTelegramInbox && els.settingsTelegramInbox.checked);
+  const target = els.settingsTelegramInboxTarget ? els.settingsTelegramInboxTarget.value : '';
+  let status = null;
+  try {
+    status = await window.inkwell.setTelegramInbox({ enabled, target });
+  } catch (e) {
+    status = { ok: false, ready: true, enabled, target, lastError: e && e.message ? e.message : String(e) };
+  }
+  if (status && status.ok === false) {
+    toast(status.error || 'Could not change the inbox', 'error');
+    await loadTelegramInbox();
+    return;
+  }
+  const line = telegramInboxStatusText(status);
+  if (els.settingsTelegramInboxStatus) {
+    els.settingsTelegramInboxStatus.textContent = line;
+    els.settingsTelegramInboxStatus.className = 'settings-status' + (status && status.lastError ? ' err' : (enabled ? ' ok' : ''));
+  }
+  toast(enabled ? 'Messages to the bot will be saved' : 'Phone inbox off', enabled ? 'success' : 'info');
 }
 
 function renderAIProvidersList() {
@@ -7440,6 +7527,9 @@ function setupCustomProviderForm() {
   syncProviderFormFields();
   els.settingsTelegramSave.addEventListener('click', saveTelegramSettings);
   els.settingsTelegramTest.addEventListener('click', testTelegram);
+  // the phone inbox applies as soon as the switch or the target changes
+  if (els.settingsTelegramInbox) els.settingsTelegramInbox.addEventListener('change', saveTelegramInbox);
+  if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.addEventListener('change', saveTelegramInbox);
 }
 
 /* ============ ASK AI ============ */

@@ -986,6 +986,25 @@
                             <button class="btn-secondary" id="settingsTelegramTest" type="button">Send test message</button>
                             <button class="btn-primary" id="settingsTelegramSave" type="button">Save Telegram settings</button>
                         </div>
+
+                        <div class="settings-group inbox-group">
+                            <div class="settings-group-head">
+                                <h5>Write from your phone</h5>
+                                <span class="settings-opt">inbox</span>
+                            </div>
+                            <p class="settings-desc">While Inkwell is open, anything you send to the bot is written into the vault: a new note in <code>Inbox/</code>, or a message appended to the note you pick. Only this chat is accepted, and bot commands are ignored.</p>
+                            <label class="settings-check">
+                                <input type="checkbox" id="settingsTelegramInbox">
+                                <span>Turn messages to the bot into notes</span>
+                            </label>
+                            <div class="settings-field">
+                                <label for="settingsTelegramInboxTarget">Where they go</label>
+                                <select id="settingsTelegramInboxTarget">
+                                    <option value="">A new note in Inbox/</option>
+                                </select>
+                            </div>
+                            <p class="settings-status" id="settingsTelegramInboxStatus"></p>
+                        </div>
                     </section>
                 </div>
             </div>

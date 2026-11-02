@@ -95,6 +95,8 @@ Inkwell does not provide an AI model or AI account. It starts the selected comma
 - Configure a Telegram bot token and chat ID in Settings, send a test message, and send the current document.
 - Sending asks for the file type: **HTML** (one self-contained page with the styles, formulas and images inside it) or **Markdown** (the plain `.md` text, exactly what the editor holds — or the saved translation when the translation is on screen). The choice is remembered and highlighted the next time. A `.docx` or an `.html` note only has a preview, so it is sent as HTML.
 - Telegram credentials are kept in Inkwell's local application settings. They are not stored in the project repository.
+- **Write from your phone**: turn on *Write from your phone* in Settings → Telegram and every message you send to the bot is written into the vault — a new note in `Inbox/`, or a message appended to the note you pick in *Where they go*. The note keeps the arrival time in an HTML comment, the list refreshes on its own (a new note is flashed like any file that arrives from outside), and only messages from the configured chat are accepted; bot commands and empty messages are ignored. The update offset is stored, so a restart never imports the same message twice, and the first start only imports the last day of messages.
+- The inbox needs Inkwell open and polling `getUpdates`, so the bot must not have a webhook set (Telegram allows one or the other); the settings line says so if that is the case.
 
 ## Your files and privacy
 
