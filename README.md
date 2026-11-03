@@ -59,6 +59,7 @@
 ### Markdown and reading
 
 - Work in **Edit**, **Preview** or **Split** view. Resize the divider or double-click it to reset.
+- **Edit** renders the note like the preview: click any block to edit just that block's Markdown, with the rest of the note left untouched. Press `Ctrl + Enter` or click the check to finish.
 - GitHub Flavored Markdown: tables, task lists, footnotes, emoji, highlights, inserted text, subscript and superscript.
 - Fenced code blocks with syntax highlighting, and inline or display math with KaTeX.
 - Automatic, LTR or RTL text direction. Automatic mode handles mixed Persian and English paragraphs while keeping code, tables and math LTR.

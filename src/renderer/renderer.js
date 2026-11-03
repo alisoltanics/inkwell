@@ -2134,6 +2134,7 @@ async function moveItem(src, isFolder, newPath, destDir) {
 
 /* ============ SELECT / LOAD FILE ============ */
 async function selectFile(path, options = {}) {
+  if (liveBlock) commitLiveBlock({ render: false });
   if (state.currentFile && state.currentFile !== path) rememberEditorPos();
   if (state.dirty && state.currentFile && state.currentFile !== path) {
     await saveFile(true);
@@ -2245,6 +2246,7 @@ function expandAncestors(path) {
 }
 
 function showEmptyEditor() {
+  if (liveBlock) commitLiveBlock({ render: false });
   state.currentFile = null;
   state.dirty = false;
   state.direction = 'auto';
@@ -2377,6 +2379,8 @@ function setupEditorEvents() {
       );
     });
   }
+
+  setupLiveEditing();
 }
 
 function setSaveStatus(status) {
@@ -2605,8 +2609,488 @@ function renderMediaPreview() {
   });
 }
 
+/* ============ LIVE EDIT MODE ============ */
+// Edit mode shows the rendered document, like the preview. Clicking one
+// top-level block swaps only that block for its Markdown source; everything
+// else stays rendered. The hidden #editor remains the source of truth, so
+// autosave, AI actions, find, print and export keep using the same document.
+let liveBlock = null;
+
+function liveEditingAvailable() {
+  if (state.viewMode !== 'edit' || !state.currentFile) return false;
+  if (/\.(?:html?|docx)$/i.test(state.currentFile)) return false;
+  if (isMediaFile(state.currentFile) && !isExternalPath(state.currentFile)) return false;
+  if (docTranslationActive()) return false;
+  return true;
+}
+
+function liveSourceLineStarts(source) {
+  const starts = [0];
+  for (let i = 0; i < source.length; i++) {
+    if (source.charCodeAt(i) === 10) starts.push(i + 1);
+  }
+  return starts;
+}
+
+function liveBlockRangeOf(wrap) {
+  if (!wrap) return null;
+  const start = Number(wrap.dataset.srcStart);
+  const end = Number(wrap.dataset.srcEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return { start, end };
+}
+
+// Render the document one top-level Markdown block at a time. Splitting the
+// token stream this way gives every wrapper an exact source range, including
+// lists and tables whose nested tokens belong to the same block.
+function renderLiveMarkdown(source) {
+  const text = String(source == null ? '' : source);
+  if (!text.trim()) {
+    return `<div class="live-empty-hint">${escapeHtml(t('Start writing...'))}</div>`;
+  }
+  const lineStarts = liveSourceLineStarts(text);
+  const env = {};
+  let tokens;
+  try {
+    tokens = md.parse(text, env);
+  } catch (_) {
+    return md.render(text);
+  }
+  const groups = [];
+  let depth = 0;
+  let current = null;
+  for (const token of tokens) {
+    if (depth === 0 && token.level === 0 && token.nesting >= 0) {
+      if (current) groups.push(current);
+      current = [];
+    }
+    if (current) current.push(token);
+    depth += token.nesting;
+    if (depth < 0) depth = 0;
+  }
+  if (current) groups.push(current);
+
+  const used = [];
+  let html = '';
+  for (const group of groups) {
+    let firstLine = Infinity;
+    let lastLine = -Infinity;
+    for (const token of group) {
+      if (!token.map) continue;
+      firstLine = Math.min(firstLine, token.map[0]);
+      lastLine = Math.max(lastLine, token.map[1]);
+    }
+    let body;
+    try {
+      body = md.renderer.render(group, md.options, env);
+    } catch (_) {
+      body = '';
+    }
+    if (!Number.isFinite(firstLine) || !Number.isFinite(lastLine) || lastLine <= firstLine) {
+      html += body;
+      continue;
+    }
+    const start = lineStarts[firstLine] == null ? text.length : lineStarts[firstLine];
+    const end = lineStarts[lastLine] == null ? text.length : lineStarts[lastLine];
+    if (end <= start) {
+      html += body;
+      continue;
+    }
+    // Markdown-it moves footnote definitions to the end of the rendered page.
+    // Such a group can cover a source range that another rendered block already
+    // owns; leaving it unwrapped avoids two editors sharing the same text.
+    if (used.some((range) => start < range.end && end > range.start)) {
+      html += body;
+      continue;
+    }
+    used.push({ start, end });
+    html += `<div class="live-block" data-src-start="${start}" data-src-end="${end}">${body}</div>\n`;
+  }
+  return html;
+}
+
+// The document direction the preview resolves for this note. "auto" is decided
+// once for the whole note, exactly like applyDirection() does it.
+function liveDocumentDirection() {
+  if (state.direction === 'auto') return detectDirection(els.editor.value) || 'ltr';
+  return state.direction === 'rtl' ? 'rtl' : 'ltr';
+}
+
+// Match the preview's block direction rule: in an RTL document any block that
+// contains a right-to-left letter is laid out RTL, everything else stays LTR.
+// An LTR document keeps every block LTR. Using the same rule (instead of
+// textarea dir="auto") is what keeps mixed English/Persian lines from flipping
+// order when a block opens for editing.
+function syncLiveBlockDirection(ta, value) {
+  if (!ta) return;
+  const text = value == null ? ta.value : String(value);
+  const docDir = liveDocumentDirection();
+  let dir;
+  if (!text.trim()) dir = docDir;
+  else dir = docDir === 'rtl' && hasRtlChar(text) ? 'rtl' : 'ltr';
+  if (ta.getAttribute('dir') !== dir) ta.setAttribute('dir', dir);
+  ta.classList.remove('bidi-plaintext');
+}
+
+function liveBlockGoalHeight(ta) {
+  return Math.max(ta.scrollHeight, Math.round(parseFloat(getComputedStyle(ta).lineHeight) || 27));
+}
+
+function autoGrowLiveBlock(ta) {
+  if (!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = liveBlockGoalHeight(ta) + 'px';
+}
+
+// getBoundingClientRect() of a display:contents wrapper is an empty rect, so
+// measure the rendered block inside it instead. This is what keeps a commit
+// from calculating a bogus scroll offset and jumping across the note.
+function liveBlockTop(el) {
+  if (!el || !el.isConnected) return null;
+  const rect = el.getBoundingClientRect();
+  if (rect.height || rect.width) return rect.top;
+  const child = el.firstElementChild;
+  return child ? child.getBoundingClientRect().top : rect.top;
+}
+
+function liveBlockKind(first) {
+  if (!first) return 'MD';
+  if (first.matches('pre, .code-block, .mermaid, .diagram-body') || first.querySelector('pre')) return 'CODE';
+  const heading = /^H([1-6])$/.exec(first.tagName);
+  if (heading) return 'H' + heading[1];
+  if (first.tagName === 'BLOCKQUOTE') return 'QUOTE';
+  if (first.tagName === 'UL' || first.tagName === 'OL') return 'LIST';
+  if (first.tagName === 'TABLE') return 'TABLE';
+  if (first.tagName === 'HR') return 'HR';
+  return 'MD';
+}
+
+const liveCheckIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L20 7"/></svg>';
+
+// The editor is a small card, not a bare textarea: a quiet bar names the block
+// type, shows the shortcut and offers a one-click way back to the preview.
+function buildLiveEditorShell(ta, label) {
+  const shell = document.createElement('div');
+  shell.className = 'live-block-editor-shell' + (ta.classList.contains('is-code') ? ' is-code-shell' : '');
+  const bar = document.createElement('div');
+  bar.className = 'live-block-bar';
+
+  const tag = document.createElement('span');
+  tag.className = 'live-block-tag';
+  tag.textContent = label;
+
+  const meta = document.createElement('span');
+  meta.className = 'live-block-meta';
+  const hint = document.createElement('span');
+  hint.className = 'live-block-hint';
+  hint.setAttribute('dir', 'ltr');
+  hint.innerHTML = '<kbd>Ctrl</kbd><span class="live-key-plus">+</span><kbd>Enter</kbd><span class="live-key-label">to finish</span>';
+  const done = document.createElement('button');
+  done.type = 'button';
+  done.className = 'live-block-done';
+  done.title = 'Finish editing';
+  done.setAttribute('aria-label', 'Finish editing');
+  done.innerHTML = liveCheckIcon;
+  meta.append(hint, done);
+  bar.append(tag, meta);
+  shell.append(bar, ta);
+  return shell;
+}
+
+function createLiveTextarea(value, kind) {
+  const ta = document.createElement('textarea');
+  ta.className = 'live-block-editor';
+  if (kind === 'CODE') ta.classList.add('is-code');
+  const heading = /^H([1-6])$/.exec(kind || '');
+  if (heading) ta.classList.add('is-heading', 'is-h' + heading[1]);
+  ta.rows = 1;
+  ta.value = value;
+  ta.spellcheck = false;
+  ta.placeholder = t('Start writing...');
+  syncLiveBlockDirection(ta, value);
+  return ta;
+}
+
+// Approximate where the click landed in the Markdown source. The rendered text
+// usually appears verbatim in the block; an exact character map is not needed
+// for a comfortable caret, only for a better one than "always at the end".
+function liveCaretFromPoint(wrap, x, y, sourceText) {
+  if (!sourceText) return 0;
+  let node = null;
+  let offset = 0;
+  try {
+    const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+    if (range) {
+      node = range.startContainer;
+      offset = range.startOffset;
+    }
+  } catch (_) {}
+  if (node && (node.nodeType === 3 || node.nodeType === 1)) {
+    let value = '';
+    if (node.nodeType === 3) {
+      value = String(node.nodeValue || '').slice(0, offset);
+    } else {
+      const child = node.childNodes[offset] || node.firstChild;
+      if (child && child.nodeType === 3) value = String(child.nodeValue || '');
+    }
+    const snippet = value.slice(-48).replace(/\s+/g, ' ').trim();
+    if (snippet) {
+      let at = sourceText.indexOf(snippet);
+      if (at !== -1) return at + snippet.length;
+      const word = snippet.split(' ').filter(Boolean).pop();
+      if (word) {
+        at = sourceText.indexOf(word);
+        if (at !== -1) return at + word.length;
+      }
+    }
+  }
+  // fall back to the vertical position inside the block
+  const target = (wrap && wrap.firstElementChild) || wrap;
+  if (target && target.getBoundingClientRect) {
+    const rect = target.getBoundingClientRect();
+    const lines = sourceText.split('\n');
+    if (lines.length > 1 && rect.height > 0) {
+      const ratio = Math.max(0, Math.min(0.999, (y - rect.top) / rect.height));
+      const line = Math.floor(ratio * lines.length);
+      let at = 0;
+      for (let i = 0; i < line; i++) at += lines[i].length + 1;
+      return Math.min(at, sourceText.length);
+    }
+  }
+  return sourceText.length;
+}
+
+function syncLiveBlockSource(ta) {
+  const block = liveBlock;
+  if (!block || block.textarea !== ta) return;
+  const replacement = block.leadingBreak + ta.value + block.trailingNewline;
+  const source = els.editor.value;
+  els.editor.value = source.slice(0, block.start) + replacement + source.slice(block.end);
+  // Rendered wrappers keep the source offsets they were built with. Track how
+  // much this block grew or shrank so a click on a later block can be mapped
+  // back to the right wrapper after the commit re-render.
+  block.delta += replacement.length - (block.end - block.start);
+  block.end = block.start + replacement.length;
+  block.changed = true;
+  autoGrowLiveBlock(ta);
+  state.dirty = true;
+  setSaveStatus('saving');
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => saveFile(true), 900);
+}
+
+function openLiveBlock(wrap, event) {
+  if (liveBlock || !liveEditingAvailable() || !wrap) return;
+  const range = liveBlockRangeOf(wrap);
+  if (!range) return;
+  const source = els.editor.value;
+  const raw = source.slice(range.start, range.end);
+  const trailing = raw.match(/(\r?\n)$/);
+  const trailingNewline = trailing ? trailing[1] : '';
+  const value = trailingNewline ? raw.slice(0, -trailingNewline.length) : raw;
+  const first = wrap.firstElementChild;
+  const kind = liveBlockKind(first);
+  const caret = event ? liveCaretFromPoint(wrap, event.clientX, event.clientY, value) : value.length;
+
+  const ta = createLiveTextarea(value, kind);
+
+  const scrollTop = els.preview.scrollTop;
+  wrap.classList.add('is-editing');
+  wrap.replaceChildren(buildLiveEditorShell(ta, kind));
+  liveBlock = {
+    wrap,
+    textarea: ta,
+    start: range.start,
+    end: range.end,
+    renderedEnd: range.end,
+    delta: 0,
+    leadingBreak: '',
+    trailingNewline,
+    changed: false,
+    file: state.currentFile,
+  };
+  autoGrowLiveBlock(ta);
+  ta.focus({ preventScroll: true });
+  try { ta.setSelectionRange(caret, caret); } catch (_) {}
+  els.preview.scrollTop = scrollTop;
+  // Some Chromium builds still scroll a freshly focused textarea once layout
+  // settles; a frame later the reading position is put back where it was.
+  requestAnimationFrame(() => {
+    if (liveBlock && liveBlock.textarea === ta) els.preview.scrollTop = scrollTop;
+  });
+}
+
+function openNewLiveBlock() {
+  if (liveBlock || !liveEditingAvailable()) return;
+  const source = els.editor.value;
+  const leadingBreak = source.length === 0
+    ? ''
+    : source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n';
+  const wrap = document.createElement('div');
+  wrap.className = 'live-block is-editing live-block-new';
+  wrap.dataset.srcStart = String(source.length);
+  wrap.dataset.srcEnd = String(source.length);
+
+  const ta = createLiveTextarea('', 'MD');
+  wrap.replaceChildren(buildLiveEditorShell(ta, 'MD'));
+  els.previewContent.appendChild(wrap);
+
+  liveBlock = {
+    wrap,
+    textarea: ta,
+    start: source.length,
+    end: source.length,
+    renderedEnd: source.length,
+    delta: 0,
+    leadingBreak,
+    trailingNewline: '',
+    changed: false,
+    file: state.currentFile,
+  };
+  autoGrowLiveBlock(ta);
+  wrap.scrollIntoView({ block: 'nearest' });
+  ta.focus({ preventScroll: true });
+}
+
+// Clear the open block. With render:false the caller is about to rebuild the
+// preview itself (file switch, print payload, document-wide action).
+function commitLiveBlock(options = {}) {
+  const block = liveBlock;
+  if (!block) return;
+  liveBlock = null;
+  if (options.render === false) return;
+
+  const preview = els.preview;
+  const scrollTop = preview.scrollTop;
+  const oldTop = liveBlockTop(block.wrap);
+  if (block.changed) onEditorChanged();
+  else renderPreview(true);
+
+  if (oldTop == null) {
+    preview.scrollTop = scrollTop;
+    return;
+  }
+  let anchor = preview.querySelector(`.live-block[data-src-start="${block.start}"]`);
+  if (!anchor) {
+    preview.querySelectorAll('.live-block').forEach((el) => {
+      const at = Number(el.dataset.srcStart);
+      if (!Number.isFinite(at) || at > block.start) return;
+      if (!anchor || at > Number(anchor.dataset.srcStart)) anchor = el;
+    });
+  }
+  const newTop = liveBlockTop(anchor);
+  if (newTop == null) {
+    preview.scrollTop = scrollTop;
+    return;
+  }
+  preview.scrollTop = scrollTop + (newTop - oldTop);
+}
+
+function setupLiveEditing() {
+  const root = els.previewContent;
+  if (!root) return;
+  const interactiveSelector = 'a,button,input,textarea,select,label,iframe,video,audio,canvas,img,.cmt-mark,.ans-mark,.tr-mark,.md-flashdeck,.code-copy,.diagram-body';
+
+  root.addEventListener('click', (e) => {
+    if (!liveEditingAvailable() || e.button !== 0) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return; // selecting text is for reading or AI
+
+    if (liveBlock) {
+      const open = liveBlock;
+      if (open.textarea && open.textarea.contains(e.target)) return;
+      const interactive = e.target.closest && e.target.closest(interactiveSelector);
+      const targetWrap = e.target.closest && e.target.closest('.live-block');
+      const targetStart = targetWrap ? Number(targetWrap.dataset.srcStart) : null;
+      // targetStart comes from a wrapper rendered before this block was edited,
+      // so later blocks are still offset by the net length change.
+      const delta = open.delta || 0;
+      commitLiveBlock();
+      if (interactive || !Number.isFinite(targetStart)) return;
+      const renderedEnd = open.renderedEnd == null ? open.end : open.renderedEnd;
+      const adjusted = targetStart >= renderedEnd ? targetStart + delta : targetStart;
+      const next = els.previewContent.querySelector(`.live-block[data-src-start="${adjusted}"]`);
+      if (!next) return;
+      e.preventDefault();
+      openLiveBlock(next, e);
+      return;
+    }
+
+    if (e.target.closest && e.target.closest('.live-empty-hint')) {
+      e.preventDefault();
+      openNewLiveBlock();
+      return;
+    }
+    const interactive = e.target.closest && e.target.closest(interactiveSelector);
+    if (interactive) return;
+    const wrap = e.target.closest && e.target.closest('.live-block');
+    if (wrap && root.contains(wrap)) {
+      e.preventDefault();
+      openLiveBlock(wrap, e);
+      return;
+    }
+    // blank page below the last block is a natural place for a new one
+    if (e.target === root) {
+      e.preventDefault();
+      openNewLiveBlock();
+    }
+  });
+
+  root.addEventListener('focusout', (e) => {
+    if (!liveBlock || e.target !== liveBlock.textarea) return;
+    const ta = e.target;
+    // A click on another block must reach the click handler below before this
+    // fallback fires; otherwise the block would close between mousedown and
+    // mouseup and the click itself would be lost. The identity check keeps a
+    // block that was opened in the meantime untouched.
+    setTimeout(() => {
+      if (liveBlock && liveBlock.textarea === ta) commitLiveBlock();
+    }, 160);
+  });
+
+  root.addEventListener('input', (e) => {
+    if (!liveBlock || e.target !== liveBlock.textarea) return;
+    syncLiveBlockSource(e.target);
+    syncLiveBlockDirection(e.target);
+  });
+
+  root.addEventListener('keydown', (e) => {
+    const ta = liveBlock && liveBlock.textarea;
+    if (!ta || e.target !== ta) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      commitLiveBlock();
+      return;
+    }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      commitLiveBlock();
+      return;
+    }
+    if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      replaceRangeInEditor(ta, ta.selectionStart, ta.selectionEnd, '  ');
+    }
+  });
+
+  root.addEventListener('mouseup', (e) => {
+    const ta = liveBlock && liveBlock.textarea;
+    if (!ta || e.target !== ta) return;
+    const text = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    if (!text.trim()) return;
+    const start = liveBlock.start + liveBlock.leadingBreak.length + ta.selectionStart;
+    const end = liveBlock.start + liveBlock.leadingBreak.length + ta.selectionEnd;
+    showAIFloat(e.clientX, e.clientY, { text, start, end });
+  });
+}
+
 function renderPreview(force = false) {
-  if (!force && els.preview.offsetParent === null && state.viewMode === 'edit') return;
+  if (liveBlock) {
+    if (liveBlock.file === state.currentFile) commitLiveBlock({ render: false });
+    else liveBlock = null;
+  }
   // any PDF frame is taken down first: its blob URL is released on the next
   // load and chromium cannot survive losing one under a live frame
   disposeMediaPreview();
@@ -2670,7 +3154,11 @@ function renderPreview(force = false) {
     document.body.classList.remove('html-preview-fullscreen');
   }
   els.previewContent.classList.add('markdown-body');
-  els.previewContent.innerHTML = md.render(previewSourceText());
+  const source = previewSourceText();
+  const live = state.viewMode === 'edit'
+    && !docTranslationActive()
+    && !(state.currentFile && /\.(?:html?|docx)$/i.test(state.currentFile));
+  els.previewContent.innerHTML = live ? renderLiveMarkdown(source) : md.render(source);
   enhanceCodeBlocks();
   hydrateFlashcards(els.previewContent);
   els._imgPromise = Promise.all([
@@ -3607,6 +4095,14 @@ function stripPrintDecorations(root) {
   // ==highlight== marks): a printed or sent document is plain text, the marks
   // only mean something inside the app
   root.querySelectorAll('mark.cmt-mark, mark.find-mark, mark.tr-mark, mark.ans-mark, span.cmt-hl, [data-cmt], [data-tr], [data-ans]').forEach((el) => {
+    const parent = el.parentNode;
+    if (!parent) return;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  });
+  // live-edit wrappers are for clicking inside the app only; the exported or
+  // printed document is the plain rendered Markdown
+  root.querySelectorAll('.live-block').forEach((el) => {
     const parent = el.parentNode;
     if (!parent) return;
     while (el.firstChild) parent.insertBefore(el.firstChild, el);
@@ -5303,8 +5799,10 @@ function setViewMode(mode) {
     // document right-to-left is a preview concern too
     els.editorToolbar.classList.toggle('preview-toolbar', mode === 'preview');
   }
-  if (mode !== 'edit') renderPreview();
-  else schedulePaginate(0);
+  // Edit mode is a live surface too: it renders the note and lets a click turn
+  // one block into source, so every mode needs a fresh render.
+  renderPreview(true);
+  schedulePaginate(0);
   positionAIPanel();
   savePreferences();
 }
@@ -5328,6 +5826,7 @@ els.searchInput.addEventListener('input', () => {
 
 /* ============ FIND IN FILE ============ */
 function openFind() {
+  if (liveBlock) commitLiveBlock();
   findState.open = true;
   els.findBar.classList.remove('hidden');
   const sel = els.editor.value.substring(els.editor.selectionStart, els.editor.selectionEnd);
@@ -5394,10 +5893,10 @@ function goToMatch(idx) {
   const lh = parseFloat(getComputedStyle(els.editor).lineHeight) || 24;
   els.editor.scrollTop = Math.max(0, line * lh - els.editor.clientHeight / 2);
 
-  if (state.viewMode !== 'edit') {
-    applyFindMarks();
-    scrollToPreviewMatch();
-  }
+  // Edit mode now shows the same rendered document as the preview, so the
+  // match marks belong on screen in every mode.
+  applyFindMarks();
+  scrollToPreviewMatch();
   updateFindCount();
   renderEditorHighlight();
 }
@@ -5608,6 +6107,7 @@ function applyDirection() {
     els.editorHighlight.dir = els.editor.dir;
     els.editorHighlight.classList.toggle('bidi-plaintext', els.editor.classList.contains('bidi-plaintext'));
   }
+  if (liveBlock && liveBlock.textarea) syncLiveBlockDirection(liveBlock.textarea);
 
   // preview: a displayed translation is laid out in its own language, whatever
   // LTR/RTL the note itself was given: only the translation turns RTL, the note
@@ -5694,35 +6194,60 @@ function setupToolbar() {
   });
 }
 
-function replaceRange(start, end, text, selStart, selEnd) {
-  const ed = els.editor;
+function activeTextEditor() {
+  const active = document.activeElement;
+  if (active && active.classList && active.classList.contains('live-block-editor')) return active;
+  return els.editor;
+}
+
+function replaceRangeInEditor(ed, start, end, text, selStart, selEnd) {
   ed.focus();
   ed.selectionStart = start;
   ed.selectionEnd = end;
-  document.execCommand('insertText', false, text);
+  let inserted = false;
+  try { inserted = document.execCommand('insertText', false, text); } catch (_) { inserted = false; }
+  if (!inserted) {
+    ed.setRangeText(text, start, end, 'end');
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   if (selStart != null) {
     ed.selectionStart = selStart;
     ed.selectionEnd = selEnd == null ? selStart : selEnd;
   }
-  onEditorChanged();
+  if (ed === els.editor) onEditorChanged();
+  else autoGrowLiveBlock(ed);
 }
 
-function insertAtCursor(before, after = '', placeholder = '') {
+function replaceRange(start, end, text, selStart, selEnd) {
   const ed = els.editor;
+  // In live edit mode #editor is off screen, where execCommand('insertText')
+  // is a no-op. Write the value directly so AI insert/replace still works.
+  if (!ed.offsetParent) {
+    if (liveBlock) commitLiveBlock({ render: false });
+    ed.value = ed.value.slice(0, start) + text + ed.value.slice(end);
+    const at = selStart == null ? start + text.length : selStart;
+    ed.selectionStart = at;
+    ed.selectionEnd = selEnd == null ? at : selEnd;
+    onEditorChanged();
+    return;
+  }
+  replaceRangeInEditor(ed, start, end, text, selStart, selEnd);
+}
+
+function insertAtCursor(ed, before, after = '', placeholder = '') {
   const start = ed.selectionStart;
   const end = ed.selectionEnd;
   const selected = ed.value.slice(start, end);
   const text = selected || placeholder;
   const replacement = before + text + after;
-  replaceRange(start, end, replacement, start + before.length, start + before.length + text.length);
+  replaceRangeInEditor(ed, start, end, replacement, start + before.length, start + before.length + text.length);
 }
 
 function stripBlockPrefix(line) {
   return line.replace(/^([ \t]*)(?:#{1,6}\s+|>\s+|[-*+]\s+\[[ xX]\]\s|[-*+]\s+|\d+[.)]\s+)/, '$1');
 }
 
-function blockRange() {
-  const ed = els.editor;
+function blockRange(ed) {
   const value = ed.value;
   const start = value.lastIndexOf('\n', ed.selectionStart - 1) + 1;
   let end = value.indexOf('\n', ed.selectionEnd);
@@ -5730,19 +6255,19 @@ function blockRange() {
   return { start, end, block: value.slice(start, end) };
 }
 
-function prefixLines(prefix, numbered = false) {
-  const { start, end, block } = blockRange();
+function prefixLines(ed, prefix, numbered = false) {
+  const { start, end, block } = blockRange(ed);
   const lines = block.split('\n');
   const newLines = lines.map((line, i) => {
     const marker = numbered ? `${i + 1}. ` : prefix;
     return marker + stripBlockPrefix(line);
   });
   const newBlock = newLines.join('\n');
-  replaceRange(start, end, newBlock, start, start + newBlock.length);
+  replaceRangeInEditor(ed, start, end, newBlock, start, start + newBlock.length);
 }
 
-function toggleLinePrefix(prefix) {
-  const { start, end, block } = blockRange();
+function toggleLinePrefix(ed, prefix) {
+  const { start, end, block } = blockRange(ed);
   const lines = block.split('\n');
   const allHave = lines.every((line) => {
     const lead = line.match(/^[ \t]*/)[0];
@@ -5754,7 +6279,7 @@ function toggleLinePrefix(prefix) {
     return allHave ? lead + rest.slice(prefix.length) : lead + prefix + stripBlockPrefix(rest);
   });
   const newBlock = newLines.join('\n');
-  replaceRange(start, end, newBlock, start, start + newBlock.length);
+  replaceRangeInEditor(ed, start, end, newBlock, start, start + newBlock.length);
 }
 
 function applyFormat(action) {
@@ -5762,31 +6287,48 @@ function applyFormat(action) {
     toast('Open or create a file first', 'info');
     return;
   }
-  switch (action) {
-    case 'undo': document.execCommand('undo'); onEditorChanged(); break;
-    case 'redo': document.execCommand('redo'); onEditorChanged(); break;
-    case 'bold': insertAtCursor('**', '**', 'bold text'); break;
-    case 'italic': insertAtCursor('*', '*', 'italic text'); break;
-    case 'strike': insertAtCursor('~~', '~~', 'strikethrough'); break;
-    case 'code': insertAtCursor('`', '`', 'code'); break;
-    case 'h1': toggleLinePrefix('# '); break;
-    case 'h2': toggleLinePrefix('## '); break;
-    case 'h3': toggleLinePrefix('### '); break;
-    case 'ul': prefixLines('- '); break;
-    case 'ol': prefixLines('', true); break;
-    case 'task': prefixLines('- [ ] '); break;
-    case 'quote': toggleLinePrefix('> '); break;
-    case 'link': insertAtCursor('[', '](https://)', 'link text'); break;
-    case 'image': insertAtCursor('![', '](https://)', 'alt text'); break;
-    case 'codeblock': insertBlock('```\n', '\n```', 'code here'); break;
-    case 'table': insertBlock('', '', '| Column A | Column B |\n| --- | --- |\n| Cell 1 | Cell 2 |\n| Cell 3 | Cell 4 |'); break;
-    case 'hr': insertBlock('\n', '\n', '---'); break;
+  // In live edit mode the toolbar acts on the block being edited, not on the
+  // hidden full-document textarea.
+  const ed = activeTextEditor();
+  if (liveEditingAvailable() && !liveBlock) {
+    if (action === 'undo' || action === 'redo') return;
+    toast('Click a block to edit it first', 'info');
+    return;
   }
-  els.editor.focus();
+  switch (action) {
+    case 'undo':
+      ed.focus();
+      document.execCommand('undo');
+      if (ed === els.editor) onEditorChanged();
+      else autoGrowLiveBlock(ed);
+      break;
+    case 'redo':
+      ed.focus();
+      document.execCommand('redo');
+      if (ed === els.editor) onEditorChanged();
+      else autoGrowLiveBlock(ed);
+      break;
+    case 'bold': insertAtCursor(ed, '**', '**', 'bold text'); break;
+    case 'italic': insertAtCursor(ed, '*', '*', 'italic text'); break;
+    case 'strike': insertAtCursor(ed, '~~', '~~', 'strikethrough'); break;
+    case 'code': insertAtCursor(ed, '`', '`', 'code'); break;
+    case 'h1': toggleLinePrefix(ed, '# '); break;
+    case 'h2': toggleLinePrefix(ed, '## '); break;
+    case 'h3': toggleLinePrefix(ed, '### '); break;
+    case 'ul': prefixLines(ed, '- '); break;
+    case 'ol': prefixLines(ed, '', true); break;
+    case 'task': prefixLines(ed, '- [ ] '); break;
+    case 'quote': toggleLinePrefix(ed, '> '); break;
+    case 'link': insertAtCursor(ed, '[', '](https://)', 'link text'); break;
+    case 'image': insertAtCursor(ed, '![', '](https://)', 'alt text'); break;
+    case 'codeblock': insertBlock(ed, '```\n', '\n```', 'code here'); break;
+    case 'table': insertBlock(ed, '', '', '| Column A | Column B |\n| --- | --- |\n| Cell 1 | Cell 2 |\n| Cell 3 | Cell 4 |'); break;
+    case 'hr': insertBlock(ed, '\n', '\n', '---'); break;
+  }
+  ed.focus();
 }
 
-function insertBlock(before, after, content) {
-  const ed = els.editor;
+function insertBlock(ed, before, after, content) {
   const start = ed.selectionStart;
   const end = ed.selectionEnd;
   const value = ed.value;
@@ -5799,10 +6341,13 @@ function insertBlock(before, after, content) {
 
   const full = before2 + newText + after2;
   const selStart = start + before2.length + before.length;
-  replaceRange(start, end, full, selStart, selStart + selected.length);
+  replaceRangeInEditor(ed, start, end, full, selStart, selStart + selected.length);
 }
 
 function onEditorChanged() {
+  // Any document-wide change (AI insert, toolbar action, translation, …)
+  // closes the open block first so its textarea cannot write over newer text.
+  if (liveBlock) commitLiveBlock({ render: false });
   state.dirty = true;
   applyDirection();
   renderEditorHighlight();
@@ -11879,6 +12424,7 @@ function rejectAIEdit(changeId) {
 // is a silent no-op, so the value is written directly and the normal change
 // pipeline (dirty flag, preview render, autosave) is run afterwards.
 function appendToDocument(text) {
+  if (liveBlock) commitLiveBlock({ render: false });
   const ed = els.editor;
   if (!ed.offsetParent) {
     ed.value = ed.value + text;
@@ -12533,7 +13079,7 @@ document.addEventListener('keydown', (e) => {
     const answerOpen = !!(els.answerDocView && !els.answerDocView.classList.contains('hidden'));
     const sel = window.getSelection();
     const selectionInPreview = !!(sel && sel.anchorNode && els.preview.contains(sel.anchorNode));
-    const previewActive = state.viewMode === 'preview' || (state.viewMode === 'split' && (selectionInPreview || (active && els.preview.contains(active))));
+    const previewActive = state.viewMode === 'preview' || state.viewMode === 'edit' || (state.viewMode === 'split' && (selectionInPreview || (active && els.preview.contains(active))));
     if (previewActive && !inField && !modalOpen && !answerOpen && els.previewContent) {
       const range = document.createRange();
       range.selectNodeContents(els.previewContent);
@@ -12566,7 +13112,8 @@ document.addEventListener('keydown', (e) => {
 
   // skip formatting shortcuts while typing in another field (search, modals)
   const active = document.activeElement;
-  const inOtherField = (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) && active !== els.editor;
+  const inLiveBlock = !!(active && active.classList && active.classList.contains('live-block-editor'));
+  const inOtherField = (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) && active !== els.editor && !inLiveBlock;
   if (inOtherField) return;
 
   if (e.shiftKey && key === 'x') { e.preventDefault(); applyFormat('strike'); return; }
