@@ -2158,7 +2158,7 @@ const TELEGRAM_COMMANDS = {
   en: [
     { command: 'menu', description: 'Show the buttons at the bottom' },
     { command: 'to', description: 'Set the default file for appending, e.g. /to Inbox.md' },
-    { command: 'new', description: 'Clear the default file for appending' },
+    { command: 'new', description: 'Remove the default append file, without changing it' },
     { command: 'list', description: 'List the notes in the vault' },
     { command: 'files', description: 'Browse the vault; notes come back as HTML' },
     { command: 'clear', description: 'Empty a note (asks once to confirm)' },
@@ -2169,7 +2169,7 @@ const TELEGRAM_COMMANDS = {
   fa: [
     { command: 'menu', description: 'نمایش دکمه‌ها در پایین چت' },
     { command: 'to', description: 'تعیین فایل پیش‌فرض برای افزودن، مثلاً /to Inbox.md' },
-    { command: 'new', description: 'پاک کردن فایل پیش‌فرض افزودن' },
+    { command: 'new', description: 'حذف فایل پیش‌فرض افزودن، بدون تغییر خود فایل' },
     { command: 'list', description: 'فهرست نوت‌های والت' },
     { command: 'files', description: 'گشتن در فایل‌های والت؛ نوت‌ها به‌صورت HTML' },
     { command: 'clear', description: 'خالی کردن یک نوت (یک بار تأیید می‌خواهد)' },
@@ -2223,7 +2223,8 @@ function telegramInboxCommand(text) {
       '• the folder list also has “Default path” and “Append to ' + appendTo + '”',
       '• send a file — it is saved in ' + TELEGRAM_INBOX_FOLDER + '/ (images and PDFs open in the app)',
       '• /to <note> — set that note as the default file for appending (a folder path works too, and the note is created if it is missing)',
-      '• /new — clear the default file for appending',
+      '• /new — remove the default file for appending (the file itself stays)',
+      '• the 🧹 Clear append button empties the default append file (it asks first)',
       '• /list [word] — the notes in the vault',
       '• /files [folder] — browse the vault with buttons; a note or Word file comes back as HTML, other files as they are (asks for the send password when one is set)',
       '• /clear <note> — empty a note (asks for the same command once more)',
@@ -2239,7 +2240,7 @@ function telegramInboxCommand(text) {
   if (command === '/new') {
     store.set('telegramInbox', { ...saved, target: '' });
     notifyTelegramInboxChanged();
-    return 'Cleared the default file for appending. The append button will ask for one until /to sets it.';
+    return 'Removed the default file for appending; the file itself was not changed. The append button will ask for one until /to sets it.';
   }
   if (command === '/to') {
     if (!argument) return 'Send /to <note>, for example /to ' + TELEGRAM_INBOX_FOLDER + '/inbox.md or /to Notes/idea.md';
@@ -2998,8 +2999,9 @@ function telegramMenuView() {
         ],
         [
           { text: '📝 Set append file', callback_data: 'm:target' },
-          { text: '🧹 Clear append file', callback_data: 'm:new' },
+          { text: '🧹 Clear append file', callback_data: 'm:clear' },
         ],
+        [{ text: '🗑 Remove default', callback_data: 'm:new' }],
         [
           { text: '📊 Status', callback_data: 'm:status' },
           { text: '❓ Help', callback_data: 'm:help' },
@@ -3017,7 +3019,8 @@ const TELEGRAM_REPLY_BUTTONS = {
   '📂 browse files': 'files',
   '📋 list notes': 'list',
   '📝 append file': 'target',
-  '🧹 clear append': 'new',
+  '🧹 clear append': 'clear',
+  '🗑 remove default': 'remove',
   '📊 status': 'status',
   '❓ help': 'help',
 };
@@ -3027,7 +3030,8 @@ function telegramReplyKeyboard() {
     keyboard: [
       [{ text: '📂 Browse files' }, { text: '📋 List notes' }],
       [{ text: '📝 Append file' }, { text: '🧹 Clear append' }],
-      [{ text: '📊 Status' }, { text: '❓ Help' }],
+      [{ text: '🗑 Remove default' }, { text: '📊 Status' }],
+      [{ text: '❓ Help' }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -3055,6 +3059,41 @@ async function telegramTargetSend(folder, page) {
   await telegramBrowseSendMessage(telegramTargetView(folder, page));
 }
 
+// Emptying the default append file is destructive, so the button opens a
+// confirmation with the file name and size. The file itself stays in the vault
+// (and so does the default setting); only its text is removed.
+async function telegramAppendClearAsk() {
+  const saved = telegramInboxSaved();
+  if (!saved.target) {
+    await telegramInboxReply('There is no default append file to clear.');
+    return;
+  }
+  const safe = vaultRelativePath(saved.target);
+  if (safe.error) {
+    await telegramInboxReply(safe.error);
+    return;
+  }
+  let stat = null;
+  try { stat = fs.statSync(safe.absolute); } catch (_) {}
+  if (!stat || !stat.isFile()) {
+    await telegramInboxReply('The default append file «' + safe.rel + '» is not in the vault any more.');
+    return;
+  }
+  const token = telegramBrowseToken(safe.rel);
+  const sent = await telegramInboxReply(
+    '🧹 Empty «' + safe.rel + '»?\n'
+      + 'This removes the ' + stat.size + ' bytes in the file, but keeps the file and the default setting.\n'
+      + 'This cannot be undone.',
+    {
+      inline_keyboard: [
+        [{ text: '🧹 Yes, empty the file', callback_data: 'tc:' + token }],
+        [{ text: '✖ Cancel', callback_data: 'tc:cancel' }],
+      ],
+    }
+  );
+  if (!sent) telegramInbox.lastError = 'Could not ask before emptying the append file.';
+}
+
 async function telegramReplyMenuRun(action) {
   if (action === 'files') {
     await telegramBrowseOpen('');
@@ -3068,15 +3107,19 @@ async function telegramReplyMenuRun(action) {
     await telegramTargetSend('', 1);
     return;
   }
-  if (action === 'new') {
+  if (action === 'clear') {
+    await telegramAppendClearAsk();
+    return;
+  }
+  if (action === 'remove') {
     const saved = telegramInboxSaved();
     if (!saved.target) {
-      await telegramInboxReply('There is no default append file to clear.');
+      await telegramInboxReply('There is no default append file to remove.');
       return;
     }
     store.set('telegramInbox', { ...saved, target: '' });
     notifyTelegramInboxChanged();
-    await telegramInboxReply('🧹 Cleared the default append file «' + saved.target + '».');
+    await telegramInboxReply('🗑 Removed the default append file «' + saved.target + '». The file itself was not changed.');
     return;
   }
   if (action === 'status') {
@@ -3179,6 +3222,11 @@ async function telegramMenuAction(query, action) {
     await telegramBrowseEditMessage(query, telegramTargetView('', 1));
     return;
   }
+  if (action === 'clear') {
+    await telegramBrowseAnswer(query.id);
+    await telegramAppendClearAsk();
+    return;
+  }
   if (action === 'list') {
     await telegramBrowseAnswer(query.id);
     await telegramBrowseEditMessage(query, telegramMenuItemView('📋 Notes\n\n' + telegramInboxList('')));
@@ -3198,10 +3246,10 @@ async function telegramMenuAction(query, action) {
     const saved = telegramInboxSaved();
     store.set('telegramInbox', { ...saved, target: '' });
     notifyTelegramInboxChanged();
-    await telegramBrowseAnswer(query.id, 'Default file cleared');
+    await telegramBrowseAnswer(query.id, 'Default file removed');
     await telegramBrowseEditMessage(query, telegramMenuItemView(
-      '🧹 Cleared the default append file.\n'
-      + 'Send a text and pick a file name, or use “Set append file” to choose another one.'
+      '🗑 Removed the default append file.\n'
+      + 'The file itself was not changed. Send a text and pick a file name, or use “Set append file” to choose another one.'
     ));
     return;
   }
@@ -3216,6 +3264,37 @@ async function telegramBrowseCallback(query) {
     telegramSendGate = null;
     if (gate && gate.promptId) await telegramDeleteMessages([gate.promptId]);
     await telegramBrowseAnswer(query.id, 'Cancelled');
+    return;
+  }
+  if (action === 'tc' && token === 'cancel') {
+    await telegramBrowseAnswer(query.id, 'Cancelled');
+    if (query && query.message && query.message.message_id) {
+      await telegramDeleteMessages([query.message.message_id]);
+    }
+    return;
+  }
+  if (action === 'tc') {
+    const rel = telegramBrowseTokenPath(token);
+    const safe = rel == null ? null : vaultRelativePath(rel);
+    let isFile = false;
+    try { isFile = !!safe && fs.statSync(safe.absolute).isFile(); } catch (_) {}
+    if (!isFile) {
+      await telegramBrowseAnswer(query.id, 'That note is no longer there.');
+      return;
+    }
+    try {
+      await fs.promises.writeFile(safe.absolute, '', 'utf8');
+      queueVaultChange(safe.rel);
+      notifyTelegramInboxChanged();
+    } catch (e) {
+      await telegramBrowseAnswer(query.id, 'Could not empty the note.');
+      return;
+    }
+    await telegramBrowseAnswer(query.id, 'Emptied');
+    await telegramBrowseEditMessage(query, {
+      text: '🧹 Emptied «' + safe.rel + '».',
+      reply_markup: { inline_keyboard: [] },
+    });
     return;
   }
   if (action === 'm') {
