@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('inkwell', {
   // settings
   getTelegramConfig: () => ipcRenderer.invoke('settings:getTelegram'),
   saveTelegramConfig: (config) => ipcRenderer.invoke('settings:setTelegram', config),
+  setFileDirections: (map) => ipcRenderer.invoke('settings:setFileDirections', map),
   testTelegram: (config) => ipcRenderer.invoke('telegram:test', config),
   getTelegramInbox: () => ipcRenderer.invoke('telegram:inboxGet'),
   setTelegramInbox: (config) => ipcRenderer.invoke('telegram:inboxSet', config),

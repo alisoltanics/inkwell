@@ -1479,7 +1479,8 @@ ipcMain.handle('win:close', (event) => {
 
 /* ================= DOCUMENT EXPORT (self-contained HTML) ================= */
 
-const { buildStandaloneHtml } = require('./html');
+const { buildStandaloneHtml, escapeHtmlText } = require('./html');
+const { buildTelegramNoteHtml, buildTelegramDocxHtml } = require('./src/telegram-html');
 
 function docBaseName(suggestedName) {
   return String(suggestedName || 'note')
@@ -1577,7 +1578,91 @@ function getTelegramConfig() {
   let source = 'none';
   if (saved.botToken || saved.chatId) source = 'settings';
   else if (botToken || chatId) source = 'env';
-  return { botToken, chatId, source };
+  // Existing installations have no flag and stay on. Turning Telegram off stops
+  // sending, the phone inbox and the vault browser in one place.
+  const enabled = !(saved && saved.enabled === false);
+  return { botToken, chatId, source, enabled, passwordSet: telegramPasswordSet() };
+}
+
+/* ---- password for sending files from the bot ---- */
+// Only a salted hash is stored: the app never needs the password itself again.
+// The bot asks for it before a file is read out of the vault with /files. A note
+// that the phone just sent is returned as HTML without asking, because that text
+// came from the same user; clearing the password turns the check off entirely.
+function telegramPasswordRecord() {
+  const saved = store.get('telegram') || {};
+  const record = saved.password;
+  if (!record || typeof record !== 'object') return null;
+  if (typeof record.salt !== 'string' || typeof record.hash !== 'string') return null;
+  if (!/^[0-9a-f]{32}$/i.test(record.salt) || !/^[0-9a-f]{64}$/i.test(record.hash)) return null;
+  return record;
+}
+
+function telegramPasswordSet() {
+  return !!telegramPasswordRecord();
+}
+
+// The password is typed on a phone and saved on a computer, so the same text can
+// carry invisible bidi marks or a decomposed Unicode form. Normalize both sides
+// before hashing; a password that looks identical now works everywhere.
+function normalizeTelegramPassword(value) {
+  return String(value == null ? '' : value)
+    .normalize('NFKC')
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, '')
+    .replace(/[يى]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .trim();
+}
+
+// The reverse spelling, for a password saved by an older build that did not
+// canonicalize Persian/Arabic letters and digits.
+function arabicTelegramPassword(value) {
+  return normalizeTelegramPassword(value)
+    .replace(/ی/g, 'ي')
+    .replace(/ک/g, 'ك')
+    .replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + Number(d)));
+}
+
+// A password record written by an earlier build may have used the hex salt as a
+// string rather than as bytes. Try both spellings, so upgrading never locks the
+// user out of a password that was already set.
+function telegramPasswordAttempts(plain, saltHex) {
+  const seen = new Set();
+  const attempts = [];
+  const salt = Buffer.from(saltHex, 'hex');
+  const values = [
+    String(plain == null ? '' : plain),
+    normalizeTelegramPassword(plain),
+    arabicTelegramPassword(plain),
+  ];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    attempts.push(crypto.scryptSync(value, salt, 32));
+    try {
+      attempts.push(crypto.scryptSync(value, saltHex, 32));
+    } catch (_) {}
+  }
+  return attempts;
+}
+
+function verifyTelegramPassword(plain) {
+  const record = telegramPasswordRecord();
+  if (!record) return true;
+  try {
+    const expected = Buffer.from(record.hash, 'hex');
+    const expectedText = String(record.hash).toLowerCase();
+    for (const actual of telegramPasswordAttempts(plain, record.salt)) {
+      if (expected.length === actual.length && crypto.timingSafeEqual(expected, actual)) return true;
+      if (actual.toString('hex') === expectedText) return true;
+      if (actual.toString('base64') === record.hash) return true;
+    }
+    return false;
+  } catch (_) {
+    return false;
+  }
 }
 
 function validTelegramToken(token) {
@@ -1605,24 +1690,79 @@ ipcMain.handle('settings:getTelegram', async () => {
 
 ipcMain.handle('settings:setTelegram', async (event, config) => {
   try {
-    const botToken = String((config && config.botToken) || '').trim();
-    const chatId = String((config && config.chatId) || '').trim();
-    if (botToken && !validTelegramToken(botToken)) {
-      return { success: false, error: 'That does not look like a valid bot token.' };
+    const current = store.get('telegram') || {};
+    const next = { ...current };
+    const touchesCredentials = config && (Object.prototype.hasOwnProperty.call(config, 'botToken')
+      || Object.prototype.hasOwnProperty.call(config, 'chatId'));
+
+    if (touchesCredentials) {
+      const botToken = String((config && config.botToken) || '').trim();
+      const chatId = String((config && config.chatId) || '').trim();
+      if (botToken && !validTelegramToken(botToken)) {
+        return { success: false, error: 'That does not look like a valid bot token.' };
+      }
+      if (botToken && !chatId) {
+        return { success: false, error: 'A chat ID is required when a bot token is set.' };
+      }
+      next.botToken = botToken;
+      next.chatId = chatId;
     }
-    if (botToken && !chatId) {
-      return { success: false, error: 'A chat ID is required when a bot token is set.' };
+
+    if (config && typeof config.enabled === 'boolean') next.enabled = config.enabled;
+
+    if (config && config.clearPassword === true) {
+      delete next.password;
+    } else if (config && typeof config.password === 'string' && config.password.trim()) {
+      const password = normalizeTelegramPassword(config.password);
+      if (password.length < 4) return { success: false, error: 'The password needs at least 4 characters.' };
+      if (password.length > 128) return { success: false, error: 'The password is too long (128 characters at most).' };
+      if (password.startsWith('/')) return { success: false, error: 'The password cannot start with "/".' };
+      const salt = crypto.randomBytes(16);
+      const hash = crypto.scryptSync(password, salt, 32);
+      next.password = { salt: salt.toString('hex'), hash: hash.toString('hex') };
     }
-    store.set('telegram', { botToken, chatId });
+
+    const enabled = next.enabled !== false;
+    store.set('telegram', next);
     protectStoreFile();
-    return { success: true };
+
+    if (!enabled) {
+      stopTelegramInbox();
+    } else if (telegramInboxSaved().enabled) {
+      startTelegramInbox();
+    }
+    notifyTelegramInboxChanged();
+    return { success: true, enabled, passwordSet: !!next.password };
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
 
+// The renderer keeps the per-file direction in its preferences. The bot runs in
+// the main process, so the map is mirrored here: sending a file from /files must
+// use the same RTL/LTR choice the app shows, not a guess from the first word.
+ipcMain.handle('settings:setFileDirections', async (_event, directions) => {
+  const map = {};
+  if (directions && typeof directions === 'object') {
+    let count = 0;
+    for (const [rel, dir] of Object.entries(directions)) {
+      if (count >= 5000) break;
+      const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      if (!clean || clean.length > 300) continue;
+      if (dir !== 'rtl' && dir !== 'ltr') continue;
+      map[clean] = dir;
+      count += 1;
+    }
+  }
+  store.set('fileDirections', map);
+  return { success: true };
+});
+
 ipcMain.handle('telegram:test', async (event, config) => {
   const saved = getTelegramConfig();
+  if (!saved.enabled) {
+    return { success: false, error: 'Telegram is turned off. Turn it on in Settings → Telegram.' };
+  }
   const botToken = String((config && config.botToken) || saved.botToken || '').trim();
   const chatId = String((config && config.chatId) || saved.chatId || '').trim();
   if (!botToken || !chatId) {
@@ -1659,9 +1799,14 @@ let telegramInbox = { running: false, lastAt: 0, lastPath: '', lastError: '', ab
 
 function telegramInboxSaved() {
   const saved = store.get('telegramInbox');
+  const folder = saved && typeof saved.folder === 'string'
+    ? saved.folder.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    : '';
   return {
     enabled: !!(saved && saved.enabled === true),
     target: saved && typeof saved.target === 'string' ? saved.target : '',
+    // where the folder picker starts and what its "default path" button uses
+    folder: folder || TELEGRAM_INBOX_FOLDER,
     // the Telegram account that first wrote after the inbox was turned on
     ownerId: saved && typeof saved.ownerId === 'string' ? saved.ownerId : '',
   };
@@ -1675,11 +1820,13 @@ function telegramInboxStatus() {
     enabled: saved.enabled,
     target: saved.target,
     running: telegramInbox.running,
-    ready: !!(creds.botToken && creds.chatId),
+    ready: !!(creds.enabled && creds.botToken && creds.chatId),
+    telegramEnabled: creds.enabled,
+    passwordSet: creds.passwordSet,
     lastAt: telegramInbox.lastAt,
     lastPath: telegramInbox.lastPath,
     lastError: telegramInbox.lastError,
-    folder: TELEGRAM_INBOX_FOLDER,
+    folder: saved.folder,
     // the inbox only obeys the account that wrote first (shown in Settings)
     ownerPinned: !!saved.ownerId,
   };
@@ -1769,66 +1916,141 @@ async function saveTelegramInboxFile(message, settings) {
   }
 }
 
-// A note becomes Markdown: the text as it was written, with the moment it
-// arrived kept in a comment so the note stays clean when it is rendered.
-async function saveTelegramInboxMessage(message, settings) {
+// A note written from the phone is sent back as a self-contained HTML file, so
+// the text can be read on the phone in the same layout as the app's export.
+async function sendTelegramNoteHtml(relPath, markdown, seconds) {
   if (!NOTES_DIR) return;
-  const raw = String(message.text || message.caption || '').trim();
-  if (!raw || raw.startsWith('/')) return;
-  const stamp = telegramInboxStamp(message.date);
-  // the append target is stored in the app settings; check it again so a stray
-  // value can never point outside the vault
-  const safe = settings.target ? vaultRelativePath(settings.target) : null;
-  if (safe && safe.error) {
-    telegramInbox.lastError = safe.error;
-    return;
-  }
-  const target = safe ? safe.rel : '';
-  const note = safe ? safe.absolute : '';
-  try {
-    if (target) {
-      // append to the chosen note
-      const existing = await fs.promises.readFile(note, 'utf8').catch(() => '');
-      const tail = existing.replace(/\s*$/, '');
-      const block = (tail ? '\n\n' : '') + `<!-- telegram ${stamp} -->\n${raw}\n`;
-      await fs.promises.mkdir(path.dirname(note), { recursive: true });
-      await fs.promises.writeFile(note, tail + block, 'utf8');
-      telegramInbox.lastPath = target;
-    } else {
-      // one note per message, in Inbox/
-      const dir = path.join(NOTES_DIR, TELEGRAM_INBOX_FOLDER);
-      await fs.promises.mkdir(dir, { recursive: true });
-      const base = telegramInboxSlug(raw);
-      let rel = `${TELEGRAM_INBOX_FOLDER}/${base}.md`;
-      let n = 2;
-      while (fs.existsSync(path.join(NOTES_DIR, rel))) {
-        rel = `${TELEGRAM_INBOX_FOLDER}/${base} ${n}.md`;
-        n += 1;
-      }
-      const title = (raw.split('\n')[0] || base).replace(/^#+\s*/, '').slice(0, 90);
-      const content = `# ${title}\n\n${raw}\n\n<!-- telegram ${stamp} -->\n`;
-      await fs.promises.writeFile(path.join(NOTES_DIR, rel), content, 'utf8');
-      telegramInbox.lastPath = rel;
-    }
-    telegramInbox.lastAt = Date.now();
-    telegramInbox.lastError = '';
-    // the list follows the folder on its own, but this makes it instant
-    queueVaultChange(telegramInbox.lastPath);
-  } catch (e) {
-    telegramInbox.lastError = 'Could not save the message: ' + (e && e.message ? e.message : String(e));
-  }
-}
-
-// A reply goes back to the phone, so a command shows what it changed.
-async function telegramInboxReply(text) {
   const creds = getTelegramConfig();
   if (!creds.botToken || !creds.chatId) return;
+  const title = path.basename(relPath).replace(/\.md$/i, '');
+  const html = await buildTelegramNoteHtml({
+    vaultRoot: NOTES_DIR,
+    relPath,
+    markdown,
+    title,
+    date: new Date((seconds || Math.floor(Date.now() / 1000)) * 1000),
+    dir: telegramSavedDirection(relPath),
+  });
+  const filename = docBaseName(relPath) + '.html';
+  await sendTelegramFile(
+    creds,
+    filename,
+    new Blob([html], { type: 'text/html;charset=utf-8' }),
+    telegramFileCacheKey(creds, 'html', html)
+  );
+}
+
+// A reply goes back to the phone, so a command shows what it changed. An
+// optional keyboard is used by the password prompt; the result is returned so
+// the caller can delete that prompt after the file is sent.
+async function telegramInboxReply(text, replyMarkup) {
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) return null;
   try {
     const form = new FormData();
     form.append('chat_id', creds.chatId);
     form.append('text', String(text || '').slice(0, 4000));
-    await telegramApi('sendMessage', form);
-  } catch (_) {}
+    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+    return await telegramApi('sendMessage', form);
+  } catch (_) {
+    return null;
+  }
+}
+
+/* ---- send password: the bot asks before a file leaves the vault ---- */
+// If no password is set, none of this runs and files are sent as before.
+const TELEGRAM_PASSWORD_GATE_MS = 5 * 60 * 1000;
+let telegramSendGate = null;
+let telegramPasswordFailures = { count: 0, until: 0 };
+
+async function telegramDeleteMessages(ids) {
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) return false;
+  let allDeleted = true;
+  for (const id of ids) {
+    if (!id) continue;
+    try {
+      const form = new FormData();
+      form.append('chat_id', creds.chatId);
+      form.append('message_id', String(id));
+      await telegramApi('deleteMessage', form);
+    } catch (e) {
+      // "not found" means it is already gone, which is what we wanted. Groups
+      // may not allow a bot to delete an incoming message; that is reported to
+      // the user by the password handler.
+      if (!/not found|message to delete/i.test(String(e && e.message))) allDeleted = false;
+    }
+  }
+  return allDeleted;
+}
+
+// Telegram keeps its own copy of every message, so "delete" here only means
+// "remove it from this chat". The prompt says exactly that instead of promising
+// more than a bot can do.
+async function telegramAskSendPassword(label, gate, lead) {
+  // a second request replaces the first: do not leave two prompts in the chat
+  const previous = telegramSendGate;
+  if (previous && previous.promptId) await telegramDeleteMessages([previous.promptId]);
+  telegramSendGate = { ...gate, at: Date.now(), promptId: 0 };
+  const lines = [];
+  if (lead) lines.push(lead);
+  lines.push('🔒 Send the Telegram password to receive «' + label + '».');
+  lines.push('As soon as I check the password, I will delete your password message and this prompt from the chat. Telegram may still keep its own copy.');
+  lines.push('Send /cancel to skip.');
+  const sent = await telegramInboxReply(lines.join('\n'), {
+    inline_keyboard: [[{ text: 'Cancel', callback_data: 'pw:cancel' }]],
+  });
+  if (!sent) {
+    telegramSendGate = null;
+    telegramInbox.lastError = 'Could not ask for the Telegram password.';
+    return false;
+  }
+  if (telegramSendGate) telegramSendGate.promptId = sent.message_id || 0;
+  return true;
+}
+
+async function telegramHandlePasswordMessage(message, body) {
+  const gate = telegramSendGate;
+  telegramSendGate = null;
+  // Delete the typed password first, then the prompt. A chat is not a safe
+  // place for a secret, so the text should stay there as briefly as possible.
+  const passwordDeleted = await telegramDeleteMessages([message && message.message_id]);
+  await telegramDeleteMessages([gate && gate.promptId]);
+  const deletionWarning = passwordDeleted
+    ? ''
+    : '\n⚠️ Telegram did not let me delete your password message here. Please delete it yourself.';
+
+  if (!gate || Date.now() - gate.at > TELEGRAM_PASSWORD_GATE_MS) {
+    await telegramInboxReply('That request has expired. Ask for the file again.' + deletionWarning);
+    return;
+  }
+  if (telegramPasswordFailures.until > Date.now()) {
+    await telegramInboxReply('Too many wrong passwords. Try again in a minute.' + deletionWarning);
+    return;
+  }
+  if (!verifyTelegramPassword(body)) {
+    const count = telegramPasswordFailures.count + 1;
+    if (count >= 5) {
+      telegramPasswordFailures = { count, until: Date.now() + 60 * 1000 };
+      await telegramInboxReply('Too many wrong passwords. Ask for the file again in a minute.' + deletionWarning);
+      return;
+    }
+    telegramPasswordFailures = { count, until: 0 };
+    // Keep the request alive so the next message is another try, not a note.
+    await telegramAskSendPassword(gate.rel || 'the file', gate, 'Wrong password. Nothing was sent. Try again.' + deletionWarning);
+    return;
+  }
+  telegramPasswordFailures = { count: 0, until: 0 };
+  if (deletionWarning) await telegramInboxReply(deletionWarning.trim());
+  await telegramInboxReply('Password accepted. Sending «' + gate.rel + '»…');
+
+  try {
+    await telegramBrowseSendFile(gate.rel);
+  } catch (e) {
+    const reason = e && e.message ? e.message : String(e);
+    telegramInbox.lastError = 'Could not send «' + gate.rel + '»: ' + reason;
+    await telegramInboxReply('Could not send «' + gate.rel + '»: ' + reason);
+  }
 }
 
 function notifyTelegramInboxChanged() {
@@ -1927,31 +2149,41 @@ function resolveInboxTarget(query, options = {}) {
 }
 
 // Commands, so the phone decides where the next messages go:
-//   /new            one note per message, in Inbox/
+//   /to <note>      choose the default file for appending
+//   /new            clear that default
 // Telegram shows a command menu (the list behind the "/" button) from the
 // commands registered for the chat. They are registered for this chat only, so a
 // bot that other tools also use keeps its global list untouched.
 const TELEGRAM_COMMANDS = {
   en: [
-    { command: 'to', description: 'Write into a note, e.g. /to Inbox.md' },
-    { command: 'new', description: 'One note per message, in Inbox/' },
+    { command: 'menu', description: 'Show the buttons at the bottom' },
+    { command: 'to', description: 'Set the default file for appending, e.g. /to Inbox.md' },
+    { command: 'new', description: 'Clear the default file for appending' },
     { command: 'list', description: 'List the notes in the vault' },
+    { command: 'files', description: 'Browse the vault; notes come back as HTML' },
     { command: 'clear', description: 'Empty a note (asks once to confirm)' },
+    { command: 'cancel', description: 'Cancel a pending save or password request' },
     { command: 'status', description: 'Where the next message goes' },
     { command: 'help', description: 'What this bot can do' },
   ],
   fa: [
-    { command: 'to', description: 'نوشتن داخل یک نوت، مثلاً /to Inbox.md' },
-    { command: 'new', description: 'هر پیام یک نوت جدید در Inbox/' },
+    { command: 'menu', description: 'نمایش دکمه‌ها در پایین چت' },
+    { command: 'to', description: 'تعیین فایل پیش‌فرض برای افزودن، مثلاً /to Inbox.md' },
+    { command: 'new', description: 'پاک کردن فایل پیش‌فرض افزودن' },
     { command: 'list', description: 'فهرست نوت‌های والت' },
+    { command: 'files', description: 'گشتن در فایل‌های والت؛ نوت‌ها به‌صورت HTML' },
     { command: 'clear', description: 'خالی کردن یک نوت (یک بار تأیید می‌خواهد)' },
-    { command: 'status', description: 'پیام بعدی کجا نوشته می‌شود' },
+    { command: 'cancel', description: 'لغو ذخیره یا درخواست پسورد در انتظار' },
+    { command: 'status', description: 'پیام بعدی کجا ذخیره می‌شود' },
     { command: 'help', description: 'این ربات چه کارهایی می‌کند' },
   ],
 };
 
 async function syncTelegramCommands() {
   const creds = getTelegramConfig();
+  if (!creds.enabled) {
+    return { ok: false, error: 'Telegram is turned off. Turn it on in Settings → Telegram first.' };
+  }
   if (!creds.botToken || !creds.chatId) {
     return { ok: false, error: 'Telegram is not configured. Save a bot token and chat ID first.' };
   }
@@ -1971,7 +2203,8 @@ async function syncTelegramCommands() {
   }
 }
 
-//   /to <note>      append to that note instead
+//   /menu           the same actions as one-tap buttons
+//   /to <note>      choose the default file for appending
 //   /status         what is happening now
 //   /help           the list
 function telegramInboxCommand(text) {
@@ -1979,36 +2212,42 @@ function telegramInboxCommand(text) {
   const command = String(rawCommand || '').toLowerCase().replace(/@[\w_]+$/, ''); // /to@MyBot
   const argument = rest.join(' ').trim();
   const saved = telegramInboxSaved();
-  const where = saved.target ? '«' + saved.target + '»' : 'a new note in ' + TELEGRAM_INBOX_FOLDER + '/';
+  const where = '«' + saved.folder + '/»';
+  const appendTo = saved.target ? '«' + saved.target + '»' : 'the default file (set one with /to)';
 
   if (command === '/start' || command === '/help') {
     return [
       'Write from your phone:',
-      '• send a message — it goes into ' + where,
+      '• /menu — the buttons at the bottom of the chat',
+      '• send a text — the bot shows folders, then asks for a file name',
+      '• the folder list also has “Default path” and “Append to ' + appendTo + '”',
       '• send a file — it is saved in ' + TELEGRAM_INBOX_FOLDER + '/ (images and PDFs open in the app)',
-      '• /to <note> — write into that note from now on (a folder path works too, and the note is created if it is missing)',
-      '• /new — back to one note per message, in ' + TELEGRAM_INBOX_FOLDER + '/',
+      '• /to <note> — set that note as the default file for appending (a folder path works too, and the note is created if it is missing)',
+      '• /new — clear the default file for appending',
       '• /list [word] — the notes in the vault',
+      '• /files [folder] — browse the vault with buttons; a note or Word file comes back as HTML, other files as they are (asks for the send password when one is set)',
       '• /clear <note> — empty a note (asks for the same command once more)',
+      '• /cancel — stop a pending save or password request',
       '• /status — where messages go right now',
     ].join('\n');
   }
   if (command === '/status') {
     return (saved.enabled ? 'Listening. ' : 'The inbox is off in Inkwell. ')
-      + 'Messages go into ' + where + '.';
+      + 'A text opens the folder picker; the default folder is ' + where + '. '
+      + 'The append button writes into ' + appendTo + '.';
   }
   if (command === '/new') {
-    store.set('telegramInbox', { enabled: saved.enabled, target: '' });
+    store.set('telegramInbox', { ...saved, target: '' });
     notifyTelegramInboxChanged();
-    return 'Every message now becomes a new note in ' + TELEGRAM_INBOX_FOLDER + '/.';
+    return 'Cleared the default file for appending. The append button will ask for one until /to sets it.';
   }
   if (command === '/to') {
     if (!argument) return 'Send /to <note>, for example /to ' + TELEGRAM_INBOX_FOLDER + '/inbox.md or /to Notes/idea.md';
     const found = resolveInboxTarget(argument);
     if (found.error) return found.error;
-    store.set('telegramInbox', { enabled: saved.enabled, target: found.target });
+    store.set('telegramInbox', { ...saved, target: found.target });
     notifyTelegramInboxChanged();
-    return (found.created ? 'Created «' : 'Writing into «') + found.target + '». Send /new to go back to one note per message.';
+    return (found.created ? 'Created «' : 'Set «') + found.target + '» as the default file for appending. Each text still opens the folder picker; use its append button to write there.';
   }
   if (command === '/list' || command === '/ls') {
     return telegramInboxList(argument);
@@ -2091,8 +2330,963 @@ function telegramInboxList(argument) {
     lines.push('…and ' + (matched.length - shown.length) + ' more. Send /list <word> to narrow it down.');
   }
   const saved = telegramInboxSaved();
-  lines.push(saved.target ? 'Messages go into «' + saved.target + '».' : 'Messages become new notes in ' + TELEGRAM_INBOX_FOLDER + '/.');
+  lines.push('Default path: «' + saved.folder + '/». '
+    + (saved.target ? 'Append button: «' + saved.target + '».' : 'Append button: no default file (/to sets one).'));
   return lines.join('\n');
+}
+
+/* ================= TELEGRAM FILE BROWSER ================= */
+// /files turns the vault into inline buttons. A folder opens into its children;
+// a file is sent back to the chat as HTML (a note or Word document) or as the
+// original file (an image, a PDF, an HTML page). Callback data is limited to 64
+// bytes, so a path lives in a short token instead of the button itself.
+const TELEGRAM_BROWSE_PAGE = 8;
+const TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024;
+let telegramBrowseSeq = 0;
+const telegramBrowseTokens = new Map();
+
+// The app mirrors its per-file RTL/LTR choices here. A file the user set to RTL
+// must come back in the same order from the bot, even when the first line is
+// English.
+function telegramSavedDirection(rel) {
+  const map = store.get('fileDirections');
+  if (!map || typeof map !== 'object') return '';
+  const key = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const dir = map[key];
+  return dir === 'rtl' || dir === 'ltr' ? dir : '';
+}
+
+function telegramBrowseToken(rel) {
+  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  for (const [token, entry] of telegramBrowseTokens) {
+    if (entry.rel === clean) {
+      entry.at = Date.now();
+      return token;
+    }
+  }
+  const token = 't' + (telegramBrowseSeq += 1).toString(36);
+  telegramBrowseTokens.set(token, { rel: clean, at: Date.now() });
+  // old lists are still in chat history; keeping a few hundred paths is enough,
+  // and a stale button simply reopens the vault at its root
+  if (telegramBrowseTokens.size > 400) {
+    for (const key of [...telegramBrowseTokens.keys()].slice(0, 100)) telegramBrowseTokens.delete(key);
+  }
+  return token;
+}
+
+function telegramBrowseTokenPath(token) {
+  const entry = telegramBrowseTokens.get(String(token || ''));
+  if (!entry) return null;
+  entry.at = Date.now();
+  return entry.rel;
+}
+
+function telegramBrowseSafePath(rel) {
+  const clean = String(rel == null ? '' : rel).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!clean) return { rel: '', abs: NOTES_DIR };
+  if (clean.split('/').some((part) => part === '..' || part === '.')) return null;
+  const abs = path.join(NOTES_DIR, clean);
+  if (!insideNotesDir(abs)) return null;
+  return { rel: clean, abs };
+}
+
+function telegramBrowseChildren(abs) {
+  const folders = [];
+  const files = [];
+  for (const entry of listDirSafe(abs)) {
+    const name = entry.name;
+    if (!name || name.startsWith('.')) continue;
+    if (/^(node_modules|__pycache__)$/i.test(name)) continue;
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) folders.push(name);
+    else if (entry.isFile()) files.push(name);
+  }
+  folders.sort((a, b) => a.localeCompare(b));
+  files.sort((a, b) => a.localeCompare(b));
+  return { folders, files };
+}
+
+function telegramBrowseIcon(name, isFolder) {
+  if (isFolder) return '📁';
+  const ext = path.extname(name).slice(1).toLowerCase();
+  if (ext === 'md' || ext === 'markdown') return '📝';
+  if (ext === 'txt') return '📄';
+  if (ext === 'pdf') return '📕';
+  if (ext === 'html' || ext === 'htm') return '🌐';
+  if (ext === 'docx') return '📘';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'ico'].includes(ext)) return '🖼';
+  return '📎';
+}
+
+function telegramBrowseLabel(name) {
+  const clean = String(name || '').replace(/\s+/g, ' ').trim();
+  const chars = Array.from(clean);
+  return chars.length > 42 ? chars.slice(0, 41).join('') + '…' : clean;
+}
+
+function telegramBrowseView(rel, page) {
+  const safe = telegramBrowseSafePath(rel);
+  let current = safe ? safe.rel : '';
+  let abs = safe ? safe.abs : NOTES_DIR;
+  let isFolder = false;
+  try { isFolder = !!safe && fs.statSync(abs).isDirectory(); } catch (_) {}
+  if (!isFolder) {
+    current = '';
+    abs = NOTES_DIR;
+  }
+
+  const { folders, files } = telegramBrowseChildren(abs);
+  const items = [
+    ...folders.map((name) => ({ name, folder: true })),
+    ...files.map((name) => ({ name, folder: false })),
+  ];
+  const pageCount = Math.max(1, Math.ceil(items.length / TELEGRAM_BROWSE_PAGE));
+  const currentPage = Math.min(Math.max(1, Math.floor(Number(page) || 1)), pageCount);
+  const shown = items.slice((currentPage - 1) * TELEGRAM_BROWSE_PAGE, currentPage * TELEGRAM_BROWSE_PAGE);
+  const token = telegramBrowseToken(current);
+
+  const rows = [];
+  if (current) {
+    const parent = current.split('/').slice(0, -1).join('/');
+    rows.push([
+      { text: '⬆ Up', callback_data: 'd:' + telegramBrowseToken(parent) },
+      { text: '🏠 Vault', callback_data: 'd:' + telegramBrowseToken('') },
+    ]);
+  }
+  for (const item of shown) {
+    const itemRel = current ? current + '/' + item.name : item.name;
+    rows.push([{
+      text: telegramBrowseIcon(item.name, item.folder) + ' ' + telegramBrowseLabel(item.name),
+      callback_data: (item.folder ? 'd:' : 'f:') + telegramBrowseToken(itemRel),
+    }]);
+  }
+  if (pageCount > 1) {
+    const pager = [];
+    if (currentPage > 1) pager.push({ text: '◀ Prev', callback_data: 'd:' + token + ':p' + (currentPage - 1) });
+    if (currentPage < pageCount) pager.push({ text: 'Next ▶', callback_data: 'd:' + token + ':p' + (currentPage + 1) });
+    if (pager.length) rows.push(pager);
+  }
+  rows.push([{ text: '☰ Menu', callback_data: 'm:menu' }]);
+
+  const where = current ? 'Vault / ' + current : 'Vault';
+  let text = where + '\n';
+  if (!items.length) {
+    text += 'This folder is empty.';
+  } else {
+    text += items.length + (items.length === 1 ? ' item' : ' items')
+      + ' · ' + folders.length + (folders.length === 1 ? ' folder' : ' folders')
+      + ' · ' + files.length + (files.length === 1 ? ' file' : ' files')
+      + '\nTap a folder to open it, or a file to receive it.';
+    if (pageCount > 1) text += '\nPage ' + currentPage + '/' + pageCount;
+  }
+  return { text, reply_markup: { inline_keyboard: rows } };
+}
+
+async function telegramBrowseSendMessage(view) {
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) return;
+  try {
+    const form = new FormData();
+    form.append('chat_id', creds.chatId);
+    form.append('text', view.text);
+    form.append('reply_markup', JSON.stringify(view.reply_markup));
+    await telegramApi('sendMessage', form);
+  } catch (e) {
+    telegramInbox.lastError = 'Could not show the vault: ' + (e && e.message ? e.message : String(e));
+  }
+}
+
+async function telegramBrowseEditMessage(query, view) {
+  const message = query && query.message;
+  if (!message || !message.chat || !message.message_id) {
+    await telegramBrowseSendMessage(view);
+    return;
+  }
+  const form = new FormData();
+  form.append('chat_id', message.chat.id);
+  form.append('message_id', message.message_id);
+  form.append('text', view.text);
+  form.append('reply_markup', JSON.stringify(view.reply_markup));
+  try {
+    await telegramApi('editMessageText', form);
+  } catch (e) {
+    // the same page tapped twice is not an error; a message too old to edit gets
+    // a fresh list instead of leaving the phone with a dead keyboard
+    if (!/not modified/i.test(String(e && e.message))) await telegramBrowseSendMessage(view);
+  }
+}
+
+async function telegramBrowseAnswer(queryId, text) {
+  if (!queryId) return;
+  try {
+    const form = new FormData();
+    form.append('callback_query_id', queryId);
+    if (text) form.append('text', String(text).slice(0, 200));
+    await telegramApi('answerCallbackQuery', form);
+  } catch (_) {}
+}
+
+/* ================= SAVE A TEXT FROM THE PHONE ================= */
+// A plain text no longer lands in a fixed folder. The bot first opens a
+// folder-only picker, then asks for a file name. Two shortcuts sit under the
+// list: the configured default folder (still asks for a name) and appending to
+// the configured default note.
+const TELEGRAM_COMPOSE_MS = 15 * 60 * 1000;
+let telegramCompose = null;
+
+function telegramComposeDefaultFolder() {
+  const saved = telegramInboxSaved();
+  const parsed = telegramInboxFolderValue(saved.folder);
+  return parsed.error ? TELEGRAM_INBOX_FOLDER : parsed.folder;
+}
+
+function telegramComposeSuggestedName(text) {
+  return (telegramInboxSlug(text).replace(/\s+/g, ' ').trim().slice(0, 48).trim() || 'telegram') + '.md';
+}
+
+function telegramComposeFileName(raw) {
+  let name = path.basename(String(raw || '').replace(/\\/g, '/'))
+    .replace(/[\u0000-\u001f]/g, '')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/^\.+/, '')
+    .trim()
+    .slice(0, 120)
+    .trim();
+  if (!name) return '';
+  // every text becomes a Markdown note, even when the phone sends "note.txt"
+  const ext = path.extname(name);
+  if (ext) name = name.slice(0, -ext.length);
+  name = name.trim();
+  return name ? name + '.md' : '';
+}
+
+function telegramComposeFolderView(folder, page) {
+  const safe = telegramBrowseSafePath(folder);
+  let current = safe ? safe.rel : '';
+  let abs = safe ? safe.abs : NOTES_DIR;
+  let isFolder = false;
+  try { isFolder = !!safe && fs.statSync(abs).isDirectory(); } catch (_) {}
+  if (!isFolder) {
+    current = '';
+    abs = NOTES_DIR;
+  }
+
+  const { folders } = telegramBrowseChildren(abs);
+  const pageCount = Math.max(1, Math.ceil(folders.length / TELEGRAM_BROWSE_PAGE));
+  const currentPage = Math.min(Math.max(1, Math.floor(Number(page) || 1)), pageCount);
+  const shown = folders.slice((currentPage - 1) * TELEGRAM_BROWSE_PAGE, currentPage * TELEGRAM_BROWSE_PAGE);
+  const token = telegramBrowseToken(current);
+  const saved = telegramInboxSaved();
+  const defaultFolder = telegramComposeDefaultFolder();
+
+  const rows = [];
+  if (current) {
+    const parent = current.split('/').slice(0, -1).join('/');
+    rows.push([
+      { text: '⬆ Up', callback_data: 's:' + telegramBrowseToken(parent) },
+      { text: '🏠 Vault', callback_data: 's:' + telegramBrowseToken('') },
+    ]);
+  }
+  for (const name of shown) {
+    const itemRel = current ? current + '/' + name : name;
+    rows.push([{
+      text: '📁 ' + telegramBrowseLabel(name),
+      callback_data: 's:' + telegramBrowseToken(itemRel),
+    }]);
+  }
+  if (pageCount > 1) {
+    const pager = [];
+    if (currentPage > 1) pager.push({ text: '◀ Prev', callback_data: 's:' + token + ':p' + (currentPage - 1) });
+    if (currentPage < pageCount) pager.push({ text: 'Next ▶', callback_data: 's:' + token + ':p' + (currentPage + 1) });
+    if (pager.length) rows.push(pager);
+  }
+
+  // Choosing the folder you are already in is a separate button, so tapping a
+  // folder can keep its usual meaning: open it and show what is inside.
+  rows.push([{
+    text: '✅ Save in ' + telegramBrowseLabel(current || 'Vault'),
+    callback_data: 'c:' + token,
+  }]);
+  rows.push([{
+    text: '⭐ Default path: ' + telegramBrowseLabel(defaultFolder + '/'),
+    callback_data: 'c:default',
+  }]);
+  rows.push([{
+    text: saved.target ? '➕ Append to ' + telegramBrowseLabel(saved.target) : '➕ Append to default file',
+    callback_data: 'c:append',
+  }]);
+  rows.push([{ text: '✖ Cancel', callback_data: 'c:cancel' }]);
+
+  const where = current ? 'Vault / ' + current : 'Vault';
+  let text = 'Where should I save this text?\nCurrent folder: ' + where + '\n';
+  if (!folders.length) {
+    text += 'There are no subfolders here. Use the buttons below to save here or use the default path.';
+  } else {
+    text += 'Tap a folder to open it, then use “Save in …”. '
+      + folders.length + (folders.length === 1 ? ' folder' : ' folders')
+      + (pageCount > 1 ? ' · page ' + currentPage + '/' + pageCount : '');
+  }
+  if (saved.target) text += '\nDefault file for appending: «' + saved.target + '».';
+  return { text, reply_markup: { inline_keyboard: rows } };
+}
+
+async function telegramComposeBegin(message, text) {
+  if (!NOTES_DIR) {
+    await telegramInboxReply('No vault is open in Inkwell.');
+    return;
+  }
+  const previous = telegramCompose;
+  if (previous && previous.promptId) await telegramDeleteMessages([previous.promptId]);
+  telegramCompose = {
+    text,
+    date: message && message.date,
+    stage: 'folder',
+    folder: '',
+    suggestedName: '',
+    promptId: 0,
+    at: Date.now(),
+  };
+  const view = telegramComposeFolderView('', 1);
+  const sent = await telegramInboxReply(view.text, view.reply_markup);
+  if (!sent) {
+    telegramCompose = null;
+    telegramInbox.lastError = 'Could not ask where to save the note.';
+    return;
+  }
+  if (telegramCompose) telegramCompose.promptId = sent.message_id || 0;
+}
+
+async function telegramComposeAskName(query, folder) {
+  const compose = telegramCompose;
+  if (!compose) return;
+  compose.stage = 'name';
+  compose.folder = folder;
+  compose.at = Date.now();
+  compose.suggestedName = compose.suggestedName || telegramComposeSuggestedName(compose.text);
+  const where = folder ? 'Vault / ' + folder : 'Vault';
+  const text = 'Send a file name for this note in ' + where + '.\n'
+    + 'Suggested: ' + compose.suggestedName + '\n\n'
+    + 'Send the name as the next message, or tap the suggested name. /cancel to stop.';
+  const view = {
+    text,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Use «' + telegramBrowseLabel(compose.suggestedName) + '»', callback_data: 'c:name' }],
+        [{ text: '✖ Cancel', callback_data: 'c:cancel' }],
+      ],
+    },
+  };
+  if (query && query.message) {
+    await telegramBrowseEditMessage(query, view);
+    compose.promptId = query.message.message_id || compose.promptId;
+  } else {
+    const sent = await telegramInboxReply(view.text, view.reply_markup);
+    if (sent && telegramCompose) telegramCompose.promptId = sent.message_id || 0;
+  }
+}
+
+// The note just came from the phone, so its HTML goes straight back: the user
+// already wrote this text and does not need to prove the vault password for it.
+// The password still protects files that are read *out of the vault* by /files.
+async function telegramSendSavedNote(rel, content, seconds) {
+  try {
+    await sendTelegramNoteHtml(rel, content, seconds);
+  } catch (e) {
+    const reason = e && e.message ? e.message : String(e);
+    telegramInbox.lastError = 'Saved the note, but sending its HTML failed: ' + reason;
+    await telegramInboxReply('Saved «' + rel + '», but could not send the HTML: ' + reason);
+  }
+}
+
+async function telegramComposeSave(rawName) {
+  const compose = telegramCompose;
+  if (!compose || !NOTES_DIR) return;
+  const name = telegramComposeFileName(rawName);
+  if (!name) {
+    await telegramInboxReply('That file name cannot be used. Send another name, for example «note.md».');
+    return;
+  }
+  const safeFolder = telegramBrowseSafePath(compose.folder);
+  if (!safeFolder) {
+    await telegramInboxReply('That folder leaves the vault, so it is refused.');
+    return;
+  }
+  const rel = uniqueVaultPath(safeFolder.rel, name);
+  const title = path.basename(rel).replace(/\.md$/i, '');
+  const stamp = telegramInboxStamp(compose.date);
+  const content = `# ${title}\n\n${compose.text}\n\n<!-- telegram ${stamp} -->\n`;
+  try {
+    const absolute = path.join(NOTES_DIR, rel);
+    await fs.promises.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.promises.writeFile(absolute, content, 'utf8');
+  } catch (e) {
+    telegramInbox.lastError = 'Could not save the note: ' + (e && e.message ? e.message : String(e));
+    await telegramInboxReply('Could not save «' + rel + '»: ' + (e && e.message ? e.message : String(e)));
+    return;
+  }
+  telegramCompose = null;
+  await telegramDeleteMessages([compose.promptId]);
+  telegramInbox.lastAt = Date.now();
+  telegramInbox.lastPath = rel;
+  telegramInbox.lastError = '';
+  queueVaultChange(rel);
+  await telegramInboxReply('Saved «' + rel + '».');
+  await telegramSendSavedNote(rel, content, compose.date);
+}
+
+async function telegramComposeAppend() {
+  const compose = telegramCompose;
+  if (!compose) return;
+  const saved = telegramInboxSaved();
+  if (!saved.target) {
+    await telegramInboxReply('No default file is set for appending. Send /to Note.md to choose one, or pick a folder.');
+    return;
+  }
+  const safe = vaultRelativePath(saved.target);
+  if (safe.error) {
+    await telegramInboxReply(safe.error);
+    return;
+  }
+  let existing = '';
+  try {
+    existing = await fs.promises.readFile(safe.absolute, 'utf8');
+  } catch (_) {
+    existing = '';
+  }
+  const tail = existing.replace(/\s*$/, '');
+  const stamp = telegramInboxStamp(compose.date);
+  const block = (tail ? '\n\n' : '') + `<!-- telegram ${stamp} -->\n${compose.text}\n`;
+  const content = tail + block;
+  try {
+    await fs.promises.mkdir(path.dirname(safe.absolute), { recursive: true });
+    await fs.promises.writeFile(safe.absolute, content, 'utf8');
+  } catch (e) {
+    telegramInbox.lastError = 'Could not append to the note: ' + (e && e.message ? e.message : String(e));
+    await telegramInboxReply('Could not append to «' + saved.target + '»: ' + (e && e.message ? e.message : String(e)));
+    return;
+  }
+  telegramCompose = null;
+  await telegramDeleteMessages([compose.promptId]);
+  telegramInbox.lastAt = Date.now();
+  telegramInbox.lastPath = safe.rel;
+  telegramInbox.lastError = '';
+  queueVaultChange(safe.rel);
+  const created = !existing.trim();
+  await telegramInboxReply((created ? 'Saved «' : 'Appended to «') + safe.rel + '».');
+  if (created) await telegramSendSavedNote(safe.rel, content, compose.date);
+}
+
+async function telegramComposeCancel(messageId) {
+  const compose = telegramCompose;
+  telegramCompose = null;
+  const ids = [];
+  if (compose && compose.promptId) ids.push(compose.promptId);
+  if (messageId && !ids.includes(messageId)) ids.push(messageId);
+  if (ids.length) await telegramDeleteMessages(ids);
+  return !!compose;
+}
+
+async function telegramComposeCallback(query, action, argument, pagePart) {
+  let compose = telegramCompose;
+  if (!compose || Date.now() - compose.at > TELEGRAM_COMPOSE_MS) {
+    telegramCompose = null;
+    await telegramBrowseAnswer(query.id, 'That request has expired. Send the text again.');
+    if (query && query.message && query.message.message_id) {
+      await telegramDeleteMessages([query.message.message_id]);
+    }
+    return;
+  }
+  compose.at = Date.now();
+  if (query && query.message && query.message.message_id) {
+    compose.promptId = query.message.message_id;
+  }
+
+  if (action === 's') {
+    const folder = telegramBrowseTokenPath(argument);
+    if (folder == null) {
+      await telegramBrowseAnswer(query.id, 'That folder list has expired. Send the text again.');
+      return;
+    }
+    const page = Number(String(pagePart || '').replace(/^p/, '')) || 1;
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramComposeFolderView(folder, page));
+    return;
+  }
+
+  if (argument === 'cancel') {
+    await telegramBrowseAnswer(query.id, 'Cancelled');
+    await telegramComposeCancel(query.message && query.message.message_id);
+    return;
+  }
+  if (argument === 'default') {
+    await telegramBrowseAnswer(query.id, 'Default folder');
+    await telegramComposeAskName(query, telegramComposeDefaultFolder());
+    return;
+  }
+  if (argument === 'append') {
+    await telegramBrowseAnswer(query.id, 'Appending…');
+    await telegramComposeAppend();
+    return;
+  }
+  if (argument === 'name') {
+    await telegramBrowseAnswer(query.id, 'Saving…');
+    const suggested = compose.suggestedName || telegramComposeSuggestedName(compose.text);
+    await telegramComposeSave(suggested);
+    return;
+  }
+
+  const folder = telegramBrowseTokenPath(argument);
+  if (folder == null) {
+    await telegramBrowseAnswer(query.id, 'That folder list has expired. Send the text again.');
+    return;
+  }
+  await telegramBrowseAnswer(query.id, 'Folder chosen');
+  await telegramComposeAskName(query, folder);
+}
+
+function telegramBrowseMime(file) {
+  const ext = path.extname(file).slice(1).toLowerCase();
+  if (MIME_BY_EXT[ext]) return MIME_BY_EXT[ext];
+  if (ext === 'md' || ext === 'markdown') return 'text/markdown';
+  if (ext === 'txt') return 'text/plain';
+  if (ext === 'html' || ext === 'htm') return 'text/html';
+  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  return 'application/octet-stream';
+}
+
+// Send one vault file. Markdown (and text) becomes the same standalone HTML the
+// app exports; Word is converted; an HTML page, image, PDF or anything else is
+// sent as itself.
+async function telegramBrowseSendFile(rel) {
+  if (!NOTES_DIR) return;
+  const safe = telegramBrowseSafePath(rel);
+  if (!safe || !safe.rel) throw new Error('That file is no longer in the vault.');
+  let stat;
+  try { stat = fs.statSync(safe.abs); } catch (_) { throw new Error('That file is no longer in the vault.'); }
+  if (!stat.isFile()) throw new Error('That is not a file.');
+
+  const creds = getTelegramConfig();
+  if (!creds.botToken || !creds.chatId) throw new Error('Telegram is not configured.');
+  const name = path.basename(safe.rel);
+  const title = name.replace(/\.[^.]+$/, '');
+  const htmlName = docBaseName(name.replace(/\.[^.]+$/, '')) + '.html';
+  const ext = path.extname(name).slice(1).toLowerCase();
+  const when = new Date(stat.mtimeMs);
+
+  try {
+    if (ext === 'md' || ext === 'markdown' || ext === 'txt') {
+      if (stat.size > 10 * 1024 * 1024) throw new Error('This note is too large to render (10 MB limit).');
+      const text = await fs.promises.readFile(safe.abs, 'utf8');
+      const html = await buildTelegramNoteHtml({
+        vaultRoot: NOTES_DIR,
+        relPath: safe.rel,
+        markdown: text,
+        title,
+        date: when,
+        dir: telegramSavedDirection(safe.rel),
+      });
+      if (Buffer.byteLength(html) > TELEGRAM_UPLOAD_LIMIT) {
+        throw new Error('The HTML is larger than Telegram lets a bot upload (50 MB).');
+      }
+      await sendTelegramFile(
+        creds,
+        htmlName,
+        new Blob([html], { type: 'text/html;charset=utf-8' }),
+        telegramFileCacheKey(creds, 'html', html)
+      );
+      return;
+    }
+
+    if (ext === 'docx') {
+      if (stat.size > TELEGRAM_UPLOAD_LIMIT) throw new Error('This file is larger than Telegram lets a bot upload (50 MB).');
+      const html = buildTelegramDocxHtml({
+        buffer: await fs.promises.readFile(safe.abs),
+        title,
+        date: when,
+        dir: telegramSavedDirection(safe.rel),
+      });
+      if (Buffer.byteLength(html) > TELEGRAM_UPLOAD_LIMIT) {
+        throw new Error('The HTML is larger than Telegram lets a bot upload (50 MB).');
+      }
+      await sendTelegramFile(
+        creds,
+        htmlName,
+        new Blob([html], { type: 'text/html;charset=utf-8' }),
+        telegramFileCacheKey(creds, 'html', html)
+      );
+      return;
+    }
+
+    if (stat.size > TELEGRAM_UPLOAD_LIMIT) throw new Error('This file is larger than Telegram lets a bot upload (50 MB).');
+    const bytes = await fs.promises.readFile(safe.abs);
+    await sendTelegramFile(
+      creds,
+      name,
+      new Blob([bytes], { type: telegramBrowseMime(name) }),
+      telegramFileCacheKey(creds, 'file', bytes)
+    );
+  } catch (e) {
+    const reason = e && e.message ? e.message : String(e);
+    telegramInbox.lastError = 'Could not send «' + safe.rel + '»: ' + reason;
+    await telegramInboxReply('Could not send «' + safe.rel + '»: ' + reason);
+  }
+}
+
+async function telegramBrowseOpen(argument) {
+  if (!NOTES_DIR) {
+    await telegramInboxReply('No vault is open in Inkwell.');
+    return;
+  }
+  let rel = '';
+  const wanted = String(argument || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (wanted) {
+    const safe = telegramBrowseSafePath(wanted);
+    if (!safe) {
+      await telegramInboxReply('That folder leaves the vault, so it is refused.');
+      return;
+    }
+    let real = '';
+    try {
+      const parts = normalizeSegments(wanted);
+      real = matchExistingPath(path.resolve(NOTES_DIR), parts) || '';
+    } catch (_) {}
+    let isFolder = false;
+    try { isFolder = fs.statSync(real ? path.join(NOTES_DIR, real) : safe.abs).isDirectory(); } catch (_) {}
+    if (!isFolder) {
+      await telegramInboxReply('No folder called «' + wanted + '». Send /files to browse the vault.');
+      return;
+    }
+    rel = real || safe.rel;
+  }
+  await telegramBrowseSendMessage(telegramBrowseView(rel, 1));
+}
+
+function telegramBrowseCommandPath(text) {
+  const parts = String(text || '').trim().split(/\s+/);
+  const command = String(parts[0] || '').toLowerCase().replace(/@[\w_]+$/, '');
+  if (command !== '/files' && command !== '/browse') return null;
+  return parts.slice(1).join(' ').trim();
+}
+
+/* ---- one-tap button menu ---- */
+// The same actions as the commands, in one message. Every view it opens carries
+// a "Menu" button back, so the chat stays a single tidy message instead of a
+// wall of replies.
+function telegramMenuItemView(text, rows) {
+  const keyboard = (rows || []).slice();
+  keyboard.push([{ text: '☰ Menu', callback_data: 'm:menu' }]);
+  return {
+    text: String(text || '').slice(0, 4000),
+    reply_markup: { inline_keyboard: keyboard },
+  };
+}
+
+function telegramMenuView() {
+  const saved = telegramInboxSaved();
+  const append = saved.target ? '«' + saved.target + '»' : 'not set';
+  return {
+    text: '☰ Inkwell\n'
+      + 'Default folder: ' + saved.folder + '/\n'
+      + 'Default append file: ' + append + '\n\n'
+      + 'Choose an action:',
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '📂 Browse files', callback_data: 'm:files' },
+          { text: '📋 List notes', callback_data: 'm:list' },
+        ],
+        [
+          { text: '📝 Set append file', callback_data: 'm:target' },
+          { text: '🧹 Clear append file', callback_data: 'm:new' },
+        ],
+        [
+          { text: '📊 Status', callback_data: 'm:status' },
+          { text: '❓ Help', callback_data: 'm:help' },
+        ],
+        [{ text: '✖ Close menu', callback_data: 'm:close' }],
+      ],
+    },
+  };
+}
+
+// The phone keeps a reply keyboard at the bottom of the chat. It is not tied to
+// one message: once sent, it stays under the text box until the bot replaces it.
+// Every label maps to one of the same actions as the inline menu.
+const TELEGRAM_REPLY_BUTTONS = {
+  '📂 browse files': 'files',
+  '📋 list notes': 'list',
+  '📝 append file': 'target',
+  '🧹 clear append': 'new',
+  '📊 status': 'status',
+  '❓ help': 'help',
+};
+
+function telegramReplyKeyboard() {
+  return {
+    keyboard: [
+      [{ text: '📂 Browse files' }, { text: '📋 List notes' }],
+      [{ text: '📝 Append file' }, { text: '🧹 Clear append' }],
+      [{ text: '📊 Status' }, { text: '❓ Help' }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: 'Send a text to save it, or pick an action…',
+  };
+}
+
+function telegramReplyMenuAction(text) {
+  return TELEGRAM_REPLY_BUTTONS[String(text || '').trim().toLowerCase()] || '';
+}
+
+async function telegramMenuSend() {
+  const saved = telegramInboxSaved();
+  const append = saved.target ? '«' + saved.target + '»' : 'not set';
+  const text = '☰ Inkwell menu\n'
+    + 'Default folder: ' + saved.folder + '/\n'
+    + 'Default append file: ' + append + '\n\n'
+    + 'The buttons below stay at the bottom of the chat.';
+  const sent = await telegramInboxReply(text, telegramReplyKeyboard());
+  if (!sent) telegramInbox.lastError = 'Could not show the menu.';
+  return sent;
+}
+
+async function telegramTargetSend(folder, page) {
+  await telegramBrowseSendMessage(telegramTargetView(folder, page));
+}
+
+async function telegramReplyMenuRun(action) {
+  if (action === 'files') {
+    await telegramBrowseOpen('');
+    return;
+  }
+  if (action === 'list') {
+    await telegramInboxReply(telegramInboxList(''));
+    return;
+  }
+  if (action === 'target') {
+    await telegramTargetSend('', 1);
+    return;
+  }
+  if (action === 'new') {
+    const saved = telegramInboxSaved();
+    if (!saved.target) {
+      await telegramInboxReply('There is no default append file to clear.');
+      return;
+    }
+    store.set('telegramInbox', { ...saved, target: '' });
+    notifyTelegramInboxChanged();
+    await telegramInboxReply('🧹 Cleared the default append file «' + saved.target + '».');
+    return;
+  }
+  if (action === 'status') {
+    await telegramInboxReply(telegramInboxCommand('/status'));
+    return;
+  }
+  if (action === 'help') {
+    await telegramInboxReply(telegramInboxCommand('/help'));
+    return;
+  }
+  if (action === 'menu') {
+    await telegramMenuSend();
+  }
+}
+
+// Only Markdown notes can receive text; this picker makes setting the default
+// append target a two-tap job, without typing a path on a phone keyboard.
+function telegramTargetView(folder, page) {
+  const safe = telegramBrowseSafePath(folder);
+  let current = safe ? safe.rel : '';
+  let abs = safe ? safe.abs : NOTES_DIR;
+  let isFolder = false;
+  try { isFolder = !!safe && fs.statSync(abs).isDirectory(); } catch (_) {}
+  if (!isFolder) {
+    current = '';
+    abs = NOTES_DIR;
+  }
+
+  const { folders, files } = telegramBrowseChildren(abs);
+  const notes = files.filter((name) => /\.md$/i.test(name));
+  const items = [
+    ...folders.map((name) => ({ name, folder: true })),
+    ...notes.map((name) => ({ name, folder: false })),
+  ];
+  const pageCount = Math.max(1, Math.ceil(items.length / TELEGRAM_BROWSE_PAGE));
+  const currentPage = Math.min(Math.max(1, Math.floor(Number(page) || 1)), pageCount);
+  const shown = items.slice((currentPage - 1) * TELEGRAM_BROWSE_PAGE, currentPage * TELEGRAM_BROWSE_PAGE);
+  const token = telegramBrowseToken(current);
+  const saved = telegramInboxSaved();
+
+  const rows = [];
+  if (current) {
+    const parent = current.split('/').slice(0, -1).join('/');
+    rows.push([
+      { text: '⬆ Up', callback_data: 'tm:' + telegramBrowseToken(parent) },
+      { text: '🏠 Vault', callback_data: 'tm:' + telegramBrowseToken('') },
+    ]);
+  }
+  for (const item of shown) {
+    const itemRel = current ? current + '/' + item.name : item.name;
+    rows.push([{
+      text: telegramBrowseIcon(item.name, item.folder) + ' ' + telegramBrowseLabel(item.name),
+      callback_data: (item.folder ? 'tm:' : 'ts:') + telegramBrowseToken(itemRel),
+    }]);
+  }
+  if (pageCount > 1) {
+    const pager = [];
+    if (currentPage > 1) pager.push({ text: '◀ Prev', callback_data: 'tm:' + token + ':p' + (currentPage - 1) });
+    if (currentPage < pageCount) pager.push({ text: 'Next ▶', callback_data: 'tm:' + token + ':p' + (currentPage + 1) });
+    if (pager.length) rows.push(pager);
+  }
+  rows.push([{ text: '☰ Menu', callback_data: 'm:menu' }]);
+
+  let text = '📝 Set the default file for appending\n'
+    + 'Only Markdown notes can be chosen.\n'
+    + (current ? 'Vault / ' + current : 'Vault') + '\n'
+    + 'Current: ' + (saved.target ? '«' + saved.target + '»' : 'not set') + '\n';
+  if (!items.length) {
+    text += 'This folder has no subfolders or Markdown notes.';
+  } else {
+    text += 'Tap a folder to open it, or a note to make it the default.';
+    if (pageCount > 1) text += '\nPage ' + currentPage + '/' + pageCount;
+  }
+  return {
+    text,
+    reply_markup: { inline_keyboard: rows },
+  };
+}
+
+async function telegramMenuAction(query, action) {
+  if (action === 'close') {
+    await telegramBrowseAnswer(query.id, 'Closed');
+    if (query && query.message && query.message.message_id) {
+      await telegramDeleteMessages([query.message.message_id]);
+    }
+    return;
+  }
+  if (action === 'menu') {
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramMenuView());
+    return;
+  }
+  if (action === 'files') {
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramBrowseView('', 1));
+    return;
+  }
+  if (action === 'target') {
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramTargetView('', 1));
+    return;
+  }
+  if (action === 'list') {
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramMenuItemView('📋 Notes\n\n' + telegramInboxList('')));
+    return;
+  }
+  if (action === 'status') {
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramMenuItemView('📊 Status\n\n' + telegramInboxCommand('/status')));
+    return;
+  }
+  if (action === 'help') {
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramMenuItemView('❓ Help\n\n' + telegramInboxCommand('/help')));
+    return;
+  }
+  if (action === 'new') {
+    const saved = telegramInboxSaved();
+    store.set('telegramInbox', { ...saved, target: '' });
+    notifyTelegramInboxChanged();
+    await telegramBrowseAnswer(query.id, 'Default file cleared');
+    await telegramBrowseEditMessage(query, telegramMenuItemView(
+      '🧹 Cleared the default append file.\n'
+      + 'Send a text and pick a file name, or use “Set append file” to choose another one.'
+    ));
+    return;
+  }
+  await telegramBrowseAnswer(query.id);
+}
+
+async function telegramBrowseCallback(query) {
+  const data = String(query && query.data || '');
+  const [action, token, pagePart] = data.split(':');
+  if (action === 'pw' && token === 'cancel') {
+    const gate = telegramSendGate;
+    telegramSendGate = null;
+    if (gate && gate.promptId) await telegramDeleteMessages([gate.promptId]);
+    await telegramBrowseAnswer(query.id, 'Cancelled');
+    return;
+  }
+  if (action === 'm') {
+    await telegramMenuAction(query, token);
+    return;
+  }
+  if (action === 'tm') {
+    const folder = telegramBrowseTokenPath(token);
+    if (folder == null) {
+      await telegramBrowseAnswer(query.id, 'That list has expired. Here is the menu again.');
+      await telegramBrowseEditMessage(query, telegramMenuView());
+      return;
+    }
+    const page = Number(String(pagePart || '').replace(/^p/, '')) || 1;
+    await telegramBrowseAnswer(query.id);
+    await telegramBrowseEditMessage(query, telegramTargetView(folder, page));
+    return;
+  }
+  if (action === 'ts') {
+    const rel = telegramBrowseTokenPath(token);
+    const safe = rel == null ? null : telegramBrowseSafePath(rel);
+    let isNote = false;
+    try { isNote = !!safe && /\.md$/i.test(safe.rel) && fs.statSync(safe.abs).isFile(); } catch (_) {}
+    if (!isNote) {
+      await telegramBrowseAnswer(query.id, 'That note is no longer there.');
+      await telegramBrowseEditMessage(query, telegramTargetView('', 1));
+      return;
+    }
+    const saved = telegramInboxSaved();
+    store.set('telegramInbox', { ...saved, target: safe.rel });
+    notifyTelegramInboxChanged();
+    await telegramBrowseAnswer(query.id, 'Default file set');
+    await telegramBrowseEditMessage(query, telegramMenuItemView(
+      '✅ «' + safe.rel + '» is now the default append file.\n\n' + telegramMenuView().text
+    ));
+    return;
+  }
+  if (action === 'c' || action === 's') {
+    await telegramComposeCallback(query, action, token, pagePart);
+    return;
+  }
+  if (action !== 'd' && action !== 'f') {
+    await telegramBrowseAnswer(query.id);
+    return;
+  }
+  const rel = telegramBrowseTokenPath(token);
+  if (rel == null) {
+    await telegramBrowseAnswer(query.id, 'That list has expired. Here is the vault again.');
+    await telegramBrowseEditMessage(query, telegramBrowseView('', 1));
+    return;
+  }
+  if (action === 'f') {
+    if (telegramPasswordSet()) {
+      await telegramBrowseAnswer(query.id, 'Password required');
+      await telegramAskSendPassword(rel, { kind: 'file', rel });
+      return;
+    }
+    // answer first: Telegram expects a callback answer before the upload starts
+    await telegramBrowseAnswer(query.id, 'Sending…');
+    try {
+      await telegramBrowseSendFile(rel);
+    } catch (e) {
+      const reason = e && e.message ? e.message : String(e);
+      telegramInbox.lastError = 'Could not send «' + rel + '»: ' + reason;
+      await telegramInboxReply('Could not send «' + rel + '»: ' + reason);
+    }
+    return;
+  }
+  const page = Number(String(pagePart || '').replace(/^p/, '')) || 1;
+  await telegramBrowseAnswer(query.id);
+  await telegramBrowseEditMessage(query, telegramBrowseView(rel, page));
 }
 
 async function telegramInboxLoop() {
@@ -2101,8 +3295,12 @@ async function telegramInboxLoop() {
   let offset = Number(store.get('telegramInboxOffset') || 0) || 0;
   // a first start imports the last day of messages, not the whole history
   let onlySince = offset ? 0 : Math.floor(Date.now() / 1000) - 24 * 60 * 60;
-  while (telegramInboxSaved().enabled) {
+  while (telegramInboxSaved().enabled && getTelegramConfig().enabled) {
     const creds = getTelegramConfig();
+    if (!creds.enabled) {
+      telegramInbox.lastError = '';
+      break;
+    }
     if (!creds.botToken || !creds.chatId) {
       telegramInbox.lastError = 'Telegram is not configured. Open Settings → Telegram.';
       break;
@@ -2112,7 +3310,7 @@ async function telegramInboxLoop() {
     const timer = setTimeout(() => controller.abort(), 40000);
     let updates = null;
     try {
-      const query = '?timeout=25&allowed_updates=' + encodeURIComponent('["message","channel_post"]')
+      const query = '?timeout=25&allowed_updates=' + encodeURIComponent('["message","channel_post","callback_query"]')
         + (offset ? '&offset=' + offset : '');
       const res = await fetch('https://api.telegram.org/bot' + creds.botToken + '/getUpdates' + query, { signal: controller.signal });
       const json = await res.json().catch(() => null);
@@ -2127,7 +3325,7 @@ async function telegramInboxLoop() {
       updates = Array.isArray(json.result) ? json.result : [];
     } catch (e) {
       clearTimeout(timer);
-      if (!telegramInboxSaved().enabled) break;
+      if (!telegramInboxSaved().enabled || !getTelegramConfig().enabled) break;
       telegramInbox.lastError = /aborted|abort/i.test(String(e && e.message)) ? '' : ('Telegram: ' + (e && e.message ? e.message : String(e)));
       await new Promise((resolve) => setTimeout(resolve, 5000));
       continue;
@@ -2136,8 +3334,32 @@ async function telegramInboxLoop() {
     const settings = telegramInboxSaved();
     for (const update of updates) {
       // switched off while the request was in flight: save nothing more
-      if (!settings.enabled || !telegramInboxSaved().enabled) break;
+      if (!settings.enabled || !telegramInboxSaved().enabled || !getTelegramConfig().enabled) break;
       offset = Math.max(offset, (update.update_id || 0) + 1);
+      // a button press is not a message, but it carries the chat and the account
+      // that pressed it, so the same chat/owner rules apply
+      const callback = update.callback_query;
+      if (callback) {
+        const callbackChat = String((callback.message && callback.message.chat && callback.message.chat.id)
+          || (callback.from && callback.from.id) || '');
+        if (callbackChat !== String(creds.chatId)) {
+          await telegramBrowseAnswer(callback.id, 'This list belongs to another chat.');
+          continue;
+        }
+        const callbackSender = callback.from && callback.from.id != null ? String(callback.from.id) : '';
+        const callbackOwner = telegramInboxSaved();
+        if (callbackSender) {
+          if (!callbackOwner.ownerId) {
+            store.set('telegramInbox', { ...callbackOwner, ownerId: callbackSender });
+            notifyTelegramInboxChanged();
+          } else if (callbackOwner.ownerId !== callbackSender) {
+            await telegramBrowseAnswer(callback.id, 'Not allowed.');
+            continue;
+          }
+        }
+        await telegramBrowseCallback(callback);
+        continue;
+      }
       const message = update.message || update.channel_post;
       if (!message) continue;
       // a stranger messaging the bot is ignored
@@ -2163,12 +3385,86 @@ async function telegramInboxLoop() {
       }
       const body = String(message.text || message.caption || '').trim();
       if (!body) continue;
-      // a command changes where the next messages go
-      if (body.startsWith('/')) {
-        await telegramInboxReply(telegramInboxCommand(body));
+
+      // A button on the persistent keyboard is a menu action, never note text.
+      // It also cancels a pending file name or password request, so a tap can
+      // never be mistaken for a file name or a secret.
+      const menuAction = telegramReplyMenuAction(body);
+      if (menuAction) {
+        if (telegramSendGate) {
+          const gate = telegramSendGate;
+          telegramSendGate = null;
+          await telegramDeleteMessages([gate.promptId]);
+        }
+        if (telegramCompose) {
+          const pending = telegramCompose;
+          telegramCompose = null;
+          await telegramDeleteMessages([pending.promptId]);
+        }
+        await telegramReplyMenuRun(menuAction);
         continue;
       }
-      await saveTelegramInboxMessage(message, telegramInboxSaved());
+
+      // While the bot is waiting for a password, the next plain message is that
+      // password and is never written into the vault. Commands and /cancel
+      // abandon the request; an expired request lets the message through.
+      if (telegramSendGate) {
+        if (!body.startsWith('/')) {
+          if (Date.now() - telegramSendGate.at <= TELEGRAM_PASSWORD_GATE_MS) {
+            await telegramHandlePasswordMessage(message, body);
+            continue;
+          }
+          const expired = telegramSendGate;
+          telegramSendGate = null;
+          await telegramDeleteMessages([expired.promptId]);
+        } else {
+          const abandoned = telegramSendGate;
+          telegramSendGate = null;
+          await telegramDeleteMessages([abandoned.promptId]);
+          if (/^\/cancel(?:@[\w_]+)?$/i.test(body)) {
+            await telegramInboxReply('Cancelled. Nothing was sent.');
+            continue;
+          }
+        }
+      }
+
+      // a command changes where the next messages go; /files opens the browser
+      if (body.startsWith('/')) {
+        const command = body.split(/\s+/)[0].toLowerCase().replace(/@[\w_]+$/, '');
+        const pending = telegramCompose;
+        telegramCompose = null;
+        if (pending && pending.promptId) await telegramDeleteMessages([pending.promptId]);
+        if (command === '/cancel') {
+          await telegramInboxReply(pending
+            ? 'Cancelled — nothing was saved.'
+            : 'There is nothing to cancel.');
+          continue;
+        }
+        if (command === '/menu' || command === '/start') {
+          await telegramMenuSend();
+          continue;
+        }
+        const browse = telegramBrowseCommandPath(body);
+        if (browse !== null) await telegramBrowseOpen(browse);
+        else await telegramInboxReply(telegramInboxCommand(body));
+        continue;
+      }
+
+      // The next message after "send a file name" is that name. The request
+      // expires on its own so an unrelated message later is not mistaken for a
+      // file name.
+      if (telegramCompose && Date.now() - telegramCompose.at > TELEGRAM_COMPOSE_MS) {
+        const stale = telegramCompose;
+        telegramCompose = null;
+        await telegramDeleteMessages([stale.promptId]);
+      }
+      if (telegramCompose && telegramCompose.stage === 'name') {
+        telegramCompose.at = Date.now();
+        await telegramComposeSave(body);
+        continue;
+      }
+      // a text always starts a new save request, with its folder picker
+      await telegramComposeBegin(message, body);
     }
     if (offset) store.set('telegramInboxOffset', offset);
     onlySince = 0;
@@ -2180,6 +3476,8 @@ async function telegramInboxLoop() {
 function startTelegramInbox() {
   if (telegramInbox.running) return;
   if (!telegramInboxSaved().enabled) return;
+  const creds = getTelegramConfig();
+  if (!creds.enabled || !creds.botToken || !creds.chatId) return;
   telegramInboxLoop().catch((e) => {
     telegramInbox.running = false;
     telegramInbox.lastError = e && e.message ? e.message : String(e);
@@ -2193,13 +3491,45 @@ function stopTelegramInbox() {
   if (controller) { try { controller.abort(); } catch (_) {} }
 }
 
+// The default folder for new notes is a folder *inside* the vault. It is
+// created on the first save, so a folder that was renamed or not made yet does
+// not break the picker.
+function telegramInboxFolderValue(raw) {
+  const clean = String(raw == null ? '' : raw).trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!clean) return { folder: TELEGRAM_INBOX_FOLDER };
+  if (clean.split('/').some((part) => part === '..' || part === '.')) {
+    return { error: 'That folder leaves the vault, so it is refused.' };
+  }
+  if (!NOTES_DIR) return { error: 'No vault is open in Inkwell.' };
+  const root = path.resolve(NOTES_DIR);
+  const absolute = path.resolve(root, clean);
+  if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+    return { error: 'That folder leaves the vault, so it is refused.' };
+  }
+  let stat = null;
+  try { stat = fs.statSync(absolute); } catch (_) {}
+  if (stat && !stat.isDirectory()) return { error: 'That path is a file, not a folder.' };
+  const real = matchExistingPath(root, clean.split('/'));
+  return { folder: real || clean };
+}
+
 ipcMain.handle('telegram:inboxGet', async () => telegramInboxStatus());
 
 ipcMain.handle('telegram:inboxSet', async (_event, config) => {
   const enabled = !!(config && config.enabled === true);
   let target = String((config && config.target) || '').trim().replace(/^\/+/, '');
+  const previous = telegramInboxSaved();
+  let folder = previous.folder;
+  if (config && Object.prototype.hasOwnProperty.call(config, 'folder')) {
+    const parsed = telegramInboxFolderValue(config.folder);
+    if (parsed.error) return { ok: false, error: parsed.error };
+    folder = parsed.folder;
+  }
   if (enabled) {
     const creds = getTelegramConfig();
+    if (!creds.enabled) {
+      return { ok: false, error: 'Telegram is turned off. Turn it on in Settings → Telegram first.' };
+    }
     if (!creds.botToken || !creds.chatId) {
       return { ok: false, error: 'Telegram is not configured. Save a bot token and chat ID first.' };
     }
@@ -2211,11 +3541,16 @@ ipcMain.handle('telegram:inboxSet', async (_event, config) => {
       target = safe.rel;
     }
   }
-  const previous = telegramInboxSaved();
   stopTelegramInbox();
   // turning it on again re-pins the account that writes first, so a different
   // phone or account can be handed over deliberately
-  store.set('telegramInbox', { enabled, target, ownerId: enabled ? '' : previous.ownerId });
+  store.set('telegramInbox', {
+    ...previous,
+    enabled,
+    target,
+    folder,
+    ownerId: enabled ? '' : previous.ownerId,
+  });
   protectStoreFile();
   telegramInbox.lastError = '';
   if (enabled) startTelegramInbox();
@@ -2226,13 +3561,90 @@ ipcMain.handle('telegram:inboxSet', async (_event, config) => {
 
 ipcMain.handle('telegram:inboxCommands', async () => syncTelegramCommands());
 
+/* ---- Telegram upload cache ---- */
+// Telegram returns a file_id for every uploaded document; the same bot can send
+// that id again without uploading the bytes. Entries are keyed by bot+chat plus
+// a hash of the exact content, so an edited note is uploaded again, and a new
+// bot token can never reuse an id that belongs to another bot. A stale id simply
+// falls back to a normal upload.
+const TELEGRAM_FILE_CACHE_MAX = 300;
+const TELEGRAM_FILE_CACHE_TTL = 60 * 24 * 60 * 60 * 1000;
+
+function telegramFileCacheTag(creds) {
+  return crypto.createHash('sha256')
+    .update(String((creds && creds.botToken) || '') + '\n' + String((creds && creds.chatId) || ''))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function telegramFileCacheKey(creds, kind, material) {
+  const hash = crypto.createHash('sha256');
+  hash.update(Buffer.isBuffer(material) ? material : String(material == null ? '' : material));
+  return telegramFileCacheTag(creds) + ':' + kind + ':' + hash.digest('hex').slice(0, 32);
+}
+
+function telegramFileCacheGet(key) {
+  if (!key) return '';
+  const saved = store.get('telegramFileCache');
+  const entry = saved && typeof saved === 'object' ? saved[key] : null;
+  if (!entry || typeof entry.fileId !== 'string' || !entry.fileId) return '';
+  if (!entry.at || Date.now() - entry.at > TELEGRAM_FILE_CACHE_TTL) {
+    telegramFileCacheDrop(key);
+    return '';
+  }
+  return entry.fileId;
+}
+
+function telegramFileCacheSet(key, fileId) {
+  if (!key || !fileId) return;
+  const saved = store.get('telegramFileCache');
+  const cache = saved && typeof saved === 'object' ? { ...saved } : {};
+  cache[key] = { fileId: String(fileId), at: Date.now() };
+  const entries = Object.entries(cache)
+    .filter(([, entry]) => entry && typeof entry.fileId === 'string' && entry.at)
+    .sort((a, b) => (b[1].at || 0) - (a[1].at || 0))
+    .slice(0, TELEGRAM_FILE_CACHE_MAX);
+  store.set('telegramFileCache', Object.fromEntries(entries));
+}
+
+function telegramFileCacheDrop(key) {
+  const saved = store.get('telegramFileCache');
+  if (!saved || typeof saved !== 'object' || !saved[key]) return;
+  const cache = { ...saved };
+  delete cache[key];
+  store.set('telegramFileCache', cache);
+}
+
 // Both formats share the same upload; only the file name and MIME type differ.
-async function sendTelegramFile(creds, filename, blob) {
+// An optional cache key turns a repeat send into a file_id message, which is
+// much faster for big PDFs and videos and saves the upload quota.
+async function sendTelegramFile(creds, filename, blob, cacheKey) {
+  if (cacheKey) {
+    const fileId = telegramFileCacheGet(cacheKey);
+    if (fileId) {
+      try {
+        const form = new FormData();
+        form.append('chat_id', creds.chatId);
+        form.append('caption', filename);
+        form.append('document', fileId);
+        return await telegramApi('sendDocument', form);
+      } catch (_) {
+        // Telegram may rotate an old id; upload the bytes in that case.
+        telegramFileCacheDrop(cacheKey);
+      }
+    }
+  }
+
   const form = new FormData();
   form.append('chat_id', creds.chatId);
   form.append('caption', filename);
   form.append('document', blob, filename);
-  await telegramApi('sendDocument', form);
+  const result = await telegramApi('sendDocument', form);
+  if (cacheKey) {
+    const fileId = result && result.document && result.document.file_id;
+    if (typeof fileId === 'string' && fileId) telegramFileCacheSet(cacheKey, fileId);
+  }
+  return result;
 }
 
 ipcMain.handle('telegram:sendHTML', async (event, suggestedName, payload) => {
@@ -2240,6 +3652,9 @@ ipcMain.handle('telegram:sendHTML', async (event, suggestedName, payload) => {
   if (!win) return { success: false, error: 'No window available' };
 
   const creds = getTelegramConfig();
+  if (!creds.enabled) {
+    return { success: false, error: 'Telegram is turned off. Turn it on in Settings → Telegram.' };
+  }
   if (!creds.botToken || !creds.chatId) {
     return { success: false, error: 'Telegram is not configured. Open Settings → Telegram.' };
   }
@@ -2255,7 +3670,12 @@ ipcMain.handle('telegram:sendHTML', async (event, suggestedName, payload) => {
   }
 
   try {
-    await sendTelegramFile(creds, filename, new Blob([html], { type: 'text/html' }));
+    await sendTelegramFile(
+      creds,
+      filename,
+      new Blob([html], { type: 'text/html' }),
+      telegramFileCacheKey(creds, 'html', html)
+    );
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -2269,6 +3689,9 @@ ipcMain.handle('telegram:sendMarkdown', async (event, suggestedName, text) => {
   if (!win) return { success: false, error: 'No window available' };
 
   const creds = getTelegramConfig();
+  if (!creds.enabled) {
+    return { success: false, error: 'Telegram is turned off. Turn it on in Settings → Telegram.' };
+  }
   if (!creds.botToken || !creds.chatId) {
     return { success: false, error: 'Telegram is not configured. Open Settings → Telegram.' };
   }
@@ -2278,7 +3701,12 @@ ipcMain.handle('telegram:sendMarkdown', async (event, suggestedName, text) => {
   const filename = docBaseName(suggestedName) + '.md';
 
   try {
-    await sendTelegramFile(creds, filename, new Blob([body], { type: 'text/markdown' }));
+    await sendTelegramFile(
+      creds,
+      filename,
+      new Blob([body], { type: 'text/markdown' }),
+      telegramFileCacheKey(creds, 'markdown', body)
+    );
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };

@@ -335,9 +335,14 @@ const els = {
   settingsVaultStatus: $('settingsVaultStatus'),
   settingsTelegramToken: $('settingsTelegramToken'),
   settingsTelegramChat: $('settingsTelegramChat'),
+  settingsTelegramEnabled: $('settingsTelegramEnabled'),
+  settingsTelegramPassword: $('settingsTelegramPassword'),
+  settingsTelegramPasswordClear: $('settingsTelegramPasswordClear'),
+  settingsTelegramPasswordState: $('settingsTelegramPasswordState'),
   settingsTelegramTest: $('settingsTelegramTest'),
   settingsTelegramSave: $('settingsTelegramSave'),
   settingsTelegramInbox: $('settingsTelegramInbox'),
+  settingsTelegramInboxFolder: $('settingsTelegramInboxFolder'),
   settingsTelegramInboxTarget: $('settingsTelegramInboxTarget'),
   settingsTelegramCommands: $('settingsTelegramCommands'),
   settingsTelegramInboxStatus: $('settingsTelegramInboxStatus'),
@@ -910,6 +915,23 @@ function loadPreferences() {
   applySplitPos();
   applySidebarWidth();
   renderTabs();
+  syncFileDirectionsToMain();
+}
+
+var lastFileDirectionsJSON = '';
+// The Telegram bot runs in the main process, so it needs the same per-file
+// RTL/LTR choices the editor keeps. Only explicit choices are mirrored; "auto"
+// means the bot should detect the direction from the text.
+function syncFileDirectionsToMain() {
+  if (!window.inkwell || typeof window.inkwell.setFileDirections !== 'function') return;
+  const map = {};
+  for (const [rel, dir] of Object.entries(state.dirByFile || {})) {
+    if (dir === 'rtl' || dir === 'ltr') map[rel] = dir;
+  }
+  const json = JSON.stringify(map);
+  if (json === lastFileDirectionsJSON) return;
+  lastFileDirectionsJSON = json;
+  window.inkwell.setFileDirections(map).catch(() => {});
 }
 
 function savePreferences() {
@@ -955,6 +977,7 @@ function savePreferences() {
       ttsSpeed: state.ttsSpeed,
     }));
   } catch (_) {}
+  syncFileDirectionsToMain();
 }
 
 let prefsSaveTimer = null;
@@ -7229,7 +7252,28 @@ async function loadTelegramSettings() {
     if (cfg && cfg.success) {
       els.settingsTelegramToken.value = cfg.botToken || '';
       els.settingsTelegramChat.value = cfg.chatId || '';
-      if (cfg.botToken && cfg.chatId) {
+      if (els.settingsTelegramEnabled) els.settingsTelegramEnabled.checked = cfg.enabled !== false;
+      if (els.settingsTelegramPassword) {
+        els.settingsTelegramPassword.value = '';
+        els.settingsTelegramPassword.disabled = false;
+        // The stored password is a hash and is never sent back to the window.
+        // Say that in the field itself so an empty box does not look like a
+        // password that was lost.
+        setUITitle(
+          els.settingsTelegramPassword,
+          cfg.passwordSet
+            ? 'Saved password — leave empty to keep it, or type a new one'
+            : 'At least 4 characters — leave empty for no password',
+          'placeholder'
+        );
+      }
+      if (els.settingsTelegramPasswordClear) els.settingsTelegramPasswordClear.checked = false;
+      if (els.settingsTelegramPasswordState) {
+        els.settingsTelegramPasswordState.textContent = cfg.passwordSet ? t('Password set') : t('Password not set');
+      }
+      if (!cfg.enabled) {
+        settingsTelegramStatus('Telegram is off. Turn it on to send or receive.', '');
+      } else if (cfg.botToken && cfg.chatId) {
         const origin = cfg.source === 'env' ? 'from environment' : 'saved settings';
         settingsTelegramStatus('Configured ' + origin + '.', 'ok');
       } else {
@@ -7251,6 +7295,7 @@ let telegramInboxFolder = 'Telegram';
 
 function telegramInboxStatusText(status) {
   if (!status) return '';
+  if (status.telegramEnabled === false) return 'Telegram is off. Turn it on above to use the phone inbox.';
   if (!status.ready) return 'Save a bot token and chat ID first.';
   if (status.lastError) return status.lastError;
   if (!status.enabled) return 'Off. Messages to the bot are only sent, never saved.';
@@ -7262,6 +7307,25 @@ function telegramInboxStatusText(status) {
   return 'Listening. Send the bot a message from your phone.';
 }
 
+function renderTelegramInboxFolders(current) {
+  const select = els.settingsTelegramInboxFolder;
+  if (!select) return;
+  const folders = new Set(['Telegram']);
+  for (const folder of state.folders || []) {
+    if (!folder || !folder.path || isArchivedPath(folder.path)) continue;
+    folders.add(folder.path);
+  }
+  if (current) folders.add(current);
+  select.innerHTML = '';
+  for (const folder of [...folders].sort((a, b) => a.localeCompare(b))) {
+    const option = document.createElement('option');
+    option.value = folder;
+    option.textContent = folder + '/';
+    select.appendChild(option);
+  }
+  select.value = current || 'Telegram';
+}
+
 function renderTelegramInboxTargets(current) {
   const select = els.settingsTelegramInboxTarget;
   if (!select) return;
@@ -7270,7 +7334,7 @@ function renderTelegramInboxTargets(current) {
   select.innerHTML = '';
   const first = document.createElement('option');
   first.value = '';
-  first.textContent = `A new note in ${telegramInboxFolder}/`;
+  first.textContent = t('No default file');
   select.appendChild(first);
   for (const file of files) {
     const option = document.createElement('option');
@@ -7301,7 +7365,9 @@ async function loadTelegramInbox() {
   els.settingsTelegramInbox.checked = !!(status && status.enabled);
   els.settingsTelegramInbox.disabled = !(status && status.ready);
   if (status && status.folder) telegramInboxFolder = status.folder;
+  renderTelegramInboxFolders((status && status.folder) || telegramInboxFolder);
   renderTelegramInboxTargets((status && status.target) || '');
+  if (els.settingsTelegramInboxFolder) els.settingsTelegramInboxFolder.disabled = !(status && status.ready);
   if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.disabled = !(status && status.ready);
   const line = telegramInboxStatusText(status);
   if (els.settingsTelegramInboxStatus) {
@@ -7312,12 +7378,13 @@ async function loadTelegramInbox() {
 
 async function saveTelegramInbox() {
   const enabled = !!(els.settingsTelegramInbox && els.settingsTelegramInbox.checked);
+  const folder = els.settingsTelegramInboxFolder ? els.settingsTelegramInboxFolder.value : '';
   const target = els.settingsTelegramInboxTarget ? els.settingsTelegramInboxTarget.value : '';
   let status = null;
   try {
-    status = await window.inkwell.setTelegramInbox({ enabled, target });
+    status = await window.inkwell.setTelegramInbox({ enabled, folder, target });
   } catch (e) {
-    status = { ok: false, ready: true, enabled, target, lastError: e && e.message ? e.message : String(e) };
+    status = { ok: false, ready: true, enabled, folder, target, lastError: e && e.message ? e.message : String(e) };
   }
   if (status && status.ok === false) {
     toast(status.error || 'Could not change the inbox', 'error');
@@ -7537,11 +7604,23 @@ async function saveAISettingsAsync() {
 async function saveTelegramSettings() {
   const botToken = els.settingsTelegramToken.value.trim();
   const chatId = els.settingsTelegramChat.value.trim();
+  const enabled = !!(els.settingsTelegramEnabled && els.settingsTelegramEnabled.checked);
+  const password = els.settingsTelegramPassword ? els.settingsTelegramPassword.value : '';
+  const clearPassword = !!(els.settingsTelegramPasswordClear && els.settingsTelegramPasswordClear.checked);
   settingsTelegramStatus('Saving…', 'busy');
   try {
-    const res = await window.inkwell.saveTelegramConfig({ botToken, chatId });
+    const res = await window.inkwell.saveTelegramConfig({
+      botToken,
+      chatId,
+      enabled,
+      password,
+      clearPassword,
+    });
     if (res && res.success) {
-      settingsTelegramStatus(botToken ? 'Telegram settings saved.' : 'Telegram settings cleared.', 'ok');
+      if (els.settingsTelegramPassword) els.settingsTelegramPassword.value = '';
+      if (els.settingsTelegramPasswordClear) els.settingsTelegramPasswordClear.checked = false;
+      if (els.settingsTelegramPassword) els.settingsTelegramPassword.disabled = false;
+      settingsTelegramStatus(botToken ? 'Telegram settings saved.' : 'Telegram credentials cleared.', 'ok');
       toast('Telegram settings saved', 'success');
       await loadTelegramSettings();
     } else {
@@ -7649,6 +7728,33 @@ function setupSettings() {
   if (els.aiProviderAdd) setupCustomProviderForm();
   els.settingsTelegramSave.addEventListener('click', saveTelegramSettings);
   els.settingsTelegramTest.addEventListener('click', testTelegram);
+  if (els.settingsTelegramEnabled) {
+    els.settingsTelegramEnabled.addEventListener('change', async () => {
+      const enabled = els.settingsTelegramEnabled.checked;
+      try {
+        const res = await window.inkwell.saveTelegramConfig({ enabled });
+        if (!res || !res.success) {
+          els.settingsTelegramEnabled.checked = !enabled;
+          settingsTelegramStatus((res && res.error) || 'Could not change Telegram.', 'err');
+          return;
+        }
+        toast(enabled ? 'Telegram is on' : 'Telegram is off', enabled ? 'success' : 'info');
+        await loadTelegramSettings();
+      } catch (_) {
+        els.settingsTelegramEnabled.checked = !enabled;
+        settingsTelegramStatus('Could not change Telegram.', 'err');
+      }
+    });
+  }
+  if (els.settingsTelegramPassword && els.settingsTelegramPasswordClear) {
+    els.settingsTelegramPasswordClear.addEventListener('change', () => {
+      els.settingsTelegramPassword.disabled = els.settingsTelegramPasswordClear.checked;
+      if (els.settingsTelegramPasswordClear.checked) els.settingsTelegramPassword.value = '';
+    });
+    els.settingsTelegramPassword.addEventListener('input', () => {
+      if (els.settingsTelegramPassword.value) els.settingsTelegramPasswordClear.checked = false;
+    });
+  }
 }
 
 /* ---- custom providers: one form for adding and for editing ---- */
@@ -7845,10 +7951,9 @@ function setupCustomProviderForm() {
     submitCustomProviderForm();
   });
   syncProviderFormFields();
-  els.settingsTelegramSave.addEventListener('click', saveTelegramSettings);
-  els.settingsTelegramTest.addEventListener('click', testTelegram);
   // the phone inbox applies as soon as the switch or the target changes
   if (els.settingsTelegramInbox) els.settingsTelegramInbox.addEventListener('change', saveTelegramInbox);
+  if (els.settingsTelegramInboxFolder) els.settingsTelegramInboxFolder.addEventListener('change', saveTelegramInbox);
   if (els.settingsTelegramInboxTarget) els.settingsTelegramInboxTarget.addEventListener('change', saveTelegramInbox);
   // the "/" menu of the chat comes from the bot's command list
   if (els.settingsTelegramCommands) {

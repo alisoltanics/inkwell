@@ -970,6 +970,11 @@
                     <section class="settings-pane hidden" data-settings-pane="telegram">
                         <h4>Telegram</h4>
                         <p class="settings-desc">Send the current document to a Telegram chat as a self-contained HTML file. Create a bot with @BotFather to get a token, then use your chat ID (or a channel ID) as the destination.</p>
+                        <label class="settings-check">
+                            <input type="checkbox" id="settingsTelegramEnabled">
+                            <span>Enable Telegram</span>
+                        </label>
+                        <p class="modal-hint">When this is off, sending, the phone inbox and the /files browser all stop. The bot token, chat ID and password stay saved.</p>
                         <div class="settings-field">
                             <label for="settingsTelegramToken">Bot token</label>
                             <div class="input-with-ext">
@@ -980,6 +985,24 @@
                             <label for="settingsTelegramChat">Chat ID</label>
                             <input type="text" id="settingsTelegramChat" placeholder="e.g. 123456789" autocomplete="off" spellcheck="false">
                         </div>
+
+                        <div class="settings-group">
+                            <div class="settings-group-head">
+                                <h5>Send password</h5>
+                                <span class="settings-opt" id="settingsTelegramPasswordState">Password not set</span>
+                            </div>
+                            <p class="settings-desc">When a password is set, the bot asks for it before sending a file from the vault with /files. The HTML of a note you just sent to the bot goes back without asking. After a password is checked, the bot tries to delete the password message and its prompt from the chat; Telegram may still keep its own copy. If no password is set, nothing is asked.</p>
+                            <div class="settings-field">
+                                <label for="settingsTelegramPassword">Password</label>
+                                <input type="password" id="settingsTelegramPassword" placeholder="At least 4 characters — leave empty to keep the saved password" autocomplete="new-password" spellcheck="false">
+                                <p class="modal-hint">The saved password is never shown. Leave this empty to keep it, or type a new one to replace it.</p>
+                                <label class="settings-check">
+                                    <input type="checkbox" id="settingsTelegramPasswordClear">
+                                    <span>Remove the send password</span>
+                                </label>
+                            </div>
+                        </div>
+
                         <p class="settings-status" id="settingsTelegramStatus"></p>
                         <p class="modal-hint">Credentials are stored locally in app settings. You can also use the <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code> environment variables.</p>
                         <div class="settings-actions">
@@ -992,15 +1015,21 @@
                                 <h5>Write from your phone</h5>
                                 <span class="settings-opt">inbox</span>
                             </div>
-                            <p class="settings-desc">While Inkwell is open, anything you send to the bot is written into the vault: a new note in <code>Telegram/</code>, or a message appended to the note you pick. Everything that arrives is kept in <code>Telegram/</code> — a file or a photo you send is saved there, keeping its name and extension, and images and PDFs open in the app. The choice can also be made from the phone: <code>/to Note.md</code> writes into that note, <code>/new</code> goes back to one note per message, <code>/list</code> shows the notes, <code>/clear Note.md</code> empties one (it asks for the same command again), <code>/status</code> shows the current one. Only this chat is accepted, and in a group only the account that wrote first — every other message is ignored.</p>
+                            <p class="settings-desc">While Inkwell is open, a text you send to the bot opens a folder picker, then asks for a file name. The picker also offers the default folder and a shortcut to append to the default file. Files and photos are saved in Telegram/ — the folder is always kept there, whatever note the text is written into. The choice can also be made from the phone: /to Note.md sets the default append file, /new clears it, /list shows the notes, /clear Note.md empties one (it asks for the same command again), /status shows the defaults. Only this chat is accepted, and in a group only the account that wrote first — every other message is ignored.</p>
                             <label class="settings-check">
                                 <input type="checkbox" id="settingsTelegramInbox">
                                 <span>Turn messages to the bot into notes</span>
                             </label>
                             <div class="settings-field">
-                                <label for="settingsTelegramInboxTarget">Where they go</label>
+                                <label for="settingsTelegramInboxFolder">Default folder for new notes</label>
+                                <select id="settingsTelegramInboxFolder">
+                                    <option value="Telegram">Telegram/</option>
+                                </select>
+                            </div>
+                            <div class="settings-field">
+                                <label for="settingsTelegramInboxTarget">Default file to append to</label>
                                 <select id="settingsTelegramInboxTarget">
-                                    <option value="">A new note in Telegram/</option>
+                                    <option value="">No default file</option>
                                 </select>
                             </div>
                             <p class="settings-status" id="settingsTelegramInboxStatus"></p>
