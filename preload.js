@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('inkwell', {
   exportHTML: (sourcePath, payload) => ipcRenderer.invoke('dialog:exportHTML', sourcePath, payload),
   sendDocToTelegram: (suggestedName, payload) => ipcRenderer.invoke('telegram:sendHTML', suggestedName, payload),
   sendDocMarkdown: (suggestedName, text) => ipcRenderer.invoke('telegram:sendMarkdown', suggestedName, text),
-  printDoc: (payload) => ipcRenderer.invoke('print:html', payload),
+  printPreview: (payload) => ipcRenderer.invoke('print:preview', payload),
 
   // settings
   getTelegramConfig: () => ipcRenderer.invoke('settings:getTelegram'),

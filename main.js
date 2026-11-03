@@ -1513,10 +1513,175 @@ ipcMain.handle('dialog:exportHTML', async (event, sourcePath, payload) => {
   }
 });
 
-// Render the standalone HTML in an offscreen window and hand it to the
-// system print dialog. The payload is the same one exportHTML uses, so the
-// printed output matches the exported HTML exactly.
-ipcMain.handle('print:html', async (event, payload) => {
+/* ---- print preview ---- */
+// The old flow printed from a hidden window and destroyed it as soon as the
+// print callback fired. On Linux that could take the app down with it, and it
+// gave the user no chance to see the page first. Printing now happens in a
+// visible preview window that keeps the document on screen and only talks to
+// the printer when its Print button is pressed.
+let printPreviewWindow = null;
+let printPreviewFile = '';
+
+function clearPrintPreviewFile() {
+  if (!printPreviewFile) return;
+  try { fs.unlinkSync(printPreviewFile); } catch (_) {}
+  printPreviewFile = '';
+}
+
+function closePrintPreview() {
+  const win = printPreviewWindow;
+  printPreviewWindow = null;
+  if (win && !win.isDestroyed()) win.destroy();
+  clearPrintPreviewFile();
+}
+
+// A light toolbar and an A4-width sheet around the same standalone document
+// that is exported and printed. The toolbar is part of the preview only; the
+// print stylesheet hides it, so the paper gets exactly the document.
+function printPreviewChrome(html) {
+  const chrome = `
+<style id="inkwell-print-preview-style">
+  @media screen {
+    html, body { background: #e7ecf2 !important; }
+    body {
+      display: flex !important;
+      flex-direction: column;
+      align-items: center;
+      padding: 92px 20px 60px !important;
+    }
+    .doc-header, .markdown-body {
+      width: 100% !important;
+      max-width: 210mm !important;
+      border-radius: 3px !important;
+      box-shadow: 0 12px 34px rgba(15, 23, 42, 0.12) !important;
+    }
+    .doc-header {
+      margin: 0 auto !important;
+      padding: 26mm 18mm 8mm !important;
+      border-radius: 3px 3px 0 0 !important;
+    }
+    .markdown-body {
+      margin: 0 auto !important;
+      padding: 10mm 18mm 20mm !important;
+      border-radius: 0 0 3px 3px !important;
+    }
+  }
+  #inkwell-print-bar {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 12px 22px;
+    background: #0f172a;
+    color: #e6edf7;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    box-shadow: 0 2px 18px rgba(15, 23, 42, 0.28);
+  }
+  #inkwell-print-bar .ipb-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  #inkwell-print-bar .ipb-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #38bdf8; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.16);
+    flex: 0 0 auto;
+  }
+  #inkwell-print-bar strong { font-weight: 650; letter-spacing: 0.01em; }
+  #inkwell-print-bar .ipb-meta { color: #93a4bd; font-size: 12px; }
+  #inkwell-print-bar .ipb-actions { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; }
+  #inkwell-print-bar .ipb-status { color: #93a4bd; font-size: 12px; margin-right: 5px; }
+  #inkwell-print-bar .ipb-status[data-tone="ok"] { color: #86efac; }
+  #inkwell-print-bar .ipb-status[data-tone="error"] { color: #fca5a5; }
+  #inkwell-print-bar button {
+    appearance: none;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 8px;
+    padding: 7px 15px;
+    background: rgba(148, 163, 184, 0.1);
+    color: #e6edf7;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  }
+  #inkwell-print-bar button:hover { background: rgba(148, 163, 184, 0.2); }
+  #inkwell-print-bar button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+  #inkwell-print-bar button:disabled { opacity: 0.55; cursor: default; }
+  #inkwell-print-bar #ipb-print {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #ffffff;
+  }
+  #inkwell-print-bar #ipb-print:hover { background: #1d4ed8; border-color: #1d4ed8; }
+  @media print {
+    #inkwell-print-bar { display: none !important; }
+  }
+  @media screen and (max-width: 760px) {
+    body { padding: 82px 8px 34px !important; }
+    #inkwell-print-bar { padding: 10px 12px; }
+    #inkwell-print-bar .ipb-meta { display: none; }
+    #inkwell-print-bar .ipb-status { display: none; }
+  }
+</style>
+<div id="inkwell-print-bar" dir="ltr">
+  <div class="ipb-brand">
+    <span class="ipb-dot"></span>
+    <strong>Print preview</strong>
+    <span class="ipb-meta">A4 &middot; background graphics on</span>
+  </div>
+  <div class="ipb-actions">
+    <span class="ipb-status" id="ipb-status"></span>
+    <button type="button" id="ipb-close">Close</button>
+    <button type="button" id="ipb-print">Print&hellip;</button>
+  </div>
+</div>
+<script>
+(function () {
+  var printButton = document.getElementById('ipb-print');
+  var closeButton = document.getElementById('ipb-close');
+  var status = document.getElementById('ipb-status');
+  function setStatus(text, tone) {
+    if (!status) return;
+    status.textContent = text || '';
+    status.dataset.tone = tone || '';
+  }
+  if (closeButton) closeButton.addEventListener('click', function () {
+    if (window.inkwellPrint) window.inkwellPrint.close();
+    else window.close();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    if (window.inkwellPrint) window.inkwellPrint.close();
+    else window.close();
+  });
+  if (!printButton) return;
+  printButton.addEventListener('click', async function () {
+    if (!window.inkwellPrint) { window.print(); return; }
+    var label = printButton.textContent;
+    printButton.disabled = true;
+    printButton.textContent = 'Printing\\u2026';
+    setStatus('');
+    try {
+      var result = await window.inkwellPrint.print();
+      if (result && result.success) setStatus('Sent to printer', 'ok');
+      else if (result && result.canceled) setStatus('Printing canceled');
+      else setStatus((result && result.error) || 'Printing failed', 'error');
+    } catch (_) {
+      setStatus('Printing failed', 'error');
+    } finally {
+      printButton.disabled = false;
+      printButton.textContent = label;
+    }
+  });
+})();
+</script>`;
+  const at = html.lastIndexOf('</body>');
+  return at === -1 ? html + chrome : html.slice(0, at) + chrome + '\n' + html.slice(at);
+}
+
+// Open the document in a preview window. The page is fully rendered before it
+// is shown, so the first paint is not a blank sheet.
+ipcMain.handle('print:preview', async (event, payload) => {
   const win = windowFrom(event);
   if (!win) return { success: false, error: 'No window available' };
 
@@ -1527,45 +1692,100 @@ ipcMain.handle('print:html', async (event, payload) => {
     return { success: false, error: 'Failed to build document: ' + e.message };
   }
 
+  closePrintPreview();
+
+  const title = String((payload && payload.title) || 'Document').trim() || 'Document';
   const tmpFile = path.join(app.getPath('temp'), `inkwell-print-${Date.now()}-${process.pid}.html`);
-  try { fs.writeFileSync(tmpFile, html, 'utf8'); } catch (e) {
+  try { fs.writeFileSync(tmpFile, printPreviewChrome(html), 'utf8'); } catch (e) {
     return { success: false, error: e.message };
   }
-  const cleanup = () => { try { fs.unlinkSync(tmpFile); } catch (_) {} };
 
+  const previewWin = new BrowserWindow({
+    width: 940,
+    height: 1000,
+    minWidth: 640,
+    minHeight: 520,
+    title: 'Print preview — ' + title,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    parent: win,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#e7ecf2',
+    webPreferences: {
+      preload: path.join(__dirname, 'print-preload.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  printPreviewWindow = previewWin;
+  printPreviewFile = tmpFile;
+
+  const cleanup = () => {
+    if (printPreviewWindow === previewWin) {
+      printPreviewWindow = null;
+      clearPrintPreviewFile();
+    }
+  };
+  previewWin.once('closed', cleanup);
+  previewWin.on('page-title-updated', (evt) => {
+    evt.preventDefault();
+    if (!previewWin.isDestroyed()) previewWin.setTitle('Print preview — ' + title);
+  });
+  previewWin.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url);
+    return { action: 'deny' };
+  });
+  previewWin.webContents.on('will-navigate', (evt, url) => {
+    if (url === previewWin.webContents.getURL()) return;
+    evt.preventDefault();
+    openExternalUrl(url);
+  });
+
+  try {
+    await previewWin.loadFile(tmpFile);
+  } catch (e) {
+    cleanup();
+    if (!previewWin.isDestroyed()) previewWin.destroy();
+    return { success: false, error: e.message };
+  }
+  if (!previewWin.isDestroyed()) {
+    previewWin.show();
+    previewWin.focus();
+  }
+  return { success: true };
+});
+
+ipcMain.handle('print:run', async (event) => {
+  const sender = event.sender;
+  const owner = BrowserWindow.fromWebContents(sender);
+  if (!owner || owner.isDestroyed()) {
+    return { success: false, error: 'The print preview is closed.' };
+  }
   return await new Promise((resolve) => {
-    const printWin = new BrowserWindow({
-      width: 800,
-      height: 600,
-      show: false,
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-    });
-    let settled = false;
+    let finished = false;
     const done = (result) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (!printWin.isDestroyed()) printWin.destroy();
+      if (finished) return;
+      finished = true;
       resolve(result);
     };
-
-    printWin.webContents.once('did-finish-load', () => {
-      // silent:false → show the OS print dialog (page preview + printer choice)
-      printWin.webContents.print({ silent: false, printBackground: true }, (error) => {
-        if (error && !/cancel/i.test(String(error.message || error))) {
-          done({ success: false, error: String(error.message || error) });
-        } else {
-          done({ success: true });
-        }
+    try {
+      // Electron calls this back with (success, failureReason), not an Error.
+      sender.print({ silent: false, printBackground: true }, (success, failureReason) => {
+        if (success) return done({ success: true });
+        const reason = String(failureReason || '');
+        if (/cancel/i.test(reason)) return done({ success: false, canceled: true });
+        return done({ success: false, error: reason || 'The printer did not accept the job.' });
       });
-    });
-    printWin.webContents.once('did-fail-load', (_e, code, desc) => {
-      done({ success: false, error: `Failed to render document (${desc || code})` });
-    });
-    printWin.on('closed', () => done({ success: false, error: 'Print window was closed' }));
-
-    printWin.loadFile(tmpFile).catch((e) => done({ success: false, error: e.message }));
+    } catch (e) {
+      done({ success: false, error: e.message });
+    }
   });
+});
+
+ipcMain.on('print:close', (event) => {
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  if (owner && !owner.isDestroyed()) owner.close();
 });
 
 /* ================= TELEGRAM SETTINGS + SENDING ================= */

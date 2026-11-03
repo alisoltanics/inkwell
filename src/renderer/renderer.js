@@ -3905,13 +3905,15 @@ async function printDoc() {
   if (btn) btn.classList.add('busy');
   try {
     const payload = await buildPrintPayload();
-    toast('Preparing print\u2026', 'info', 2000);
-    const res = await window.inkwell.printDoc(payload);
-    if (res && !res.success) {
-      toast('Print failed: ' + (res.error || 'unknown error'), 'error', 5000);
+    toast('Preparing print preview\u2026', 'info', 2000);
+    const res = await window.inkwell.printPreview(payload);
+    if (res && res.success) {
+      toast('Print preview opened', 'success', 2200);
+    } else {
+      toast('Could not open the print preview: ' + ((res && res.error) || 'unknown error'), 'error', 5000);
     }
   } catch (e) {
-    toast('Print failed', 'error');
+    toast('Could not open the print preview', 'error');
   } finally {
     state.printBusy = false;
     if (btn) btn.classList.remove('busy');

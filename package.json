@@ -51,6 +51,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "print-preload.js",
       "html.js",
       "src/**/*",
       "assets/**/*"
