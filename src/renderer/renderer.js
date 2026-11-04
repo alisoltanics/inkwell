@@ -742,6 +742,30 @@ function setupVaultWatch() {
 }
 setupVaultWatch();
 
+// A note opened from outside (second launch with a path): show it in the vault.
+function setupOpenFromOutside() {
+  const api = window.inkwell;
+  if (!api || !api.onOpenFile) return;
+  api.onOpenFile(async (payload) => {
+    try {
+      const abs = payload && payload.path;
+      if (!abs) return;
+      const root = (await api.getNotesDir() || '').replace(/\/+$/, '');
+      if (root && abs.startsWith(root + '/')) {
+        const rel = abs.slice(root.length + 1);
+        await refreshFiles();
+        expandAncestors(rel);
+        await selectFile(rel, { reveal: true });
+      } else {
+        toast('That file is outside the vault', 'error');
+      }
+    } catch (_) {
+      toast('Could not open file', 'error');
+    }
+  });
+}
+setupOpenFromOutside();
+
 function formatRelative(ms) {
   const diff = Date.now() - ms;
   const min = 60 * 1000, hour = 60 * min, day = 24 * hour;

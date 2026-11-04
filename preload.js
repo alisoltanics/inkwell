@@ -55,6 +55,12 @@ contextBridge.exposeInMainWorld('inkwell', {
     ipcRenderer.on('win:state', handler);
     return () => ipcRenderer.removeListener('win:state', handler);
   },
+  // a note the system asked this window to open (command line / second launch)
+  onOpenFile: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('app:open-file', handler);
+    return () => ipcRenderer.removeListener('app:open-file', handler);
+  },
   // notes that appeared, changed or disappeared outside the app
   onVaultChanged: (cb) => {
     const handler = (_event, payload) => cb(payload);

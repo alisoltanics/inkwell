@@ -330,9 +330,40 @@ function createWindow() {
   });
 }
 
+// One window only: launching again with a file (the "Save to Inkwell" button
+// does this) hands the file to the running app and brings it to the front.
+function noteArgFrom(argv) {
+  const found = (argv || []).slice(1).find((a) => /\.(?:md|markdown)$/i.test(a) && path.isAbsolute(a));
+  return found || '';
+}
+let pendingOpenPath = noteArgFrom(process.argv);
+function sendOpenFile(abs) {
+  if (!abs) return;
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+    pendingOpenPath = abs;
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send('app:open-file', { path: abs });
+}
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => sendOpenFile(noteArgFrom(argv)));
+}
+
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   createWindow();
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (pendingOpenPath) {
+      const abs = pendingOpenPath;
+      pendingOpenPath = '';
+      setTimeout(() => sendOpenFile(abs), 600);
+    }
+  });
   watchVault();
   // warm the probe that decides which isolation flags the installed Claude CLI
   // understands, so the first answer is not delayed by it
