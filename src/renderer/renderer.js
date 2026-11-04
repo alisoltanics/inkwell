@@ -757,7 +757,19 @@ function setupOpenFromOutside() {
         expandAncestors(rel);
         await selectFile(rel, { reveal: true });
       } else {
-        toast('That file is outside the vault', 'error');
+        const res = await api.readExternal(abs);
+        if (!res || !res.success) {
+          toast('Could not open file: ' + ((res && res.error) || 'unknown error'), 'error');
+          return;
+        }
+        const entry = { path: res.path, name: res.name, kind: res.kind };
+        const at = state.externalFiles.findIndex((f) => f.path === res.path);
+        if (at === -1) state.externalFiles.unshift(entry);
+        else state.externalFiles[at] = entry;
+        state.externalOpen = true;
+        savePreferences();
+        await selectFile(externalKeyOf(res.path), { source: 'external' });
+        renderFileList();
       }
     } catch (_) {
       toast('Could not open file', 'error');
