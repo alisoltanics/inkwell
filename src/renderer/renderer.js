@@ -2375,8 +2375,18 @@ function setupEditorEvents() {
 
   // show the "Ask AI" trigger when the user finishes selecting text
   els.editor.addEventListener('mouseup', (e) => {
-    const start = els.editor.selectionStart;
-    const end = els.editor.selectionEnd;
+    let start = els.editor.selectionStart;
+    let end = els.editor.selectionEnd;
+    // placing a caret at the edge of a Latin word in an RTL line can land one
+    // letter inside it; snap that click to the edge the pointer meant
+    if (start === end && els.editor.classList.contains('bidi-plaintext')) {
+      const fixed = editorRightEdgeWordEnd(e.clientX, start)
+        || snapBidiWordCaret(els.editor.value, start, true, true);
+      if (fixed !== start) {
+        start = end = fixed;
+        els.editor.setSelectionRange(fixed, fixed);
+      }
+    }
     const text = end > start ? els.editor.value.slice(start, end) : '';
     if (text.trim()) showAIFloat(e.clientX, e.clientY, { text, start, end });
     else hideAIFloat();
@@ -2757,15 +2767,126 @@ function liveDocumentDirection() {
 // An LTR document keeps every block LTR. Using the same rule (instead of
 // textarea dir="auto") is what keeps mixed English/Persian lines from flipping
 // order when a block opens for editing.
+function liveBlockDirection(value) {
+  const text = value == null ? '' : String(value);
+  const docDir = liveDocumentDirection();
+  if (!text.trim()) return docDir;
+  return docDir === 'rtl' && hasRtlChar(text) ? 'rtl' : 'ltr';
+}
+
 function syncLiveBlockDirection(ta, value) {
   if (!ta) return;
-  const text = value == null ? ta.value : String(value);
-  const docDir = liveDocumentDirection();
-  let dir;
-  if (!text.trim()) dir = docDir;
-  else dir = docDir === 'rtl' && hasRtlChar(text) ? 'rtl' : 'ltr';
+  const dir = liveBlockDirection(value == null ? ta.value : value);
   if (ta.getAttribute('dir') !== dir) ta.setAttribute('dir', dir);
   ta.classList.remove('bidi-plaintext');
+}
+
+// A click on the first letter of a Latin word inside a right-to-left paragraph
+// can land after that letter ("A|gentix") even when the pointer is at the
+// word's edge. In that case the click means "continue after the word", so the
+// caret belongs past its last letter, not between the first two.
+function snapBidiWordCaret(text, index, rtl, checkParagraph) {
+  const source = String(text || '');
+  if (!rtl || index <= 0 || index >= source.length) return index;
+  const isWordChar = (ch) => /[A-Za-z0-9]/.test(ch);
+  if (!isWordChar(source[index - 1]) || !isWordChar(source[index])) return index;
+  let start = index - 1;
+  while (start > 0 && isWordChar(source[start - 1])) start--;
+  if (start !== index - 1) return index; // not the first letter of the word
+  let end = index;
+  while (end < source.length && isWordChar(source[end])) end++;
+  if (checkParagraph) {
+    const lineStart = source.lastIndexOf('\n', index - 1) + 1;
+    let lineEnd = source.indexOf('\n', index);
+    if (lineEnd === -1) lineEnd = source.length;
+    if (detectDirection(source.slice(lineStart, lineEnd)) !== 'rtl') return index;
+  }
+  return end;
+}
+
+// In a right-to-left block Chromium draws the caret position that belongs
+// before a Latin word on the word's right edge, where the run meets the
+// preceding RTL text. Clicking just past the last letter therefore lands at the
+// word's logical start. A reader means "keep typing the English word", so move
+// that caret to the word's logical end. Only the last letter and the small gap
+// after it snap; clicks inside the word keep their exact caret.
+function bidiRightEdgeWordEndAtPoint(wrap, x, y, source, caret) {
+  const text = String(source || '');
+  if (!text) return 0;
+  let range = null;
+  try {
+    range = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+  } catch (_) {}
+  const node = range && range.startContainer;
+  if (!node || node.nodeType !== 3 || (wrap && !wrap.contains(node))) return 0;
+  const content = String(node.nodeValue || '');
+  let start = range.startOffset;
+  while (start < content.length && /[^\S\r\n]/.test(content[start])) start++;
+  if (!/[A-Za-z0-9]/.test(content[start] || '')) return 0;
+  let end = start;
+  while (end < content.length && /[A-Za-z0-9]/.test(content[end])) end++;
+  const word = content.slice(start, end);
+  const wordRange = document.createRange();
+  wordRange.setStart(node, start);
+  wordRange.setEnd(node, end);
+  const rect = wordRange.getBoundingClientRect();
+  if (!rect.width || x < rect.right - 5 || x > rect.right + 8) return 0;
+  const from = Math.max(0, (Number(caret) || 0) - 2);
+  const at = text.indexOf(word, from);
+  if (at === -1 || at > (Number(caret) || 0) + 8) return 0;
+  return at + word.length;
+}
+
+// A textarea has no DOM characters to measure, so lay a temporary copy of its
+// text over it and look at the clicked word there. This is only built when the
+// caret sits just before a Latin word, which keeps ordinary clicks cheap.
+function liveTextareaRightEdgeWordEnd(ta, x, caret) {
+  if (!ta) return 0;
+  const text = ta.value;
+  if (caret >= text.length) return 0;
+  if (caret > 0 && /[A-Za-z0-9]/.test(text[caret - 1])) return 0;
+  let start = caret;
+  while (start < text.length && /[^\S\r\n]/.test(text[start])) start++;
+  if (!/[A-Za-z0-9]/.test(text[start] || '')) return 0;
+  let end = start;
+  while (end < text.length && /[A-Za-z0-9]/.test(text[end])) end++;
+  const rect = ta.getBoundingClientRect();
+  const cs = getComputedStyle(ta);
+  const mirror = document.createElement('div');
+  Object.assign(mirror.style, {
+    position: 'fixed',
+    left: (rect.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft) - ta.scrollLeft) + 'px',
+    top: (rect.top + parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop) - ta.scrollTop) + 'px',
+    width: ta.clientWidth + 'px',
+    boxSizing: 'content-box',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'break-word',
+    font: cs.font,
+    lineHeight: cs.lineHeight,
+    letterSpacing: cs.letterSpacing,
+    wordSpacing: cs.wordSpacing,
+    direction: cs.direction,
+    textAlign: cs.textAlign,
+    unicodeBidi: cs.unicodeBidi,
+  });
+  mirror.textContent = text;
+  document.body.appendChild(mirror);
+  let wordRect = null;
+  try {
+    const range = document.createRange();
+    range.setStart(mirror.firstChild, start);
+    range.setEnd(mirror.firstChild, end);
+    wordRect = range.getBoundingClientRect();
+  } finally {
+    mirror.remove();
+  }
+  if (!wordRect || !wordRect.width || x < wordRect.right - 5 || x > wordRect.right + 8) return 0;
+  return end;
 }
 
 function liveBlockGoalHeight(ta) {
@@ -2833,6 +2954,43 @@ function buildLiveEditorShell(ta, label) {
   return shell;
 }
 
+// The source textarea has no DOM characters, but the highlight layer behind it
+// holds the same text. Use that copy to see where the clicked Latin word really
+// sits, and snap a click on its right edge to the word's end (same rule as the
+// live block editor).
+function editorRightEdgeWordEnd(x, caret) {
+  const ed = els.editor;
+  const hl = els.editorHighlight;
+  if (!ed || !hl || !hl.firstChild) return 0;
+  const text = ed.value;
+  if (caret >= text.length) return 0;
+  if (caret > 0 && /[A-Za-z0-9]/.test(text[caret - 1])) return 0;
+  let start = caret;
+  while (start < text.length && /[^\S\r\n]/.test(text[start])) start++;
+  if (!/[A-Za-z0-9]/.test(text[start] || '')) return 0;
+  let end = start;
+  while (end < text.length && /[A-Za-z0-9]/.test(text[end])) end++;
+  const word = text.slice(start, end);
+  const walker = document.createTreeWalker(hl, NodeFilter.SHOW_TEXT);
+  let offset = 0;
+  let node;
+  while ((node = walker.nextNode())) {
+    const length = node.nodeValue.length;
+    if (offset <= start && start + word.length <= offset + length) {
+      const local = start - offset;
+      if (node.nodeValue.slice(local, local + word.length) !== word) return 0;
+      const range = document.createRange();
+      range.setStart(node, local);
+      range.setEnd(node, local + word.length);
+      const rect = range.getBoundingClientRect();
+      if (!rect.width || x < rect.right - 5 || x > rect.right + 8) return 0;
+      return end;
+    }
+    offset += length;
+  }
+  return 0;
+}
+
 function createLiveTextarea(value, kind) {
   const ta = document.createElement('textarea');
   ta.className = 'live-block-editor';
@@ -2844,6 +3002,15 @@ function createLiveTextarea(value, kind) {
   ta.spellcheck = false;
   ta.placeholder = t('Start writing...');
   syncLiveBlockDirection(ta, value);
+  // the browser can put a click on the first letter of a Latin word after that
+  // letter, or a click past its last letter before the word; keep the caret at
+  // the word's edge instead (same rule as opening)
+  ta.addEventListener('mouseup', (e) => {
+    if (ta.selectionStart !== ta.selectionEnd || ta.getAttribute('dir') !== 'rtl') return;
+    const fixed = liveTextareaRightEdgeWordEnd(ta, e.clientX, ta.selectionStart)
+      || snapBidiWordCaret(ta.value, ta.selectionStart, true, false);
+    if (fixed !== ta.selectionStart) ta.setSelectionRange(fixed, fixed);
+  });
   return ta;
 }
 
@@ -2926,7 +3093,14 @@ function openLiveBlock(wrap, event) {
   const value = trailingNewline ? raw.slice(0, -trailingNewline.length) : raw;
   const first = wrap.firstElementChild;
   const kind = liveBlockKind(first);
-  const caret = event ? liveCaretFromPoint(wrap, event.clientX, event.clientY, value) : value.length;
+  const blockDir = liveBlockDirection(value);
+  let caret = event
+    ? liveCaretFromPoint(wrap, event.clientX, event.clientY, value)
+    : value.length;
+  if (event && blockDir === 'rtl') {
+    caret = bidiRightEdgeWordEndAtPoint(wrap, event.clientX, event.clientY, value, caret)
+      || snapBidiWordCaret(value, caret, true, false);
+  }
 
   const ta = createLiveTextarea(value, kind);
 
@@ -2986,6 +3160,60 @@ function openNewLiveBlock() {
   autoGrowLiveBlock(ta);
   wrap.scrollIntoView({ block: 'nearest' });
   ta.focus({ preventScroll: true });
+}
+
+// Edit mode has no always-visible source textarea, so Ctrl+A has nowhere to
+// select the note's Markdown. Open the whole document as one source block and
+// select it, which restores the old "select all, paste to replace" workflow.
+// An open block is selected in place instead, so the shortcut never discards
+// what is already being edited.
+function selectAllInLiveEditor() {
+  if (liveBlock) {
+    const ta = liveBlock.textarea;
+    ta.focus();
+    ta.setSelectionRange(0, ta.value.length);
+    return true;
+  }
+  if (!liveEditingAvailable()) return false;
+  const source = els.editor.value;
+  if (!source) {
+    openNewLiveBlock();
+    return true;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'live-block is-editing live-block-doc';
+  wrap.dataset.srcStart = '0';
+  wrap.dataset.srcEnd = String(source.length);
+
+  const ta = createLiveTextarea(source, 'MD');
+  wrap.replaceChildren(buildLiveEditorShell(ta, 'MD'));
+  // the rendered blocks are not needed while the whole source is open; commit
+  // rebuilds them from the textarea
+  els.previewContent.replaceChildren(wrap);
+
+  liveBlock = {
+    wrap,
+    textarea: ta,
+    start: 0,
+    end: source.length,
+    renderedEnd: source.length,
+    delta: 0,
+    leadingBreak: '',
+    trailingNewline: '',
+    changed: false,
+    file: state.currentFile,
+  };
+  autoGrowLiveBlock(ta);
+  els.preview.scrollTop = 0;
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(0, ta.value.length);
+  // selecting every line can pull the view to the end of the document; keep the
+  // note at its top so the selection starts where the reader is looking
+  requestAnimationFrame(() => {
+    if (liveBlock && liveBlock.textarea === ta) els.preview.scrollTop = 0;
+  });
+  return true;
 }
 
 // Clear the open block. With render:false the caller is about to rebuild the
@@ -13107,12 +13335,23 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
 
   // Ctrl+A in the rendered preview selects the document itself, not the whole
-  // app chrome (buttons, sidebar, header text)
-  if (key === 'a') {
+  // app chrome (buttons, sidebar, header text). Match the physical key too: on
+  // a Persian (or any non-Latin) layout Ctrl+A arrives with e.key = "ش" while
+  // the browser's own select-all still uses the physical A key.
+  if (key === 'a' || e.code === 'KeyA') {
     const active = document.activeElement;
     const inField = active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName) && active !== els.editor;
     const modalOpen = Object.values(modals).some((m) => m && !m.classList.contains('hidden'));
     const answerOpen = !!(els.answerDocView && !els.answerDocView.classList.contains('hidden'));
+    // In edit mode the note is the editable surface: select-all belongs to the
+    // Markdown source (or the open block), not to the rendered text, which a
+    // paste cannot replace.
+    if (state.viewMode === 'edit' && liveEditingAvailable() && !inField && !modalOpen && !answerOpen) {
+      if (selectAllInLiveEditor()) {
+        e.preventDefault();
+        return;
+      }
+    }
     const sel = window.getSelection();
     const selectionInPreview = !!(sel && sel.anchorNode && els.preview.contains(sel.anchorNode));
     const previewActive = state.viewMode === 'preview' || state.viewMode === 'edit' || (state.viewMode === 'split' && (selectionInPreview || (active && els.preview.contains(active))));
