@@ -178,10 +178,36 @@ body {
 .markdown-body li > ul, .markdown-body li > ol { margin: 0.28em 0; }
 
 .markdown-body ul.contains-task-list { list-style: none; padding-left: 2px; }
-.markdown-body ul.contains-task-list li { display: flex; align-items: flex-start; gap: 8px; }
-.markdown-body ul.contains-task-list input[type="checkbox"] {
-    margin-top: 4px; width: 13px; height: 13px; accent-color: var(--accent); flex-shrink: 0;
+/* same as the screen styles: the checkbox is taken out of flow so a task row
+   with a nested list inside stays a normal block and never overflows */
+.markdown-body ul.contains-task-list > li { position: relative; padding-inline-start: 23px; }
+.markdown-body ul.contains-task-list > li > input[type="checkbox"] {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0.4em;
+    margin: 0;
+    width: 13px;
+    height: 13px;
+    accent-color: var(--accent);
 }
+/* cards match the screen, but on paper they carry a hairline instead of a
+   fill: page backgrounds are usually not printed */
+.markdown-body[dir] > ul.contains-task-list { padding: 0; }
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li) {
+    margin: 0 0 8px;
+    padding: 10px 12px;
+    padding-inline-start: 34px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    break-inside: avoid;
+}
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li) > input[type="checkbox"] {
+    inset-inline-start: 12px;
+    top: calc(10px + 0.36em);
+}
+.markdown-body li > p:last-child,
+.markdown-body li > ul:last-child,
+.markdown-body li > ol:last-child { margin-bottom: 0; }
 
 /* ---- blockquote ---- */
 .markdown-body blockquote {

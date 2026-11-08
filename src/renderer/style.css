@@ -2416,14 +2416,23 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .markdown-body li::marker { color: var(--accent); }
 
 .markdown-body ul.contains-task-list { list-style: none; padding-left: 4px; }
-.markdown-body ul.contains-task-list li { display: flex; align-items: flex-start; gap: 9px; }
-.markdown-body ul.contains-task-list input[type="checkbox"] {
-    margin-top: 5px;
+/* task rows keep their block layout (no flex): a task item may hold a nested
+   list or code block, and as a flex item that block got squeezed and pushed
+   off the left edge instead of stacking under the checkbox. The checkbox is
+   taken out of flow and parked at the row's inline start instead. */
+.markdown-body ul.contains-task-list > li {
+    position: relative;
+    padding-inline-start: 25px;
+}
+.markdown-body ul.contains-task-list > li > input[type="checkbox"] {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0.4em;
+    margin: 0;
     width: 15px;
     height: 15px;
     accent-color: var(--accent);
     cursor: pointer;
-    flex-shrink: 0;
 }
 
 .markdown-body hr {
@@ -2526,6 +2535,21 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 
 /* paragraph + links */
 .markdown-body p { margin: 0 0 1.05em; }
+
+/* an accent segment under the rule of a top heading ties the section to the
+   theme color without shouting */
+.markdown-body :is(h1, h2) { position: relative; }
+.markdown-body :is(h1, h2)::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    inset-inline-start: 0;
+    width: 54px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
 .markdown-body a {
     color: var(--accent);
     text-decoration: none;
@@ -2562,15 +2586,64 @@ mark.cmt-mark:hover { background: rgba(21, 128, 61, 0.36); }
 .markdown-body li { margin: 0.32em 0; }
 .markdown-body li::marker { color: var(--accent); }
 .markdown-body ul.contains-task-list { list-style: none; padding-left: 0.2em; }
-.markdown-body ul.contains-task-list li { display: flex; align-items: flex-start; gap: 10px; }
-.markdown-body ul.contains-task-list input[type="checkbox"] {
-    margin-top: 6px;
+/* task rows keep their block layout (no flex): a task item may hold a nested
+   list or code block, and as a flex item that block got squeezed and pushed
+   off the left edge instead of stacking under the checkbox. The checkbox is
+   taken out of flow and parked at the row's inline start instead. */
+.markdown-body ul.contains-task-list > li {
+    position: relative;
+    padding-inline-start: 25px;
+}
+.markdown-body ul.contains-task-list > li > input[type="checkbox"] {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0.45em;
+    margin: 0;
     width: 15px;
     height: 15px;
     accent-color: var(--accent);
     cursor: pointer;
-    flex-shrink: 0;
 }
+
+/* ---- task cards ----
+   A checklist that opens a document reads much better as a stack of cards
+   than as one long wall of text. Only top-level items become cards (a task
+   nested inside another task keeps the plain inline row), so a card never
+   ends up inside another card. */
+.markdown-body[dir] > ul.contains-task-list { padding: 0; }
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li) {
+    margin: 0 0 10px;
+    padding: 14px 18px;
+    padding-inline-start: 46px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px -1px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li):last-child { margin-bottom: 0; }
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li):hover {
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+}
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li) > input[type="checkbox"] {
+    inset-inline-start: 19px;
+    top: calc(14px + 0.36em);
+    width: 16px;
+    height: 16px;
+}
+/* a finished task: strike the title only — the steps below it stay readable */
+.markdown-body ul.contains-task-list > li.task-list-item:not(li li):has(> input:checked) > strong:first-of-type {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    color: var(--text-muted);
+}
+
+/* nested blocks inside a card (and inside any list item) close flush */
+.markdown-body li > p:last-child,
+.markdown-body li > ul:last-child,
+.markdown-body li > ol:last-child { margin-bottom: 0; }
+.markdown-body li > ul, .markdown-body li > ol { margin-top: 0.3em; }
 
 /* rule */
 .markdown-body hr {
