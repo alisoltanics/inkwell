@@ -64,7 +64,7 @@
 - Fenced code blocks with syntax highlighting, and inline or display math with KaTeX.
 - Automatic, LTR or RTL text direction. Automatic mode handles mixed Persian and English paragraphs while keeping code, tables and math LTR.
 - Zoom the document from 50% to 250%.
-- In **Settings → Appearance**, scale the whole interface from 80% to 150% and choose a theme: Dark, Light, VS Code Dark, Nord, Dracula, Solarized Dark, Solarized Light, Sepia or Rose.
+- In **Settings → Appearance**, scale the whole interface from 80% to 150% and choose a theme: Dark, Light, VS Code Dark, ChatGPT, GitHub, Nord, Dracula, Solarized Dark, Solarized Light, Sepia or Rose.
 - Switch the interface language: English, فارسی, العربية, Français, Deutsch, Italiano, Türkçe, Español or 中文. Persian and Arabic mirror the whole app to right-to-left; each document keeps its own direction.
 
 ### AI tools

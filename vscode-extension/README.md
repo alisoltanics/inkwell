@@ -37,7 +37,7 @@ It is a preview: edit the file in the normal editor (or in the other column).
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `inkwellPreview.theme` | `auto` | `auto` follows the VS Code color theme, or force `dark` / `light` |
-| `inkwellPreview.palette` | `auto` | `auto` matches VS Code; or `default`, `vscode-dark`, `nord`, `dracula`, `solarized-dark`, `solarized-light`, `sepia`, `rose` |
+| `inkwellPreview.palette` | `auto` | `auto` matches VS Code; or `default`, `vscode-dark`, `chatgpt`, `github`, `nord`, `dracula`, `solarized-dark`, `solarized-light`, `sepia`, `rose` |
 | `inkwellPreview.fontSize` | `100` | text scale in percent |
 | `inkwellPreview.direction` | `auto` | `auto`, `ltr` or `rtl` |
 | `inkwellPreview.vaultPath` | empty | folder of the Inkwell vault; asked for the first time when empty |

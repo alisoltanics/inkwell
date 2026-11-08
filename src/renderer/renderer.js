@@ -555,6 +555,8 @@ const PALETTES = [
   { id: 'default-dark', label: 'Dark', mode: 'dark', palette: '', colors: ['#0a0e17', '#131a29', '#38bdf8', '#e8edf4'] },
   { id: 'default-light', label: 'Light', mode: 'light', palette: '', colors: ['#ffffff', '#eef2f7', '#0369a1', '#0f172a'] },
   { id: 'vscode-dark', label: 'VS Code Dark', mode: 'dark', palette: 'vscode-dark', colors: ['#1f1f1f', '#181818', '#0078d4', '#cccccc'] },
+  { id: 'chatgpt', label: 'ChatGPT', mode: 'dark', palette: 'chatgpt', colors: ['#171717', '#212121', '#ffffff', '#ececec'] },
+  { id: 'github', label: 'GitHub', mode: 'dark', palette: 'github', colors: ['#161b22', '#0d1117', '#2f81f7', '#e6edf3'] },
   { id: 'nord', label: 'Nord', mode: 'dark', palette: 'nord', colors: ['#2e3440', '#3b4252', '#88c0d0', '#eceff4'] },
   { id: 'dracula', label: 'Dracula', mode: 'dark', palette: 'dracula', colors: ['#282a36', '#343746', '#bd93f9', '#f8f8f2'] },
   { id: 'solarized-dark', label: 'Solarized Dark', mode: 'dark', palette: 'solarized-dark', colors: ['#002b36', '#0a3b48', '#2aa198', '#eee8d5'] },
@@ -570,6 +572,7 @@ function applyPalette(id) {
   if (pal.palette) document.documentElement.dataset.palette = pal.palette;
   else delete document.documentElement.dataset.palette;
   renderThemeGrid();
+  renderThemeMenu();
 }
 
 function renderThemeGrid() {
@@ -594,6 +597,79 @@ function renderThemeGrid() {
     b.appendChild(document.createTextNode(p.label));
     b.addEventListener('click', () => { applyPalette(p.id); savePreferences(); });
     grid.appendChild(b);
+  });
+}
+
+/* the header's own picker: the same palettes as a dropdown, so a theme can be
+   swapped without opening Settings */
+function themeSwatchHTML(p) {
+  const [side, page, accent] = p.colors;
+  return '<span class="theme-dot" style="background:linear-gradient(135deg,' + side + ' 50%,' + page + ' 50%)">'
+    + '<i style="background:' + accent + '"></i></span>';
+}
+
+function renderThemeMenu() {
+  const menu = $('themeMenu');
+  if (!menu) return;
+  menu.innerHTML = '';
+  PALETTES.forEach((p) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'theme-menu-item' + (p.id === state.palette ? ' active' : '');
+    b.setAttribute('role', 'menuitemradio');
+    b.setAttribute('aria-checked', p.id === state.palette ? 'true' : 'false');
+    b.innerHTML = themeSwatchHTML(p)
+      + '<span class="theme-menu-label"></span>'
+      + '<svg class="theme-menu-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+    b.querySelector('.theme-menu-label').textContent = p.label;
+    b.addEventListener('click', () => {
+      applyPalette(p.id);
+      savePreferences();
+      closeThemeMenu();
+      setStatus(t('Theme: %value%', { value: p.label }));
+    });
+    menu.appendChild(b);
+  });
+}
+
+function closeThemeMenu() {
+  const menu = $('themeMenu');
+  const btn = $('themeMenuBtn');
+  if (!menu || menu.classList.contains('hidden')) return;
+  menu.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function setupThemeMenu() {
+  const btn = $('themeMenuBtn');
+  const menu = $('themeMenu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const show = menu.classList.contains('hidden');
+    if (!show) { closeThemeMenu(); return; }
+    closeTurnMenu();
+    const more = $('topbarMoreMenu');
+    if (more) more.classList.add('hidden');
+    renderThemeMenu();
+    menu.classList.remove('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+    // anchored under the button, clamped so it never leaves the window
+    const r = btn.getBoundingClientRect();
+    const width = 190;
+    menu.style.width = width + 'px';
+    menu.style.left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8)) + 'px';
+    menu.style.top = (r.bottom + 6) + 'px';
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (menu.classList.contains('hidden')) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target) return;
+    if (target.closest('#themeMenu') || target.closest('#themeMenuBtn')) return;
+    closeThemeMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeThemeMenu();
   });
 }
 
@@ -640,6 +716,8 @@ function initTheme() {
   } catch (_) {}
   applyFontSize();
   renderThemeGrid();
+  renderThemeMenu();
+  setupThemeMenu();
   const range = $('settingsFontSize');
   if (range) range.addEventListener('input', () => { state.fontSize = Number(range.value); applyFontSize(); savePreferences(); });
   const reset = $('settingsFontSizeReset');
@@ -11263,6 +11341,25 @@ function setAIToolsMenu(open) {
   if (!menu || !btn) return;
   menu.classList.toggle('hidden', !open);
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) positionAIToolsMenu();
+}
+
+// The menu is fixed, so it needs viewport coordinates: put it under its
+// trigger and pull it back inside the window if it would hang off an edge.
+function positionAIToolsMenu() {
+  const menu = $('aiToolsMenu');
+  const btn = $('aiToolsMenuBtn');
+  if (!menu || !btn || menu.classList.contains('hidden')) return;
+  const r = btn.getBoundingClientRect();
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  const rtl = getComputedStyle(menu).direction === 'rtl';
+  let left = rtl ? r.right - w : r.left;
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
 }
 
 function setupDocAiBar() {
@@ -11276,6 +11373,9 @@ function setupDocAiBar() {
     if (!e.target.closest('#aiToolsMenuWrap')) setAIToolsMenu(false);
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setAIToolsMenu(false); });
+  // the menu is placed against the viewport, so a window resize while it is
+  // open has to move it back under its trigger
+  window.addEventListener('resize', () => positionAIToolsMenu());
   els.docActions.addEventListener('click', (e) => {
     const btn = e.target.closest('.doc-act');
     if (!btn) return;

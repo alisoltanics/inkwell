@@ -205,6 +205,72 @@
     --md-img-bg: #2f3142;
     --code-head-bg: #343746;
 }
+/* ChatGPT's dark UI: #171717 rail, #212121 canvas, off-white ink. The
+   controls stay monochrome — its buttons are white, never a brand colour */
+[data-palette="chatgpt"] {
+    --bg: #212121;
+    --bg-elevated: #2f2f2f;
+    --bg-panel: #171717;
+    --bg-hover: #2f2f2f;
+    --bg-active: #444444;
+    --sidebar-bg: #171717;
+    --border: #333333;
+    --border-strong: #4d4d4d;
+    --text: #ececec;
+    --text-secondary: #b4b4b4;
+    --text-muted: #8f8f8f;
+    --accent: #ececec;
+    --accent-2: #d1d1d1;
+    --accent-glow: color-mix(in srgb, #ffffff 18%, transparent);
+    --md-text: #d9d9d9;
+    --md-heading: #f3f3f3;
+    --md-pre-bg: #0d0d0d;
+    --md-code-bg: rgba(255, 255, 255, 0.1);
+    --md-code-color: #e8e8e8;
+    --md-quote-bg: rgba(255, 255, 255, 0.06);
+    --md-quote-color: #b4b4b4;
+    --md-katex: #ececec;
+    --md-img-bg: #171717;
+    --code-head-bg: #171717;
+}
+/* a white button needs a white glow, not the blue the other palettes borrow,
+   and its links keep a colour of their own against the off-white accent */
+[data-palette="chatgpt"] .btn-new,
+[data-palette="chatgpt"] .btn-save,
+[data-palette="chatgpt"] .btn-primary { box-shadow: 0 2px 12px -2px rgba(255, 255, 255, 0.14); }
+[data-palette="chatgpt"] .btn-new:hover,
+[data-palette="chatgpt"] .btn-save:hover,
+[data-palette="chatgpt"] .btn-primary:hover { box-shadow: 0 4px 16px -2px rgba(255, 255, 255, 0.18); }
+[data-palette="chatgpt"] .markdown-body a { color: #6cb6ff; border-bottom-color: #6cb6ff; }
+[data-palette="chatgpt"] .markdown-body a:hover { border-bottom-color: #6cb6ff; }
+/* GitHub's dark canvas: #0d1117 page, #161b22 chrome, #2f81f7 link blue
+   and the #30363d hairline borders its own surfaces use */
+[data-palette="github"] {
+    --bg: #0d1117;
+    --bg-elevated: #161b22;
+    --bg-panel: #161b22;
+    --bg-hover: #21262d;
+    --bg-active: #30363d;
+    --sidebar-bg: #161b22;
+    --border: #30363d;
+    --border-strong: #484f58;
+    --text: #e6edf3;
+    --text-secondary: #9198a1;
+    --text-muted: #6e7681;
+    --accent: #2f81f7;
+    --accent-2: #a371f7;
+    --accent-glow: color-mix(in srgb, #2f81f7 22%, transparent);
+    --md-text: #c9d1d9;
+    --md-heading: #e6edf3;
+    --md-pre-bg: #161b22;
+    --md-code-bg: rgba(110, 118, 129, 0.4);
+    --md-code-color: #e6edf3;
+    --md-quote-bg: rgba(56, 139, 253, 0.1);
+    --md-quote-color: #9198a1;
+    --md-katex: #e6edf3;
+    --md-img-bg: #161b22;
+    --code-head-bg: #161b22;
+}
 [data-palette="solarized-dark"] {
     --bg: #002b36;
     --bg-elevated: #073642;
@@ -5091,6 +5157,63 @@ mark.cmt-mark.cmt-flash {
 .topbar-more-menu button:hover { background: var(--accent-glow); color: var(--accent); }
 .topbar-more-menu button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 
+/* header theme picker: the palette button and the dropdown that lists every
+   theme, so one can be chosen without opening Settings */
+.theme-picker { display: inline-flex; flex: 0 0 auto; position: relative; }
+.theme-menu {
+    position: fixed;
+    z-index: 1300;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 11px;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .6);
+}
+.theme-menu.hidden { display: none; }
+.theme-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: start;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.theme-menu-item:hover { background: var(--accent-glow); color: var(--accent); }
+.theme-menu-item.active { color: var(--text); font-weight: 600; }
+.theme-menu-label { flex: 1 1 auto; }
+.theme-menu-check { flex: 0 0 auto; opacity: 0; color: var(--accent); }
+.theme-menu-item.active .theme-menu-check { opacity: 1; }
+/* a miniature of the palette: sidebar over page, with the accent as a dot */
+.theme-dot {
+    position: relative;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    box-shadow: 0 1px 3px -1px rgba(0, 0, 0, 0.45);
+}
+.theme-dot i {
+    position: absolute;
+    inset-inline-end: 2px;
+    bottom: 2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
 @media (max-width: 1240px) {
     .topbar { flex-wrap: nowrap; }
     .topbar-left, .topbar-right { flex-wrap: nowrap; }
@@ -5125,11 +5248,12 @@ mark.cmt-mark.cmt-flash {
 /* ============ AI TOOLS MENU (topbar) ============ */
 .ai-tools-menu-wrap { position: relative; flex: 0 0 auto; }
 .ai-tools-menu-trigger[aria-expanded="true"] { color: var(--accent); background: var(--accent-glow); }
+/* fixed instead of absolute: the topbar clips its own contents at narrow
+   widths (see the overflow rule in the 1120px media query), and an absolute
+   dropdown anchored inside it was cut off — the button looked dead */
 .ai-tools-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 200;
+    position: fixed;
+    z-index: 1300;
     min-width: 220px;
     padding: 6px;
     background: var(--bg-elevated);

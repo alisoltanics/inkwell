@@ -10,6 +10,8 @@ const VIEW_TYPE = 'inkwell.preview';
 // own colors for both surfaces and text.
 const PALETTES = {
   'vscode-dark': 'dark',
+  chatgpt: 'dark',
+  github: 'dark',
   nord: 'dark',
   dracula: 'dark',
   'solarized-dark': 'dark',
