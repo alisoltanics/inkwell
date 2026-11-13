@@ -1512,6 +1512,7 @@ ipcMain.handle('win:close', (event) => {
 
 const { buildStandaloneHtml, escapeHtmlText } = require('./html');
 const { buildTelegramNoteHtml, buildTelegramDocxHtml } = require('./src/telegram-html');
+const { VAULT_WIDGET_HTML, buildVaultWidgetState, buildVaultWidgetCaption } = require('./src/telegram-widget');
 
 function docBaseName(suggestedName) {
   return String(suggestedName || 'note')
@@ -1957,6 +1958,8 @@ ipcMain.handle('settings:setTelegram', async (event, config) => {
       }
       next.botToken = botToken;
       next.chatId = chatId;
+      // a new bot or chat may not support widgets, so the guess is retried
+      telegramWidgetMode = null;
     }
 
     if (config && typeof config.enabled === 'boolean') next.enabled = config.enabled;
@@ -2597,6 +2600,44 @@ const TELEGRAM_UPLOAD_LIMIT = 50 * 1024 * 1024;
 let telegramBrowseSeq = 0;
 const telegramBrowseTokens = new Map();
 
+// A widget message (and an inline keyboard) lives in the chat across app
+// restarts, so the paths behind the tokens are worth keeping: without them
+// every tap on an old list would fall back to the vault root.
+let telegramBrowseTokensLoaded = false;
+let telegramBrowseTokensSaveTimer = 0;
+
+function telegramBrowseTokensLoad() {
+  if (telegramBrowseTokensLoaded) return;
+  telegramBrowseTokensLoaded = true;
+  try {
+    const saved = store.get('telegramBrowseTokens');
+    if (!saved || typeof saved !== 'object') return;
+    let maxSeq = 0;
+    for (const key of Object.keys(saved)) {
+      const entry = saved[key];
+      if (!entry || typeof entry.rel !== 'string') continue;
+      telegramBrowseTokens.set(key, { rel: entry.rel, at: Number(entry.at) || 0 });
+      const seq = parseInt(String(key).slice(1), 36);
+      if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+    }
+    // a fresh token must never reuse a restored one
+    if (maxSeq > telegramBrowseSeq) telegramBrowseSeq = maxSeq;
+  } catch (_) {}
+}
+
+// Debounced: one page of the browser asks for a dozen tokens, and the whole
+// map is only a few kilobytes of the store.
+function telegramBrowseTokensPersist() {
+  if (telegramBrowseTokensSaveTimer) return;
+  telegramBrowseTokensSaveTimer = setTimeout(() => {
+    telegramBrowseTokensSaveTimer = 0;
+    try {
+      store.set('telegramBrowseTokens', Object.fromEntries(telegramBrowseTokens));
+      protectStoreFile();
+    } catch (_) {}
+  }, 400);
+}
+
 // The app mirrors its per-file RTL/LTR choices here. A file the user set to RTL
 // must come back in the same order from the bot, even when the first line is
 // English.
@@ -2609,6 +2650,7 @@ function telegramSavedDirection(rel) {
 }
 
 function telegramBrowseToken(rel) {
+  telegramBrowseTokensLoad();
   const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   for (const [token, entry] of telegramBrowseTokens) {
     if (entry.rel === clean) {
@@ -2623,10 +2665,12 @@ function telegramBrowseToken(rel) {
   if (telegramBrowseTokens.size > 400) {
     for (const key of [...telegramBrowseTokens.keys()].slice(0, 100)) telegramBrowseTokens.delete(key);
   }
+  telegramBrowseTokensPersist();
   return token;
 }
 
 function telegramBrowseTokenPath(token) {
+  telegramBrowseTokensLoad();
   const entry = telegramBrowseTokens.get(String(token || ''));
   if (!entry) return null;
   entry.at = Date.now();
@@ -2676,7 +2720,11 @@ function telegramBrowseLabel(name) {
   return chars.length > 42 ? chars.slice(0, 41).join('') + '…' : clean;
 }
 
-function telegramBrowseView(rel, page) {
+// One page of the vault in the shape both renderers want: the inline keyboard
+// and the widget draw the same page from the same model, and the widget packs
+// it into its 1024-byte chat state. Names, sizes and ages are collected here
+// because the widget's own code can never touch the disk.
+function telegramBrowseModel(rel, page) {
   const safe = telegramBrowseSafePath(rel);
   let current = safe ? safe.rel : '';
   let abs = safe ? safe.abs : NOTES_DIR;
@@ -2694,22 +2742,51 @@ function telegramBrowseView(rel, page) {
   ];
   const pageCount = Math.max(1, Math.ceil(items.length / TELEGRAM_BROWSE_PAGE));
   const currentPage = Math.min(Math.max(1, Math.floor(Number(page) || 1)), pageCount);
-  const shown = items.slice((currentPage - 1) * TELEGRAM_BROWSE_PAGE, currentPage * TELEGRAM_BROWSE_PAGE);
-  const token = telegramBrowseToken(current);
+  const shown = items.slice((currentPage - 1) * TELEGRAM_BROWSE_PAGE, currentPage * TELEGRAM_BROWSE_PAGE)
+    .map((item) => {
+      const itemRel = current ? current + '/' + item.name : item.name;
+      const entry = { ...item, rel: itemRel, token: telegramBrowseToken(itemRel) };
+      // The widget shows "36 KB · 3d" next to a file; a file that vanished
+      // between listing and stat simply gets no meta line.
+      if (!item.folder) {
+        try {
+          const stat = fs.statSync(path.join(abs, item.name));
+          entry.size = stat.size;
+          entry.mtime = stat.mtimeMs;
+        } catch (_) {}
+      }
+      return entry;
+    });
+  const parent = current ? current.split('/').slice(0, -1).join('/') : '';
+  return {
+    current,
+    folders,
+    files,
+    items,
+    pageCount,
+    page: currentPage,
+    shown,
+    token: telegramBrowseToken(current),
+    upToken: current ? telegramBrowseToken(parent) : '',
+    rootToken: telegramBrowseToken(''),
+  };
+}
+
+function telegramBrowseView(rel, page) {
+  const model = telegramBrowseModel(rel, page);
+  const { current, items, folders, files, pageCount, page: currentPage, shown, token } = model;
 
   const rows = [];
   if (current) {
-    const parent = current.split('/').slice(0, -1).join('/');
     rows.push([
-      { text: '⬆ Up', callback_data: 'd:' + telegramBrowseToken(parent) },
-      { text: '🏠 Vault', callback_data: 'd:' + telegramBrowseToken('') },
+      { text: '⬆ Up', callback_data: 'd:' + model.upToken },
+      { text: '🏠 Vault', callback_data: 'd:' + model.rootToken },
     ]);
   }
   for (const item of shown) {
-    const itemRel = current ? current + '/' + item.name : item.name;
     rows.push([{
       text: telegramBrowseIcon(item.name, item.folder) + ' ' + telegramBrowseLabel(item.name),
-      callback_data: (item.folder ? 'd:' : 'f:') + telegramBrowseToken(itemRel),
+      callback_data: (item.folder ? 'd:' : 'f:') + item.token,
     }]);
   }
   if (pageCount > 1) {
@@ -2731,12 +2808,37 @@ function telegramBrowseView(rel, page) {
       + '\nTap a folder to open it, or a file to receive it.';
     if (pageCount > 1) text += '\nPage ' + currentPage + '/' + pageCount;
   }
-  return { text, reply_markup: { inline_keyboard: rows } };
+  return { text, reply_markup: { inline_keyboard: rows }, model };
 }
+
+// Widgets (Bot API 10.4) only exist in a private chat, and only on a server
+// that knows sendWidget: a rejection is permanent for this session, a network
+// hiccup is not. Either way the plain message below still shows the list.
+let telegramWidgetMode = null;
 
 async function telegramBrowseSendMessage(view) {
   const creds = getTelegramConfig();
   if (!creds.botToken || !creds.chatId) return;
+  if (telegramWidgetMode !== false && view && view.model) {
+    let state = '';
+    try { state = buildVaultWidgetState(view.model); } catch (_) {}
+    if (state) {
+      try {
+        const form = new FormData();
+        form.append('chat_id', creds.chatId);
+        form.append('html', VAULT_WIDGET_HTML);
+        form.append('caption', buildVaultWidgetCaption(view.model));
+        form.append('allow_queries', 'true');
+        form.append('chat_data', state);
+        await telegramApi('sendWidget', form);
+        telegramWidgetMode = true;
+        return;
+      } catch (e) {
+        const reason = e && e.message ? e.message : String(e);
+        if (!/fetch failed|network|abort|timed? ?out|ECONN|socket/i.test(reason)) telegramWidgetMode = false;
+      }
+    }
+  }
   try {
     const form = new FormData();
     form.append('chat_id', creds.chatId);
@@ -2776,6 +2878,107 @@ async function telegramBrowseAnswer(queryId, text) {
     if (text) form.append('text', String(text).slice(0, 200));
     await telegramApi('answerCallbackQuery', form);
   } catch (_) {}
+}
+
+/* ================= WIDGET QUERIES ================= */
+// A tap inside the widget arrives as a widget_query. It must be answered
+// within 15 seconds, so the answer goes out before any slow work (an upload,
+// a listing of a huge folder), and the widget redraws either from the answer
+// or from the chat state pushed right after it.
+
+async function telegramWidgetAnswer(queryId, data) {
+  if (!queryId) return false;
+  try {
+    const form = new FormData();
+    form.append('widget_query_id', queryId);
+    if (data) form.append('data', String(data));
+    await telegramApi('answerWidgetQuery', form);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Writing the chat state is silent: no "edited" mark and the chat does not
+// move up in the list, which is why navigation is cheap enough to do often.
+async function telegramWidgetSetState(message, state) {
+  if (!message || !message.chat || !message.message_id) return;
+  try {
+    const form = new FormData();
+    form.append('chat_id', message.chat.id);
+    form.append('message_id', message.message_id);
+    form.append('chat_data', state);
+    await telegramApi('editMessageWidgetData', form);
+  } catch (_) {
+    // the same page tapped twice changes nothing and fails as "not modified"
+  }
+}
+
+async function telegramBrowseWidgetQuery(query) {
+  const creds = getTelegramConfig();
+  const chatId = String((query && query.chat && query.chat.id) || '');
+  if (chatId !== String(creds.chatId)) {
+    await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'This list belongs to another chat.' }));
+    return;
+  }
+  // the same rules as a button press: the first account to use the chat owns it
+  const sender = query.from && query.from.id != null ? String(query.from.id) : '';
+  const saved = telegramInboxSaved();
+  if (sender) {
+    if (!saved.ownerId) {
+      store.set('telegramInbox', { ...saved, ownerId: sender });
+      notifyTelegramInboxChanged();
+    } else if (saved.ownerId !== sender) {
+      await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'Not allowed.' }));
+      return;
+    }
+  }
+
+  const data = String((query && query.data) || '');
+  const [action, token, pagePart] = data.split(':');
+
+  if (action === 'f') {
+    const rel = token ? telegramBrowseTokenPath(token) : null;
+    if (rel == null) {
+      await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'That list has expired. Send /files for a fresh one.' }));
+      return;
+    }
+    if (telegramPasswordSet()) {
+      await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'Password required' }));
+      await telegramAskSendPassword(rel, { kind: 'file', rel });
+      return;
+    }
+    // answer first: an upload easily outlives the 15 seconds of the query
+    await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'Sending «' + path.basename(rel) + '»…' }));
+    try {
+      await telegramBrowseSendFile(rel);
+    } catch (e) {
+      const reason = e && e.message ? e.message : String(e);
+      telegramInbox.lastError = 'Could not send «' + rel + '»: ' + reason;
+      await telegramInboxReply('Could not send «' + rel + '»: ' + reason);
+    }
+    return;
+  }
+  if (action !== 'd') {
+    await telegramWidgetAnswer(query.id);
+    return;
+  }
+
+  // An expired token (a list from before a restart) reopens the vault at its
+  // root, exactly like a stale inline button; an empty token is the root.
+  let rel = token === '' ? '' : telegramBrowseTokenPath(token);
+  if (rel == null) rel = '';
+  const page = Number(String(pagePart || '').replace(/^p/, '')) || 1;
+  let state = '';
+  try { state = buildVaultWidgetState(telegramBrowseModel(rel, page)); } catch (_) {}
+  if (!state) {
+    await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'This folder could not be read.' }));
+    return;
+  }
+  // The answer carries the new state so the tapper redraws at once; the edit
+  // stores it in the message so the next visit starts on the same page.
+  await telegramWidgetAnswer(query.id, state);
+  await telegramWidgetSetState(query.message, state);
 }
 
 /* ================= SAVE A TEXT FROM THE PHONE ================= */
@@ -3640,7 +3843,7 @@ async function telegramInboxLoop() {
     const timer = setTimeout(() => controller.abort(), 40000);
     let updates = null;
     try {
-      const query = '?timeout=25&allowed_updates=' + encodeURIComponent('["message","channel_post","callback_query"]')
+      const query = '?timeout=25&allowed_updates=' + encodeURIComponent('["message","channel_post","callback_query","widget_query"]')
         + (offset ? '&offset=' + offset : '');
       const res = await fetch('https://api.telegram.org/bot' + creds.botToken + '/getUpdates' + query, { signal: controller.signal });
       const json = await res.json().catch(() => null);
@@ -3688,6 +3891,13 @@ async function telegramInboxLoop() {
           }
         }
         await telegramBrowseCallback(callback);
+        continue;
+      }
+      // a tap inside the widget: the same chat and owner rules as a button,
+      // answered by the widget handler itself
+      const widgetQuery = update.widget_query;
+      if (widgetQuery) {
+        await telegramBrowseWidgetQuery(widgetQuery);
         continue;
       }
       const message = update.message || update.channel_post;
