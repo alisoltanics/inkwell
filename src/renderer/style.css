@@ -7413,3 +7413,178 @@ html.rtl .file-item.active::before { border-radius: 3px 0 0 3px; }
     .file-item:hover .file-item-actions,
     .folder-item:hover .file-item-actions { animation: none; }
 }
+
+/* ============ NOTE LINKS AND BACKLINKS ============ */
+.markdown-body a.wikilink {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.markdown-body a.wikilink:hover {
+    background: var(--accent-glow);
+    border-bottom-color: var(--accent);
+}
+/* a note that does not exist yet: dashed and muted, one click creates it */
+.markdown-body a.wikilink.wikilink-missing {
+    color: var(--text-muted);
+    border-bottom: 1px dashed var(--text-muted);
+}
+.markdown-body a.wikilink.wikilink-missing:hover { color: var(--text-secondary); background: var(--bg-hover); }
+
+.backlinks {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 32px 72px;
+}
+.backlinks.hidden { display: none; }
+.backlinks-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 0 10px;
+    border: 0;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: start;
+}
+.backlinks-head:hover { color: var(--text); }
+.backlinks-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.backlinks-count { font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.backlinks-list { display: grid; gap: 6px; }
+.backlinks-list.hidden { display: none; }
+.backlink {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: baseline;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.backlink:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.backlink:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.backlink-title { font-size: 13.5px; font-weight: 600; }
+.backlink-where { font-size: 11.5px; color: var(--text-muted); }
+.backlink-context {
+    grid-column: 1 / -1;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* suggestions while typing [[ */
+.wiki-suggest {
+    position: fixed;
+    z-index: 400;
+    width: 290px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow);
+}
+.wiki-suggest-head { padding: 5px 9px 4px; font-size: 11.5px; color: var(--text-muted); }
+.wiki-suggest-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 9px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    text-align: start;
+    cursor: pointer;
+}
+.wiki-suggest-item.on,
+.wiki-suggest-item:hover { background: var(--bg-active); }
+.wiki-suggest-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.wiki-suggest-folder { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: end; font-size: 11.5px; color: var(--text-muted); }
+
+/* ============ GRAPH VIEW ============ */
+.graph-view {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+}
+.graph-view.hidden { display: none; }
+.graph-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+}
+.graph-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.graph-search {
+    width: 220px;
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+}
+.graph-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.graph-toggle { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-secondary); cursor: pointer; }
+.graph-toggle input { accent-color: var(--accent); }
+.graph-stat { margin-inline-start: auto; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.graph-close {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+.graph-close:hover { background: var(--bg-hover); color: var(--text); }
+.graph-close:focus-visible { outline: 2px solid var(--accent); }
+#graphCanvas { flex: 1; width: 100%; min-height: 0; cursor: grab; display: block; }
+.graph-empty {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 340px;
+    text-align: center;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    pointer-events: none;
+}
+.graph-empty.hidden { display: none; }
+.graph-hint { position: absolute; bottom: 12px; left: 16px; font-size: 11.5px; color: var(--text-muted); pointer-events: none; }
+@media (max-width: 720px) { .graph-search { width: 130px; } .graph-toggle span { display: none; } }

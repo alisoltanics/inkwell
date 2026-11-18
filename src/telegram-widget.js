@@ -55,7 +55,7 @@ function fileMeta(item, now) {
 // One page of the browser as the widget's chat state. Keys are one letter
 // where they are read on every redraw; the widget renders:
 //   t current folder token, c breadcrumb, p/k page of k, n/fo/fi counts,
-//   r root token, u up token ("" at the root), i rows [kind, token, name, meta].
+//   r root token, u up token ("" at the root), o 1 when files open in the chat, i rows [kind, token, name, meta].
 function buildVaultWidgetState(model) {
   const now = Date.now();
   const state = {
@@ -69,6 +69,7 @@ function buildVaultWidgetState(model) {
     fi: (model.files || []).length,
     r: String(model.rootToken || ''),
     u: String(model.upToken || ''),
+    o: model.readMode ? 1 : 0,
     i: (model.shown || []).map((item) => {
       const row = [item.folder ? 'd' : 'f', String(item.token || ''), truncateUtf8(item.name, NAME_LIMIT)];
       if (!item.folder) {
@@ -91,7 +92,7 @@ function buildVaultWidgetCaption(model) {
   const where = model.current ? 'Vault / ' + truncateUtf8(model.current, 150) : 'Vault';
   const n = (model.items || []).length;
   return '📂 ' + where + ' · ' + n + (n === 1 ? ' item' : ' items')
-    + ' — tap a folder to open it, a file to receive it.';
+    + ' — tap a folder to open it, a file to ' + (model.readMode ? 'read it here.' : 'receive it.');
 }
 
 // The fixed code of the widget. It reads its state, redraws on every
@@ -302,6 +303,8 @@ body {
       if (page > 1) nav += '<button class="bt" data-d="d:' + esc(s.t) + ':p' + (page - 1) + '">◀</button>';
       if (page < pages) nav += '<button class="bt pr" data-d="d:' + esc(s.t) + ':p' + (page + 1) + '">▶</button>';
     }
+    h += '<div class="nv"><button class="bt' + (s.o ? ' pr' : '') + '" data-d="o:' + esc(s.t) + '">'
+      + (s.o ? '📖 Reading in chat' : '📥 Receiving files') + '</button></div>';
     if (nav) h += '<div class="nv">' + nav + '</div>';
     return h;
   }

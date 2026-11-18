@@ -487,6 +487,10 @@ const els = {
   cmtComposerClose: $('cmtComposerClose'),
   cmtComposerToolbar: $('cmtComposerToolbar'),
   commentsPanel: $('commentsPanel'),
+  backlinks: $('backlinks'),
+  backlinksHead: $('backlinksHead'),
+  backlinksCount: $('backlinksCount'),
+  backlinksList: $('backlinksList'),
   commentsList: $('commentsList'),
   commentsCount: $('commentsCount'),
   commentsClose: $('commentsClose'),
@@ -963,6 +967,14 @@ function setupExternalWatch() {
 }
 setupExternalWatch();
 
+if (els.backlinksHead) {
+  els.backlinksHead.addEventListener('click', () => {
+    const open = els.backlinksHead.getAttribute('aria-expanded') !== 'true';
+    els.backlinksHead.setAttribute('aria-expanded', open ? 'true' : 'false');
+    els.backlinksList.classList.toggle('hidden', !open);
+  });
+}
+
 async function restoreExternalFolders() {
   for (const folder of [...state.externalFolders]) await loadExternalTree(folder.path);
   renderFileList();
@@ -1302,6 +1314,8 @@ async function refreshFiles() {
   applyFilter();
   renderFileList();
   renderTabs();
+  refreshWikiLinkStates();
+  scheduleBacklinks();
 }
 
 function applyFilter() {
@@ -2627,6 +2641,7 @@ function welcomeHtml() {
       <li>Click <strong>New note</strong> in the sidebar to write your first note</li>
       <li>Toggle between <strong>Edit</strong>, <strong>Preview</strong>, and <strong>Split</strong> views</li>
       <li>Your work auto-saves as you type</li>
+      <li>Type <code>[[</code> to link to another note. The note you link to lists it under <strong>Linked from</strong></li>
       <li>Open <strong>Settings</strong> to configure the AI assistant and Telegram</li>
     </ul>
     <h3>Shortcuts</h3>
@@ -3876,6 +3891,7 @@ function renderPreview(force = false) {
   decoratePreviewTranslations();
   if (findState.open && findState.query) applyFindMarks();
   schedulePaginate(0);
+  scheduleBacklinks();
 }
 
 // A Word document is previewed, never edited: the .docx is rendered to HTML in
@@ -7018,6 +7034,17 @@ function applyFormat(action) {
     case 'task': prefixLines(ed, '- [ ] '); break;
     case 'quote': toggleLinePrefix(ed, '> '); break;
     case 'link': insertAtCursor(ed, '[', '](https://)', 'link text'); break;
+    case 'notelink': {
+      const at = ed.selectionStart;
+      const picked = ed.value.slice(at, ed.selectionEnd);
+      if (picked) {
+        insertAtCursor(ed, '[[', ']]', '');
+      } else {
+        replaceRangeInEditor(ed, at, ed.selectionEnd, '[[]]', at + 2, at + 2);
+        updateWikiSuggest(ed);
+      }
+      break;
+    }
     case 'image': insertAtCursor(ed, '![', '](https://)', 'alt text'); break;
     case 'codeblock': insertBlock(ed, '```\n', '\n```', 'code here'); break;
     case 'table': insertBlock(ed, '', '', '| Column A | Column B |\n| --- | --- |\n| Cell 1 | Cell 2 |\n| Cell 3 | Cell 4 |'); break;
@@ -7166,6 +7193,615 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-close]');
   if (btn) closeModal(btn.dataset.close);
 });
+
+/* ============ NOTE LINKS ([[Note]]) AND BACKLINKS ============ */
+// [[Note]], [[folder/Note]], [[Note|label]] and [[Note#heading]] link to another
+// note in the vault. A link to a note that does not exist yet is shown dashed;
+// clicking it creates the note.
+function splitWikiTarget(raw) {
+  const text = String(raw || '').trim();
+  const name = text.split('|')[0].split('#')[0].trim();
+  return name.replace(/\.(?:md|markdown)$/i, '');
+}
+
+function resolveWikiTarget(raw) {
+  const wanted = splitWikiTarget(raw).replace(/\\/g, '/').toLowerCase();
+  if (!wanted) return null;
+  const notes = (state.files || []).filter((f) => /\.(?:md|markdown)$/i.test(f.path));
+  const bare = (f) => f.path.replace(/\.(?:md|markdown)$/i, '').toLowerCase();
+  const exact = notes.find((f) => bare(f) === wanted);
+  if (exact) return exact.path;
+  if (wanted.includes('/')) {
+    const tail = notes.filter((f) => bare(f).endsWith('/' + wanted));
+    return tail.length ? tail[0].path : null;
+  }
+  const named = notes.filter((f) => bare(f).split('/').pop() === wanted);
+  if (!named.length) return null;
+  // the same name in two folders: prefer the one next to the open note
+  const here = String(state.currentFile || '').split('/').slice(0, -1).join('/');
+  return (named.find((f) => f.path.split('/').slice(0, -1).join('/') === here) || named[0]).path;
+}
+
+if (md && !md.__wikiLinks) {
+  md.__wikiLinks = true;
+  md.inline.ruler.before('link', 'wikilink', (state, silent) => {
+    const src = state.src;
+    if (src.charCodeAt(state.pos) !== 0x5B || src.charCodeAt(state.pos + 1) !== 0x5B) return false;
+    const close = src.indexOf(']]', state.pos + 2);
+    if (close === -1) return false;
+    const inner = src.slice(state.pos + 2, close);
+    if (!inner.trim() || /[\n\[\]]/.test(inner)) return false;
+    if (!silent) {
+      const bar = inner.indexOf('|');
+      const target = (bar === -1 ? inner : inner.slice(0, bar)).trim();
+      const label = (bar === -1 ? inner.replace(/#/, ' › ') : inner.slice(bar + 1)).trim() || target;
+      const token = state.push('wikilink', '', 0);
+      token.meta = { target, label };
+    }
+    state.pos = close + 2;
+    return true;
+  });
+  md.renderer.rules.wikilink = (tokens, idx) => {
+    const { target, label } = tokens[idx].meta;
+    const found = resolveWikiTarget(target);
+    return '<a class="wikilink' + (found ? '' : ' wikilink-missing') + '" href="#wikilink" data-wikilink="'
+      + escapeHtml(target) + '" title="' + escapeHtml(found || target) + '">' + escapeHtml(label) + '</a>';
+  };
+}
+
+/* ============ GRAPH VIEW ============ */
+// Every note is a dot, every [[link]] a line. The layout is a small force
+// simulation drawn on a canvas, so it needs no library and stays smooth for a
+// few thousand notes (repulsion only looks at nearby cells).
+const graph = {
+  open: false, nodes: [], links: [], byId: new Map(), raf: 0, alpha: 1,
+  scale: 1, ox: 0, oy: 0, hover: null, drag: null, pan: null, moved: false,
+  showOrphans: false, query: '', colors: {}, dpr: 1, w: 0, h: 0,
+};
+
+function graphReadColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (name, fallback) => (cs.getPropertyValue(name) || '').trim() || fallback;
+  graph.colors = {
+    bg: get('--bg', '#0a0e17'), text: get('--text', '#e8edf4'), muted: get('--text-muted', '#5a6b82'),
+    secondary: get('--text-secondary', '#94a3b8'), accent: get('--accent', '#38bdf8'), border: get('--border-strong', '#2d3a4f'),
+  };
+}
+
+async function graphBuild() {
+  let index = {};
+  try { const res = await window.inkwell.linkIndex(); index = (res && res.notes) || {}; } catch (_) {}
+  const notes = (state.files || []).filter((f) => /\.(?:md|markdown)$/i.test(f.path));
+  const nodes = new Map();
+  for (const f of notes) nodes.set(f.path, { id: f.path, label: baseName(f.path), deg: 0, ghost: false });
+  const seen = new Set();
+  const links = [];
+  for (const [source, outs] of Object.entries(index)) {
+    if (!nodes.has(source)) continue;
+    for (const out of outs) {
+      let target = resolveWikiTarget(out.target);
+      if (!target) {
+        target = 'ghost:' + splitWikiTarget(out.target).toLowerCase();
+        if (!nodes.has(target)) nodes.set(target, { id: target, label: splitWikiTarget(out.target).split('/').pop(), deg: 0, ghost: true, raw: out.target });
+      }
+      if (target === source) continue;
+      const key = source + '\n' + target;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      links.push({ a: source, b: target });
+      nodes.get(source).deg++;
+      nodes.get(target).deg++;
+    }
+  }
+  const total = notes.length;
+  const connected = [...nodes.values()].filter((n) => n.deg > 0).length;
+  graph.stat = total + (total === 1 ? ' note · ' : ' notes · ') + links.length + (links.length === 1 ? ' link' : ' links');
+  const keep = [...nodes.values()].filter((n) => graph.showOrphans || n.deg > 0 || n.id === state.currentFile);
+  graph.nodes = keep;
+  graph.byId = new Map(keep.map((n) => [n.id, n]));
+  graph.links = links.filter((l) => graph.byId.has(l.a) && graph.byId.has(l.b)).map((l) => ({ a: graph.byId.get(l.a), b: graph.byId.get(l.b) }));
+  graph.connected = connected;
+  const R = 40 + Math.sqrt(keep.length) * 22;
+  keep.forEach((n, i) => {
+    const ang = i * 2.399963;
+    const r = R * Math.sqrt((i + 0.5) / keep.length);
+    n.x = Math.cos(ang) * r; n.y = Math.sin(ang) * r; n.vx = 0; n.vy = 0; n.fixed = false;
+  });
+  graph.alpha = 1;
+}
+
+function graphRadius(n) { return n.ghost ? 4 : 4.5 + Math.min(9, Math.sqrt(n.deg) * 2.2); }
+
+function graphStep() {
+  const nodes = graph.nodes;
+  const a = graph.alpha;
+  const CELL = 90;
+  const grid = new Map();
+  for (const n of nodes) {
+    const key = Math.floor(n.x / CELL) + ',' + Math.floor(n.y / CELL);
+    let cell = grid.get(key);
+    if (!cell) grid.set(key, (cell = []));
+    cell.push(n);
+  }
+  for (const n of nodes) {
+    const cx = Math.floor(n.x / CELL), cy = Math.floor(n.y / CELL);
+    for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) {
+      const cell = grid.get(gx + ',' + gy);
+      if (!cell) continue;
+      for (const m of cell) {
+        if (m === n) continue;
+        let dx = n.x - m.x, dy = n.y - m.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 > CELL * CELL) continue;
+        if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
+        const f = (900 * a) / d2;
+        n.vx += dx * f; n.vy += dy * f;
+      }
+    }
+  }
+  for (const l of graph.links) {
+    const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = ((d - 70) / d) * 0.08 * a;
+    l.a.vx += dx * f; l.a.vy += dy * f;
+    l.b.vx -= dx * f; l.b.vy -= dy * f;
+  }
+  for (const n of nodes) {
+    n.vx -= n.x * 0.012 * a; n.vy -= n.y * 0.012 * a;
+    if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
+    n.vx *= 0.82; n.vy *= 0.82;
+    n.x += Math.max(-30, Math.min(30, n.vx));
+    n.y += Math.max(-30, Math.min(30, n.vy));
+  }
+  graph.alpha = Math.max(0, a * 0.985 - 0.0008);
+}
+
+function graphNeighbors(node) {
+  const set = new Set([node]);
+  for (const l of graph.links) { if (l.a === node) set.add(l.b); else if (l.b === node) set.add(l.a); }
+  return set;
+}
+
+function graphDraw() {
+  const canvas = $('graphCanvas');
+  const ctx = canvas.getContext('2d');
+  const c = graph.colors;
+  ctx.setTransform(graph.dpr, 0, 0, graph.dpr, 0, 0);
+  ctx.clearRect(0, 0, graph.w, graph.h);
+  ctx.save();
+  ctx.translate(graph.w / 2 + graph.ox, graph.h / 2 + graph.oy);
+  ctx.scale(graph.scale, graph.scale);
+  const focus = graph.hover;
+  const near = focus ? graphNeighbors(focus) : null;
+  const q = graph.query.trim().toLowerCase();
+  const hit = (n) => q && n.label.toLowerCase().includes(q);
+  ctx.lineWidth = 1 / graph.scale;
+  for (const l of graph.links) {
+    const on = focus && (l.a === focus || l.b === focus);
+    ctx.strokeStyle = on ? c.accent : c.border;
+    ctx.globalAlpha = focus ? (on ? 0.95 : 0.12) : 0.55;
+    ctx.beginPath(); ctx.moveTo(l.a.x, l.a.y); ctx.lineTo(l.b.x, l.b.y); ctx.stroke();
+  }
+  const labelAll = graph.scale > 1.25 || graph.nodes.length <= 40;
+  const labels = [];
+  for (const n of graph.nodes) {
+    const isCur = n.id === state.currentFile;
+    const dim = (focus && !near.has(n)) || (q && !hit(n));
+    ctx.globalAlpha = dim ? 0.18 : 1;
+    const r = graphRadius(n);
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    if (n.ghost) { ctx.setLineDash([2, 2]); ctx.strokeStyle = c.muted; ctx.lineWidth = 1.2 / graph.scale; ctx.stroke(); ctx.setLineDash([]); }
+    else { ctx.fillStyle = isCur || hit(n) || n === focus ? c.accent : c.secondary; ctx.fill(); }
+    if (isCur) { ctx.beginPath(); ctx.arc(n.x, n.y, r + 3, 0, Math.PI * 2); ctx.strokeStyle = c.accent; ctx.lineWidth = 1.4 / graph.scale; ctx.stroke(); }
+    if (!dim && (labelAll || isCur || n === focus || (near && near.has(n)) || hit(n) || n.deg >= 4)) labels.push(n);
+  }
+  ctx.globalAlpha = 1;
+  ctx.font = (12 / Math.max(graph.scale, 0.6)) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const n of labels) {
+    const y = n.y + graphRadius(n) + 4 / graph.scale;
+    ctx.lineWidth = 3 / graph.scale; ctx.strokeStyle = c.bg; ctx.strokeText(n.label, n.x, y);
+    ctx.fillStyle = n === focus || n.id === state.currentFile ? c.text : c.secondary; ctx.fillText(n.label, n.x, y);
+  }
+  ctx.restore();
+}
+
+function graphLoop() {
+  graph.raf = 0;
+  if (!graph.open) return;
+  if (graph.alpha > 0.002) graphStep();
+  graphDraw();
+  if (graph.alpha > 0.002 || graph.drag) graph.raf = requestAnimationFrame(graphLoop);
+}
+function graphKick(alpha = 0.6) {
+  graph.alpha = Math.max(graph.alpha, alpha);
+  if (!graph.raf && graph.open) graph.raf = requestAnimationFrame(graphLoop);
+}
+
+function graphResize() {
+  const canvas = $('graphCanvas');
+  const rect = canvas.getBoundingClientRect();
+  graph.dpr = window.devicePixelRatio || 1;
+  graph.w = rect.width; graph.h = rect.height;
+  canvas.width = Math.round(rect.width * graph.dpr);
+  canvas.height = Math.round(rect.height * graph.dpr);
+  graphDraw();
+}
+
+function graphToWorld(ev) {
+  const rect = $('graphCanvas').getBoundingClientRect();
+  return { x: (ev.clientX - rect.left - graph.w / 2 - graph.ox) / graph.scale, y: (ev.clientY - rect.top - graph.h / 2 - graph.oy) / graph.scale };
+}
+function graphNodeAt(ev) {
+  const p = graphToWorld(ev);
+  let best = null, bestD = Infinity;
+  for (const n of graph.nodes) {
+    const d = Math.hypot(n.x - p.x, n.y - p.y);
+    if (d <= graphRadius(n) + 5 / graph.scale && d < bestD) { best = n; bestD = d; }
+  }
+  return best;
+}
+
+function graphFit() {
+  if (!graph.nodes.length) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const n of graph.nodes) { minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y); }
+  const w = Math.max(80, maxX - minX), h = Math.max(80, maxY - minY);
+  graph.scale = Math.max(0.15, Math.min(2.2, Math.min((graph.w - 120) / w, (graph.h - 160) / h)));
+  graph.ox = -((minX + maxX) / 2) * graph.scale;
+  graph.oy = -((minY + maxY) / 2) * graph.scale;
+}
+
+async function openGraph() {
+  const view = $('graphView');
+  graphReadColors();
+  graph.open = true;
+  view.classList.remove('hidden');
+  $('graphOrphans').checked = graph.showOrphans;
+  $('graphSearch').value = graph.query;
+  graphResize();
+  await graphBuild();
+  $('graphStat').textContent = graph.stat;
+  const empty = $('graphEmpty');
+  empty.classList.toggle('hidden', graph.links.length > 0);
+  empty.textContent = graph.links.length ? '' : 'No links yet. Type [[ in a note to link it to another one, and the connection shows up here.';
+  for (let i = 0; i < 160; i++) graphStep();
+  graph.alpha = 0.25;
+  graphFit();
+  graphKick(0.25);
+  $('graphSearch').focus();
+}
+
+function closeGraph() {
+  graph.open = false;
+  graph.hover = null;
+  $('graphView').classList.add('hidden');
+  if (graph.raf) cancelAnimationFrame(graph.raf);
+  graph.raf = 0;
+}
+
+function setupGraph() {
+  const canvas = $('graphCanvas');
+  $('graphBtn').addEventListener('click', () => (graph.open ? closeGraph() : openGraph()));
+  $('graphClose').addEventListener('click', closeGraph);
+  $('graphSearch').addEventListener('input', (e) => { graph.query = e.target.value; graphKick(0.001); });
+  $('graphSearch').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const q = graph.query.trim().toLowerCase();
+    const first = q && graph.nodes.find((n) => !n.ghost && n.label.toLowerCase().includes(q));
+    if (first) { closeGraph(); selectFile(first.id, { source: 'tree', reveal: true }); }
+  });
+  $('graphOrphans').addEventListener('change', async (e) => {
+    graph.showOrphans = e.target.checked;
+    await graphBuild();
+    for (let i = 0; i < 120; i++) graphStep();
+    graphFit();
+    graphKick(0.25);
+  });
+  window.addEventListener('resize', () => { if (graph.open) graphResize(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.shiftKey && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); graph.open ? closeGraph() : openGraph(); return; }
+    if (graph.open && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeGraph(); }
+  }, true);
+
+  canvas.addEventListener('mousedown', (e) => {
+    graph.moved = false;
+    const n = graphNodeAt(e);
+    if (n) { graph.drag = n; n.fixed = true; } else graph.pan = { x: e.clientX, y: e.clientY, ox: graph.ox, oy: graph.oy };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!graph.open) return;
+    if (graph.drag) {
+      const p = graphToWorld(e);
+      graph.drag.x = p.x; graph.drag.y = p.y; graph.moved = true;
+      graphKick(0.3);
+    } else if (graph.pan) {
+      if (Math.abs(e.clientX - graph.pan.x) + Math.abs(e.clientY - graph.pan.y) > 3) graph.moved = true;
+      graph.ox = graph.pan.ox + e.clientX - graph.pan.x;
+      graph.oy = graph.pan.oy + e.clientY - graph.pan.y;
+      graphKick(0.001);
+    } else if (e.target === canvas) {
+      const n = graphNodeAt(e);
+      if (n !== graph.hover) { graph.hover = n; canvas.style.cursor = n ? 'pointer' : 'grab'; graphKick(0.001); }
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    if (!graph.open) return;
+    const dragged = graph.drag;
+    if (dragged) {
+      dragged.fixed = false;
+      if (!graph.moved) {
+        closeGraph();
+        if (dragged.ghost) openWikiLink(dragged.raw); else selectFile(dragged.id, { source: 'tree', reveal: true });
+      }
+    }
+    graph.drag = null; graph.pan = null;
+  });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const before = graphToWorld(e);
+    graph.scale = Math.max(0.1, Math.min(4, graph.scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    const rect = canvas.getBoundingClientRect();
+    graph.ox = e.clientX - rect.left - graph.w / 2 - before.x * graph.scale;
+    graph.oy = e.clientY - rect.top - graph.h / 2 - before.y * graph.scale;
+    graphKick(0.001);
+  }, { passive: false });
+}
+setupGraph();
+
+/* ---- writing a link: type [[ and pick a note ---- */
+let wikiSuggest = null;
+
+function closeWikiSuggest() {
+  if (!wikiSuggest) return;
+  wikiSuggest.el.remove();
+  wikiSuggest = null;
+}
+
+// Where the caret is on screen, measured on a hidden copy of the textarea.
+function textareaCaretPoint(ta, pos) {
+  const style = getComputedStyle(ta);
+  const mirror = document.createElement('div');
+  for (const prop of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'padding',
+    'borderWidth', 'boxSizing', 'whiteSpace', 'wordBreak', 'overflowWrap', 'tabSize', 'direction', 'textAlign']) {
+    mirror.style[prop] = style[prop];
+  }
+  const rect = ta.getBoundingClientRect();
+  mirror.style.cssText += ';position:fixed;visibility:hidden;top:0;left:-9999px;white-space:pre-wrap;overflow-wrap:break-word;width:' + rect.width + 'px';
+  mirror.textContent = ta.value.slice(0, pos);
+  const marker = document.createElement('span');
+  marker.textContent = '\u200b';
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+  const top = marker.offsetTop;
+  const left = marker.offsetLeft;
+  mirror.remove();
+  const lh = parseFloat(style.lineHeight) || 20;
+  return {
+    x: rect.left + left - ta.scrollLeft,
+    y: rect.top + top - ta.scrollTop + lh + 4,
+  };
+}
+
+function wikiSuggestMatches(query) {
+  const q = query.trim().toLowerCase();
+  const notes = (state.files || []).filter((f) => /\.(?:md|markdown)$/i.test(f.path) && f.path !== state.currentFile);
+  const scored = [];
+  for (const f of notes) {
+    const bare = f.path.replace(/\.(?:md|markdown)$/i, '');
+    const name = bare.split('/').pop().toLowerCase();
+    let score = 0;
+    if (!q) score = 1;
+    else if (name.startsWith(q)) score = 4;
+    else if (name.includes(q)) score = 3;
+    else if (bare.toLowerCase().includes(q)) score = 2;
+    if (score) scored.push({ bare, score, modified: f.modified || 0 });
+  }
+  scored.sort((a, b) => b.score - a.score || b.modified - a.modified);
+  return scored.slice(0, 8);
+}
+
+function updateWikiSuggest(ta) {
+  if (!ta || ta.selectionStart !== ta.selectionEnd) { closeWikiSuggest(); return; }
+  const caret = ta.selectionStart;
+  const before = ta.value.slice(0, caret);
+  const m = /\[\[([^\[\]\n|#]*)$/.exec(before);
+  if (!m) { closeWikiSuggest(); return; }
+  const query = m[1];
+  const start = caret - query.length;
+  const matches = wikiSuggestMatches(query);
+  const exact = query.trim() && matches.some((x) => x.bare.split('/').pop().toLowerCase() === query.trim().toLowerCase());
+  const items = matches.map((x) => ({ label: x.bare.split('/').pop(), folder: x.bare.includes('/') ? x.bare.split('/').slice(0, -1).join('/') : '', insert: x.bare }));
+  if (query.trim() && !exact) items.push({ label: query.trim(), folder: '', insert: query.trim(), create: true });
+  if (!items.length) { closeWikiSuggest(); return; }
+
+  if (!wikiSuggest) {
+    const el = document.createElement('div');
+    el.className = 'wiki-suggest';
+    el.setAttribute('role', 'listbox');
+    el.addEventListener('mousedown', (e) => e.preventDefault());
+    document.body.appendChild(el);
+    wikiSuggest = { el, index: 0, items: [], ta, start };
+  }
+  const box = wikiSuggest;
+  box.ta = ta;
+  box.start = start;
+  box.items = items;
+  box.index = Math.min(box.index, items.length - 1);
+  box.el.replaceChildren();
+  const head = document.createElement('div');
+  head.className = 'wiki-suggest-head';
+  head.textContent = t('Link to a note');
+  box.el.appendChild(head);
+  items.forEach((item, i) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'wiki-suggest-item' + (i === box.index ? ' on' : '');
+    row.setAttribute('role', 'option');
+    const name = document.createElement('span');
+    name.className = 'wiki-suggest-name';
+    name.dir = 'auto';
+    name.textContent = item.create ? t('Create') + ' “' + item.label + '”' : item.label;
+    row.appendChild(name);
+    if (item.folder) {
+      const f = document.createElement('span');
+      f.className = 'wiki-suggest-folder';
+      f.textContent = item.folder;
+      row.appendChild(f);
+    }
+    row.addEventListener('click', () => chooseWikiSuggest(i));
+    box.el.appendChild(row);
+  });
+  const pt = textareaCaretPoint(ta, caret);
+  box.el.style.left = Math.max(8, Math.min(pt.x, window.innerWidth - 300)) + 'px';
+  const h = box.el.offsetHeight;
+  box.el.style.top = (pt.y + h > window.innerHeight - 8 ? Math.max(8, pt.y - h - 28) : pt.y) + 'px';
+}
+
+function chooseWikiSuggest(i) {
+  const box = wikiSuggest;
+  if (!box) return;
+  const item = box.items[i];
+  if (!item) return;
+  const ta = box.ta;
+  const caret = ta.selectionStart;
+  closeWikiSuggest();
+  const after = ta.value.slice(caret, caret + 2) === ']]' ? 2 : 0;
+  replaceRangeInEditor(ta, box.start, caret + after, item.insert + ']]');
+}
+
+function setupWikiSuggest() {
+  document.addEventListener('input', (e) => {
+    const ta = e.target;
+    if (ta === els.editor || (ta && ta.classList && ta.classList.contains('live-block-editor'))) updateWikiSuggest(ta);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!wikiSuggest) return;
+    const box = wikiSuggest;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      const n = box.items.length;
+      box.index = (box.index + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+      Array.from(box.el.querySelectorAll('.wiki-suggest-item')).forEach((row, i) => row.classList.toggle('on', i === box.index));
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopPropagation();
+      chooseWikiSuggest(box.index);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeWikiSuggest();
+    }
+  }, true);
+  document.addEventListener('mousedown', (e) => {
+    if (wikiSuggest && !wikiSuggest.el.contains(e.target)) closeWikiSuggest();
+  });
+  window.addEventListener('blur', closeWikiSuggest);
+}
+setupWikiSuggest();
+
+// A note created, renamed or deleted changes which links resolve.
+function refreshWikiLinkStates() {
+  document.querySelectorAll('a.wikilink[data-wikilink]').forEach((link) => {
+    const found = resolveWikiTarget(link.dataset.wikilink);
+    link.classList.toggle('wikilink-missing', !found);
+    link.title = found || link.dataset.wikilink;
+  });
+}
+
+async function openWikiLink(raw) {
+  const found = resolveWikiTarget(raw);
+  if (found) {
+    await selectFile(found, { source: 'tree', reveal: true });
+    const heading = String(raw).split('#')[1];
+    if (heading) scrollToHeading(heading.split('|')[0]);
+    return;
+  }
+  const name = sanitizeName(splitWikiTarget(raw).split('/').pop());
+  if (!name) return;
+  if (!(await ensureVaultForCreation())) return;
+  const folder = String(state.currentFile || '').split('/').slice(0, -1).join('/');
+  const fullPath = joinPath(folder, name + '.md');
+  try {
+    const result = await window.inkwell.createFile(fullPath);
+    if (!result.success) { toast('Could not create note: ' + result.error, 'error'); return; }
+    await refreshFiles();
+    await selectFile(fullPath, { source: 'tree', reveal: true });
+    toast('Created ' + fullPath, 'success');
+  } catch (_) {
+    toast('Could not create note', 'error');
+  }
+}
+
+function scrollToHeading(text) {
+  const wanted = String(text || '').trim().toLowerCase();
+  if (!wanted) return;
+  const hit = Array.from(els.previewContent.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+    .find((h) => h.textContent.trim().toLowerCase() === wanted);
+  if (hit) hit.scrollIntoView({ block: 'start' });
+}
+
+document.addEventListener('click', (e) => {
+  if (e.button !== 0) return;
+  const link = e.target && e.target.closest ? e.target.closest('a.wikilink[data-wikilink]') : null;
+  if (!link) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openWikiLink(link.dataset.wikilink);
+}, true);
+
+// Backlinks: the notes that link to the open one, with the line that does.
+let backlinkTimer = null;
+let backlinkRun = 0;
+function scheduleBacklinks(delay = 250) {
+  clearTimeout(backlinkTimer);
+  backlinkTimer = setTimeout(updateBacklinks, delay);
+}
+
+async function updateBacklinks() {
+  const box = els.backlinks;
+  if (!box || !window.inkwell.linkIndex) return;
+  const current = state.currentFile;
+  const eligible = current && !isExternalPath(current) && !isArchivedPath(current)
+    && /\.(?:md|markdown)$/i.test(current);
+  if (!eligible) { box.classList.add('hidden'); return; }
+  const run = ++backlinkRun;
+  let res = null;
+  try { res = await window.inkwell.linkIndex(); } catch (_) { return; }
+  if (run !== backlinkRun || current !== state.currentFile) return;
+  const found = [];
+  for (const [source, links] of Object.entries((res && res.notes) || {})) {
+    if (source === current) continue;
+    const hits = links.filter((l) => resolveWikiTarget(l.target) === current);
+    if (hits.length) found.push({ source, context: hits[0].context });
+  }
+  found.sort((a, b) => a.source.localeCompare(b.source));
+  els.backlinksCount.textContent = String(found.length);
+  els.backlinksList.replaceChildren();
+  if (!found.length) { box.classList.add('hidden'); return; }
+  for (const item of found) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'backlink';
+    const title = document.createElement('span');
+    title.className = 'backlink-title';
+    title.textContent = baseName(item.source);
+    title.dir = 'auto';
+    const folder = item.source.includes('/') ? item.source.split('/').slice(0, -1).join('/') : '';
+    const where = document.createElement('span');
+    where.className = 'backlink-where';
+    where.textContent = folder;
+    const line = document.createElement('span');
+    line.className = 'backlink-context';
+    line.textContent = item.context.replace(/^[#>*\-\s\d.]+/, '');
+    line.dir = 'auto';
+    row.append(title, where, line);
+    row.addEventListener('click', () => selectFile(item.source, { source: 'tree', reveal: true }));
+    els.backlinksList.appendChild(row);
+  }
+  box.classList.remove('hidden');
+}
 
 // A link in a note, an AI answer or a comment opens in the system browser. The
 // window *is* the app: letting the click navigate replaces Inkwell with a blank

@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('inkwell', {
   openExternalFile: () => ipcRenderer.invoke('file:openExternal'),
   readExternal: (absPath) => ipcRenderer.invoke('file:readExternal', absPath),
   writeExternal: (absPath, content) => ipcRenderer.invoke('file:writeExternal', absPath, content),
+  linkIndex: () => ipcRenderer.invoke('links:index'),
   listExternalDir: (absPath) => ipcRenderer.invoke('file:listExternalDir', absPath),
   watchExternal: (payload) => ipcRenderer.invoke('external:watch', payload),
   saveExternalToVault: (payload) => ipcRenderer.invoke('external:saveToVault', payload),

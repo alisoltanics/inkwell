@@ -169,6 +169,9 @@
                 </div>
                 <div class="topbar-right">
                     <span class="save-status" id="saveStatus"></span>
+                    <button id="graphBtn" class="btn-icon" title="Graph view: how your notes link (Ctrl+Shift+G)" aria-label="Open graph view">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.2 7l7.6.7M7.4 8.2l3.4 7.6M16.6 10.2l-3.4 5.6"/></svg>
+                    </button>
                     <button id="settingsBtn" class="btn-icon" title="Settings">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     </button>
@@ -272,6 +275,7 @@
                     <button class="tb-btn" data-action="link" title="Link (Ctrl+K)">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                     </button>
+                    <button class="tb-btn tb-text" data-action="notelink" title="Link to a note ([[ )">[[ ]]</button>
                     <button class="tb-btn" data-action="image" title="Image">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
                     </button>
@@ -308,6 +312,14 @@
                 </div>
                     <div class="preview-pane" id="preview">
                         <div class="markdown-body" id="previewContent"></div>
+                        <section class="backlinks hidden" id="backlinks" aria-label="Linked mentions">
+                            <button type="button" class="backlinks-head" id="backlinksHead" aria-expanded="true">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                <span>Linked from</span>
+                                <span class="backlinks-count" id="backlinksCount">0</span>
+                            </button>
+                            <div class="backlinks-list" id="backlinksList"></div>
+                        </section>
                     </div>
 
                     <div class="answer-doc-view hidden" id="answerDocView">
@@ -1245,6 +1257,20 @@
         </div>
 
     </aside>
+
+    <!-- Graph view -->
+    <div class="graph-view hidden" id="graphView" role="dialog" aria-label="Graph view">
+        <div class="graph-bar">
+            <div class="graph-title">Graph</div>
+            <input type="search" id="graphSearch" class="graph-search" placeholder="Find a note…" autocomplete="off">
+            <label class="graph-toggle"><input type="checkbox" id="graphOrphans"> <span>Show notes without links</span></label>
+            <span class="graph-stat" id="graphStat"></span>
+            <button type="button" class="graph-close" id="graphClose" title="Close (Esc)" aria-label="Close graph view">&times;</button>
+        </div>
+        <canvas id="graphCanvas"></canvas>
+        <div class="graph-empty hidden" id="graphEmpty"></div>
+        <div class="graph-hint">Click a note to open it · drag to move · scroll to zoom</div>
+    </div>
 
     <!-- Comments panel -->
     <aside class="comments-panel hidden" id="commentsPanel">

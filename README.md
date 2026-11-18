@@ -51,6 +51,7 @@
 - Drag files and folders to reorganize them. A note, image, PDF or HTML file keeps its extension when it moves.
 - Choose the vault folder in **Settings**. Notes are saved as you type, and external changes — from another editor, a sync folder, the VS Code extension or Telegram — appear on their own.
 - The open note reloads in place when its file changes on disk, without losing the caret or scroll position, and never overwrites unsaved edits.
+- **Link notes with `[[`.** Type `[[` and pick a note from the list (or press the `[[ ]]` button in the toolbar). `[[Note]]`, `[[folder/Note]]`, `[[Note|label]]` and `[[Note#Heading]]` all work. A link to a note that does not exist yet is dashed; click it to create the note. Every note ends with a **Linked from** list of the notes that link to it.
 - Add comments to selected passages, revisit them from the comments panel, and keep them attached to the same paragraph in the translated view.
 - Images and PDFs sit in the same tree as notes. Images open in a zoomable viewer (25%–400%); PDFs open in the built-in viewer with **Open in the default app** and **Show in folder**.
 - Add images with paths relative to the vault; the preview embeds them and can open them full-screen.
@@ -116,6 +117,7 @@
 
 Configure a bot token and chat ID in **Settings → Telegram**, send a test message, then use the chat as a remote inbox.
 
+- **Read in the chat instead of downloading.** In the vault browser (`/files`), the last button switches between *Receiving files* and *Reading in chat*. With reading on, tapping a note, `.docx` or HTML file opens it as a widget inside the conversation; images, PDFs and anything the chat cannot show are still sent as files. The choice is remembered.
 - **Write from your phone.** Every text message opens a **folder picker**, then asks for a **file name**. Choose the folder you are viewing, the **Default path** from settings, or **Append to …** for the default append file.
 - The HTML of a note you just sent to the bot comes back **without a password** — you wrote that text yourself. The send password protects files read out of the vault with `/files`.
 - Files and photos from the phone are always saved into `Telegram/`, keeping their name and extension. That folder gets its own tinted sidebar section and is excluded from the notes tree, so nothing appears twice.

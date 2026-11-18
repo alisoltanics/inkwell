@@ -268,6 +268,64 @@ function walkNotes(dirAbs, prefix, files, folders) {
   }
 }
 
+/* ================= LINKS BETWEEN NOTES ================= */
+// [[Note]] links are scanned from the files themselves, so backlinks follow
+// edits made anywhere. Only changed files are read again.
+const WIKI_LINK = /\[\[([^\[\]\n|#]+?)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]/g;
+const linkCache = new Map();
+
+function wikiTargetsOf(text) {
+  // links inside code are text, not links
+  const clean = String(text || '')
+    .replace(/^(```|~~~)[\s\S]*?^\1/gm, '')
+    .replace(/`[^`\n]*`/g, '');
+  const out = [];
+  let m;
+  WIKI_LINK.lastIndex = 0;
+  while ((m = WIKI_LINK.exec(clean)) && out.length < 500) {
+    const target = m[1].trim();
+    if (target) out.push(target);
+  }
+  return out;
+}
+
+function lineAround(text, target) {
+  const idx = String(text).indexOf('[[' + target);
+  if (idx === -1) return '';
+  const from = text.lastIndexOf('\n', idx) + 1;
+  let to = text.indexOf('\n', idx);
+  if (to === -1) to = text.length;
+  return text.slice(from, to).trim().slice(0, 220);
+}
+
+ipcMain.handle('links:index', async () => {
+  try {
+    if (!NOTES_DIR) return { success: true, notes: {} };
+    const files = [];
+    walkNotes(NOTES_DIR, '', files, []);
+    const live = new Set();
+    const notes = {};
+    for (const file of files) {
+      if (file.kind !== 'markdown' && !/\.md$/i.test(file.name)) continue;
+      live.add(file.path);
+      const key = file.modified + ':' + file.size;
+      let entry = linkCache.get(file.path);
+      if (!entry || entry.key !== key) {
+        let text = '';
+        try { text = fs.readFileSync(path.join(NOTES_DIR, file.path), 'utf8'); } catch (_) {}
+        const targets = [...new Set(wikiTargetsOf(text))];
+        entry = { key, links: targets.map((t) => ({ target: t, context: lineAround(text, t) })) };
+        linkCache.set(file.path, entry);
+      }
+      if (entry.links.length) notes[file.path] = entry.links;
+    }
+    for (const known of [...linkCache.keys()]) if (!live.has(known)) linkCache.delete(known);
+    return { success: true, notes };
+  } catch (e) {
+    return { success: false, error: e.message, notes: {} };
+  }
+});
+
 let mainWindow;
 
 function createWindow() {
@@ -2480,7 +2538,7 @@ async function telegramAskSendPassword(label, gate, lead) {
   telegramSendGate = { ...gate, at: Date.now(), promptId: 0 };
   const lines = [];
   if (lead) lines.push(lead);
-  lines.push('🔒 Send the Telegram password to receive «' + label + '».');
+  lines.push('🔒 Send the Telegram password to ' + (telegramReadMode() ? 'open' : 'receive') + ' «' + label + '».');
   lines.push('As soon as I check the password, I will delete your password message and this prompt from the chat. Telegram may still keep its own copy.');
   lines.push('Send /cancel to skip.');
   const sent = await telegramInboxReply(lines.join('\n'), {
@@ -2531,7 +2589,7 @@ async function telegramHandlePasswordMessage(message, body) {
   await telegramInboxReply('Password accepted. Sending «' + gate.rel + '»…');
 
   try {
-    await telegramBrowseSendFile(gate.rel);
+    await telegramBrowseOpenFile(gate.rel);
   } catch (e) {
     const reason = e && e.message ? e.message : String(e);
     telegramInbox.lastError = 'Could not send «' + gate.rel + '»: ' + reason;
@@ -3001,6 +3059,7 @@ function telegramBrowseModel(rel, page) {
     token: telegramBrowseToken(current),
     upToken: current ? telegramBrowseToken(parent) : '',
     rootToken: telegramBrowseToken(''),
+    readMode: telegramReadMode(),
   };
 }
 
@@ -3027,6 +3086,10 @@ function telegramBrowseView(rel, page) {
     if (currentPage < pageCount) pager.push({ text: 'Next ▶', callback_data: 'd:' + token + ':p' + (currentPage + 1) });
     if (pager.length) rows.push(pager);
   }
+  rows.push([{
+    text: model.readMode ? '📖 Opening in chat — tap to receive files instead' : '📥 Receiving files — tap to open them in chat',
+    callback_data: 'o:' + token,
+  }]);
   rows.push([{ text: '☰ Menu', callback_data: 'm:menu' }]);
 
   const where = current ? 'Vault / ' + current : 'Vault';
@@ -3037,7 +3100,7 @@ function telegramBrowseView(rel, page) {
     text += items.length + (items.length === 1 ? ' item' : ' items')
       + ' · ' + folders.length + (folders.length === 1 ? ' folder' : ' folders')
       + ' · ' + files.length + (files.length === 1 ? ' file' : ' files')
-      + '\nTap a folder to open it, or a file to receive it.';
+      + (model.readMode ? '\nTap a folder to open it, or a note to read it here.' : '\nTap a folder to open it, or a file to receive it.');
     if (pageCount > 1) text += '\nPage ' + currentPage + '/' + pageCount;
   }
   return { text, reply_markup: { inline_keyboard: rows }, model };
@@ -3181,14 +3244,28 @@ async function telegramBrowseWidgetQuery(query) {
       return;
     }
     // answer first: an upload easily outlives the 15 seconds of the query
-    await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'Sending «' + path.basename(rel) + '»…' }));
+    const reading = telegramReadMode() && TELEGRAM_READABLE.has(path.extname(rel).slice(1).toLowerCase());
+    await telegramWidgetAnswer(query.id, JSON.stringify({ m: (reading ? 'Opening «' : 'Sending «') + path.basename(rel) + '»…' }));
     try {
-      await telegramBrowseSendFile(rel);
+      await telegramBrowseOpenFile(rel);
     } catch (e) {
       const reason = e && e.message ? e.message : String(e);
       telegramInbox.lastError = 'Could not send «' + rel + '»: ' + reason;
       await telegramInboxReply('Could not send «' + rel + '»: ' + reason);
     }
+    return;
+  }
+  if (action === 'o') {
+    store.set('telegramReadMode', !telegramReadMode());
+    const here = token ? telegramBrowseTokenPath(token) : '';
+    let next = '';
+    try { next = buildVaultWidgetState(telegramBrowseModel(here == null ? '' : here, 1)); } catch (_) {}
+    if (!next) {
+      await telegramWidgetAnswer(query.id, JSON.stringify({ m: 'Could not switch.' }));
+      return;
+    }
+    await telegramWidgetAnswer(query.id, next);
+    await telegramWidgetSetState(query.message, next);
     return;
   }
   if (action !== 'd') {
@@ -3545,6 +3622,118 @@ function telegramBrowseMime(file) {
 // Send one vault file. Markdown (and text) becomes the same standalone HTML the
 // app exports; Word is converted; an HTML page, image, PDF or anything else is
 // sent as itself.
+/* ================= READ A FILE IN THE CHAT ================= */
+// With reading on, a note or HTML file opens as a widget inside the chat
+// instead of arriving as a download. Anything that cannot be shown that way
+// (an image, a PDF, a page the server refuses) is sent as a file as before.
+function telegramReadMode() {
+  return store.get('telegramReadMode') === true;
+}
+
+const TELEGRAM_READABLE = new Set(['md', 'markdown', 'txt', 'html', 'htm', 'docx']);
+
+// The widget has its own theme and no network: embedded font files only make
+// the page heavy, so they are dropped.
+function lightenForWidget(html) {
+  return String(html).replace(/@font-face\s*\{[^}]*\}/g, '');
+}
+
+async function telegramBrowseOpenFile(rel) {
+  if (!telegramReadMode()) return telegramBrowseSendFile(rel);
+  const ext = path.extname(String(rel || '')).slice(1).toLowerCase();
+  if (!TELEGRAM_READABLE.has(ext)) return telegramBrowseSendFile(rel);
+  const opened = await telegramBrowseReadFile(rel, ext);
+  if (!opened) {
+    await telegramInboxReply('This page could not be opened in the chat, so it is sent as a file instead.');
+    return telegramBrowseSendFile(rel);
+  }
+}
+
+async function telegramBrowseReadFile(rel, ext) {
+  const safe = telegramBrowseSafePath(rel);
+  const creds = getTelegramConfig();
+  if (!safe || !safe.rel || !creds.botToken || !creds.chatId) return false;
+  try {
+    const stat = fs.statSync(safe.abs);
+    if (!stat.isFile() || stat.size > 10 * 1024 * 1024) return false;
+    const name = path.basename(safe.rel);
+    const title = name.replace(/\.[^.]+$/, '');
+    let html;
+    if (ext === 'html' || ext === 'htm') {
+      html = await fs.promises.readFile(safe.abs, 'utf8');
+    } else if (ext === 'docx') {
+      html = buildTelegramDocxHtml({
+        buffer: await fs.promises.readFile(safe.abs),
+        title,
+        date: new Date(stat.mtimeMs),
+        dir: telegramSavedDirection(safe.rel),
+      });
+    } else {
+      html = await buildTelegramNoteHtml({
+        vaultRoot: NOTES_DIR,
+        relPath: safe.rel,
+        markdown: await fs.promises.readFile(safe.abs, 'utf8'),
+        title,
+        date: new Date(stat.mtimeMs),
+        dir: telegramSavedDirection(safe.rel),
+      });
+    }
+    // a widget when the server has them; otherwise (or when it refuses this
+    // page) the text itself, formatted, in a few messages
+    if (telegramReaderWidget !== false) {
+      try {
+        const form = new FormData();
+        form.append('chat_id', creds.chatId);
+        form.append('html', lightenForWidget(html));
+        form.append('caption', '📖 ' + title.slice(0, 200));
+        await telegramApi('sendWidget', form);
+        telegramReaderWidget = true;
+        return true;
+      } catch (e) {
+        const reason = e && e.message ? e.message : String(e);
+        if (/method|not found|unknown|unsupported|not.allowed/i.test(reason)) telegramReaderWidget = false;
+        telegramInbox.lastError = 'Widget not accepted (' + reason + '); reading as messages.';
+      }
+    }
+    return await telegramSendAsMessages(html, title, safe.rel);
+  } catch (e) {
+    telegramInbox.lastError = 'Could not open «' + rel + '»: ' + (e && e.message ? e.message : String(e));
+    return false;
+  }
+}
+
+let telegramReaderWidget = null;
+const TELEGRAM_READ_MESSAGES_MAX = 12;
+
+async function telegramSendAsMessages(html, title, rel) {
+  const { htmlToMessages, plainText } = require('./src/telegram-reader');
+  const parts = htmlToMessages(html);
+  if (!parts.length) return false;
+  const creds = getTelegramConfig();
+  const shown = parts.slice(0, TELEGRAM_READ_MESSAGES_MAX);
+  for (let i = 0; i < shown.length; i++) {
+    const send = async (text, mode) => {
+      const form = new FormData();
+      form.append('chat_id', creds.chatId);
+      form.append('text', text);
+      if (mode) form.append('parse_mode', mode);
+      form.append('link_preview_options', JSON.stringify({ is_disabled: true }));
+      await telegramApi('sendMessage', form);
+    };
+    const head = i === 0 ? '📖 <b>' + title.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</b>\n\n' : '';
+    try {
+      await send(head + shown[i], 'HTML');
+    } catch (e) {
+      // a tag the chat refused: the same text without any formatting
+      await send(plainText(head + shown[i]), '');
+    }
+  }
+  if (parts.length > shown.length) {
+    await telegramInboxReply('📖 Only the first ' + shown.length + ' parts of «' + rel + '» are shown here (' + parts.length + ' in all). Switch to receiving files for the whole page.');
+  }
+  return true;
+}
+
 async function telegramBrowseSendFile(rel) {
   if (!NOTES_DIR) return;
   const safe = telegramBrowseSafePath(rel);
@@ -4022,6 +4211,13 @@ async function telegramBrowseCallback(query) {
     await telegramComposeCallback(query, action, token, pagePart);
     return;
   }
+  if (action === 'o') {
+    store.set('telegramReadMode', !telegramReadMode());
+    const here = token ? telegramBrowseTokenPath(token) : '';
+    await telegramBrowseAnswer(query.id, telegramReadMode() ? 'Files open in the chat' : 'Files are sent to you');
+    await telegramBrowseEditMessage(query, telegramBrowseView(here == null ? '' : here, 1));
+    return;
+  }
   if (action !== 'd' && action !== 'f') {
     await telegramBrowseAnswer(query.id);
     return;
@@ -4041,7 +4237,7 @@ async function telegramBrowseCallback(query) {
     // answer first: Telegram expects a callback answer before the upload starts
     await telegramBrowseAnswer(query.id, 'Sending…');
     try {
-      await telegramBrowseSendFile(rel);
+      await telegramBrowseOpenFile(rel);
     } catch (e) {
       const reason = e && e.message ? e.message : String(e);
       telegramInbox.lastError = 'Could not send «' + rel + '»: ' + reason;
