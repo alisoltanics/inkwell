@@ -332,8 +332,17 @@ function createWindow() {
 
 // One window only: launching again with a file (the "Save to Inkwell" button
 // does this) hands the file to the running app and brings it to the front.
+function isDirectoryPath(abs) {
+  try {
+    return fs.statSync(abs).isDirectory();
+  } catch (_) {
+    return false;
+  }
+}
+// a note or a folder: the VS Code extension hands over either one
 function noteArgFrom(argv) {
-  const found = (argv || []).slice(1).find((a) => /\.(?:md|markdown)$/i.test(a) && path.isAbsolute(a));
+  const found = (argv || []).slice(1).find((a) => path.isAbsolute(a)
+    && (/\.(?:md|markdown)$/i.test(a) || isDirectoryPath(a)));
   return found || '';
 }
 let pendingOpenPath = noteArgFrom(process.argv);
@@ -346,7 +355,7 @@ function sendOpenFile(abs) {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
-  mainWindow.webContents.send('app:open-file', { path: abs });
+  mainWindow.webContents.send('app:open-file', { path: abs, isDir: isDirectoryPath(abs) });
 }
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -374,6 +383,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   stopVaultWatch();
+  clearExternalWatches();
   stopTelegramInbox();
 });
 
@@ -880,6 +890,228 @@ ipcMain.handle('file:writeExternal', async (event, absPath, content) => {
     if (!externalOpened.has(abs)) throw new Error('Open the file before saving it');
     fs.writeFileSync(abs, String(content ?? ''), 'utf8');
     return { success: true, path: abs };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+/* ================= FOLDERS AND CHANGES OUTSIDE THE VAULT ================= */
+// A folder opened from another editor is listed in place (never copied), and
+// the files and folders the window shows from outside are watched so the open
+// document follows a save made elsewhere.
+const EXTERNAL_LIST_LIMIT = 5000;
+
+function listExternalFolder(dir) {
+  const root = path.resolve(String(dir || ''));
+  if (!isDirectoryPath(root)) throw new Error('Not a folder');
+  const entries = [];
+  const walk = (current, rel, depth) => {
+    if (depth > 10 || entries.length >= EXTERNAL_LIST_LIMIT) return;
+    let items = [];
+    try {
+      items = fs.readdirSync(current, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const item of items) {
+      if (item.name.startsWith('.') || item.name === 'node_modules') continue;
+      const relative = rel ? rel + '/' + item.name : item.name;
+      const absolute = path.join(current, item.name);
+      if (item.isDirectory()) {
+        entries.push({ rel: relative, name: item.name, dir: true });
+        walk(absolute, relative, depth + 1);
+      } else if (item.isFile() && externalKind(absolute) !== 'unknown') {
+        entries.push({ rel: relative, name: item.name, dir: false, path: absolute });
+      }
+    }
+  };
+  walk(root, '', 0);
+  return { success: true, path: root, name: path.basename(root) || root, entries, truncated: entries.length >= EXTERNAL_LIST_LIMIT };
+}
+
+ipcMain.handle('file:listExternalDir', async (event, dir) => {
+  try {
+    return listExternalFolder(dir);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+const externalFileWatches = new Map();
+const externalFolderWatches = new Map();
+const externalPending = new Set();
+let externalTimer = null;
+
+function flushExternalChanges() {
+  externalTimer = null;
+  const paths = [...externalPending];
+  externalPending.clear();
+  if (!paths.length) return;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('external:changed', { paths });
+  }
+}
+
+function queueExternalChange(abs, delay = 250) {
+  externalPending.add(abs);
+  if (externalTimer) clearTimeout(externalTimer);
+  externalTimer = setTimeout(flushExternalChanges, delay);
+}
+
+function clearExternalWatches() {
+  for (const [abs, listener] of externalFileWatches) fs.unwatchFile(abs, listener);
+  externalFileWatches.clear();
+  for (const timer of externalFolderWatches.values()) clearInterval(timer);
+  externalFolderWatches.clear();
+}
+
+function setExternalWatches(files, folders) {
+  const wantFiles = new Set((files || []).map((f) => path.resolve(String(f))));
+  const wantFolders = new Set((folders || []).map((f) => path.resolve(String(f))));
+  for (const [abs, listener] of [...externalFileWatches]) {
+    if (wantFiles.has(abs)) continue;
+    fs.unwatchFile(abs, listener);
+    externalFileWatches.delete(abs);
+  }
+  for (const [abs, timer] of [...externalFolderWatches]) {
+    if (wantFolders.has(abs)) continue;
+    clearInterval(timer);
+    externalFolderWatches.delete(abs);
+  }
+  for (const abs of wantFiles) {
+    if (externalFileWatches.has(abs)) continue;
+    // a file is polled by its time and size, which also survives an editor
+    // that saves by writing a new file and renaming it over the old one
+    const listener = (cur, prev) => {
+      if (cur.mtimeMs !== prev.mtimeMs || cur.size !== prev.size) queueExternalChange(abs);
+    };
+    fs.watchFile(abs, { interval: 500, persistent: false }, listener);
+    externalFileWatches.set(abs, listener);
+  }
+  for (const abs of wantFolders) {
+    if (externalFolderWatches.has(abs)) continue;
+    let previous = vaultSnapshot(abs);
+    const timer = setInterval(() => {
+      const next = vaultSnapshot(abs);
+      const changed = new Set();
+      for (const [key, stamp] of next) if (previous.get(key) !== stamp) changed.add(key);
+      for (const key of previous.keys()) if (!next.has(key)) changed.add(key);
+      previous = next;
+      for (const key of changed) queueExternalChange(path.join(abs, key.replace(/\/$/, '')), 60);
+    }, 1500);
+    if (timer.unref) timer.unref();
+    externalFolderWatches.set(abs, timer);
+  }
+}
+
+ipcMain.handle('external:watch', async (event, payload) => {
+  try {
+    setExternalWatches(payload && payload.files, payload && payload.folders);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+function fileTextEqual(a, b) {
+  try {
+    const left = fs.statSync(a);
+    const right = fs.statSync(b);
+    if (left.size !== right.size) return false;
+    return fs.readFileSync(a).equals(fs.readFileSync(b));
+  } catch (_) {
+    return false;
+  }
+}
+
+function freeCopyName(target) {
+  const dir = path.dirname(target);
+  const ext = path.extname(target);
+  const base = path.basename(target, ext);
+  for (let n = 2; n < 500; n++) {
+    const candidate = path.join(dir, `${base}-${n}${ext}`);
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(dir, `${base}-${Date.now()}${ext}`);
+}
+
+// Copies a document or a whole folder from outside into the vault. The copy
+// lands under a folder named after the project it came from, so two projects
+// with the same file name do not overwrite each other.
+ipcMain.handle('external:saveToVault', async (event, payload) => {
+  try {
+    if (!NOTES_DIR) throw new Error('Choose a vault folder first');
+    const source = path.resolve(String((payload && payload.path) || ''));
+    if (!fs.existsSync(source)) throw new Error('Not found');
+    const isDir = isDirectoryPath(source);
+    const rootArg = payload && payload.root ? path.resolve(String(payload.root)) : '';
+    const rootRel = rootArg ? path.relative(rootArg, source) : '';
+    const inRoot = rootArg && rootRel && !rootRel.startsWith('..') && !path.isAbsolute(rootRel);
+    // [source file, destination file] pairs
+    const pairs = [];
+    let base;
+    if (isDir) {
+      const label = inRoot ? path.join(path.basename(rootArg), rootRel) : path.basename(source);
+      base = path.join(NOTES_DIR, label);
+      const walk = (dir, rel) => {
+        if (pairs.length >= EXTERNAL_LIST_LIMIT) return;
+        let items = [];
+        try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+        for (const item of items) {
+          if (item.name.startsWith('.') || item.name === 'node_modules') continue;
+          const abs = path.join(dir, item.name);
+          const next = rel ? path.join(rel, item.name) : item.name;
+          if (item.isDirectory()) walk(abs, next);
+          else if (item.isFile() && fs.statSync(abs).size <= 40 * 1024 * 1024) pairs.push([abs, path.join(base, next)]);
+        }
+      };
+      walk(source, '');
+    } else {
+      const label = inRoot ? path.join(path.basename(rootArg), rootRel) : path.join(path.basename(path.dirname(source)), path.basename(source));
+      base = path.join(NOTES_DIR, label);
+      pairs.push([source, base]);
+    }
+    if (!pairs.length) throw new Error('Nothing to copy');
+    for (const pair of pairs) {
+      if (!insideNotesDir(pair[1])) throw new Error('Invalid destination');
+    }
+
+    const pending = pairs.filter((pair) => !(fs.existsSync(pair[1]) && fileTextEqual(pair[0], pair[1])));
+    const clashes = pending.filter((pair) => fs.existsSync(pair[1]));
+    let keepBoth = false;
+    if (clashes.length) {
+      const win = windowFrom(event);
+      const rel = path.relative(NOTES_DIR, clashes[0][1]);
+      const answer = await dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Replace', 'Keep both', 'Cancel'],
+        defaultId: 1,
+        cancelId: 2,
+        message: clashes.length === 1
+          ? `${path.basename(clashes[0][1])} is already in the vault.`
+          : `${clashes.length} files are already in the vault.`,
+        detail: rel,
+      });
+      if (answer.response === 2) return { success: false, canceled: true };
+      keepBoth = answer.response === 1;
+    }
+    let copied = 0;
+    let first = '';
+    for (const [from, to] of pending) {
+      let target = to;
+      if (fs.existsSync(target) && keepBoth) target = freeCopyName(target);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(from, target);
+      if (!first) first = path.relative(NOTES_DIR, target).split(path.sep).join('/');
+      copied++;
+    }
+    return {
+      success: true,
+      copied,
+      unchanged: pairs.length - pending.length,
+      path: first || path.relative(NOTES_DIR, base).split(path.sep).join('/'),
+      isDir,
+    };
   } catch (e) {
     return { success: false, error: e.message };
   }
