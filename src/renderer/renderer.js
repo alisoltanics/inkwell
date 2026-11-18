@@ -228,6 +228,8 @@ let state = {
   // documents opened from other folders on disk (absolute paths, never copied
   // into the vault, so they keep their identity as "not a vault note")
   externalFiles: [],
+  // folders opened from another editor: listed in place, never copied
+  externalFolders: [],
   // session-only: the "Outside the vault" section starts open
   externalOpen: true,
   // rendered HTML of the open .docx (the preview is all we can do with it)
@@ -751,12 +753,19 @@ setupWindowChrome();
 // note and come back. Unsaved edits are never thrown away.
 async function reloadOpenFileFromDisk(paths) {
   const current = state.currentFile;
-  if (!current || state.dirty || isExternalPath(current) || isArchivedPath(current)) return false;
-  if (!(paths || []).some((item) => item === current)) return false;
+  if (!current || isArchivedPath(current)) return false;
+  const external = isExternalPath(current);
+  const watched = external ? externalAbsOf(current) : current;
+  if (!(paths || []).some((item) => item === watched)) return false;
   if (/\.(?:docx|html?)$/i.test(current)) return false;
+  if (state.dirty) {
+    // never overwrite what is being typed; autosave will write it out shortly
+    if (external) setStatus('Changed on disk: ' + watched);
+    return false;
+  }
   let res = null;
   try {
-    res = await window.inkwell.readFile(current);
+    res = await readDocument(current);
   } catch (_) {
     return false;
   }
@@ -779,7 +788,7 @@ async function reloadOpenFileFromDisk(paths) {
   setSaveStatus('saved');
   // a file that changed under a conversation would make its context stale
   if (aiThread.length && aiChatOwner === docChatKey()) aiThreadContext = { ...aiThreadContext, text: content };
-  setStatus('Updated from outside: ' + displayNotePath(current));
+  setStatus('Updated from outside: ' + humanPath(current));
   return true;
 }
 
@@ -828,6 +837,10 @@ function setupOpenFromOutside() {
     try {
       const abs = payload && payload.path;
       if (!abs) return;
+      if (payload.isDir) {
+        await openExternalFolder(abs);
+        return;
+      }
       const root = (await api.getNotesDir() || '').replace(/\/+$/, '');
       if (root && abs.startsWith(root + '/')) {
         const rel = abs.slice(root.length + 1);
@@ -855,6 +868,105 @@ function setupOpenFromOutside() {
   });
 }
 setupOpenFromOutside();
+
+/* ---- folders and files from outside the vault ---- */
+// Listings of the open outside folders (session only, rebuilt on change).
+const externalTrees = new Map();
+const externalDirRoot = new Map();
+const externalFolderOpen = new Set();
+let externalWatchSignature = '';
+
+async function loadExternalTree(folderPath) {
+  try {
+    const res = await window.inkwell.listExternalDir(folderPath);
+    if (!res || !res.success) {
+      externalTrees.delete(folderPath);
+      return false;
+    }
+    externalTrees.set(folderPath, res);
+    for (const entry of res.entries) {
+      const abs = res.path + '/' + entry.rel;
+      externalDirRoot.set(abs, folderPath);
+    }
+    externalDirRoot.set(folderPath, folderPath);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function externalEntryOfTree(abs) {
+  for (const [root, tree] of externalTrees) {
+    const hit = tree.entries.find((e) => !e.dir && e.path === abs);
+    if (hit) return { path: abs, name: hit.name, kind: 'markdown', root };
+  }
+  return null;
+}
+
+function syncExternalWatch() {
+  if (!window.inkwell.watchExternal) return;
+  const files = (state.externalFiles || []).map((f) => f.path);
+  if (state.currentFile && isExternalPath(state.currentFile)) files.push(externalAbsOf(state.currentFile));
+  const unique = [...new Set(files)];
+  const folders = (state.externalFolders || []).map((f) => f.path);
+  const signature = JSON.stringify([unique, folders]);
+  if (signature === externalWatchSignature) return;
+  externalWatchSignature = signature;
+  Promise.resolve(window.inkwell.watchExternal({ files: unique, folders })).catch(() => {});
+}
+
+async function openExternalFolder(abs) {
+  const ok = await loadExternalTree(abs);
+  if (!ok) {
+    toast('Could not open folder', 'error');
+    return;
+  }
+  const name = abs.split(/[\\/]/).filter(Boolean).pop() || abs;
+  if (!state.externalFolders.some((f) => f.path === abs)) state.externalFolders.unshift({ path: abs, name });
+  state.externalOpen = true;
+  externalFolderOpen.add(abs);
+  savePreferences();
+  renderFileList();
+  toast(`Opened folder ${name}`, 'success');
+}
+
+function removeExternalFolder(abs) {
+  state.externalFolders = state.externalFolders.filter((f) => f.path !== abs);
+  externalFolderOpen.delete(abs);
+  externalTrees.delete(abs);
+  savePreferences();
+  renderFileList();
+}
+
+function setupExternalWatch() {
+  const api = window.inkwell;
+  if (!api || !api.onExternalChanged) return;
+  let timer = null;
+  const queued = new Set();
+  api.onExternalChanged((payload) => {
+    for (const item of (payload && payload.paths) || []) queued.add(item);
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const paths = [...queued];
+      queued.clear();
+      const touched = new Set();
+      for (const item of paths) {
+        for (const folder of state.externalFolders) {
+          if (item === folder.path || item.startsWith(folder.path + '/')) touched.add(folder.path);
+        }
+      }
+      for (const folder of touched) await loadExternalTree(folder);
+      if (touched.size) renderFileList();
+      reloadOpenFileFromDisk(paths);
+    }, 120);
+  });
+}
+setupExternalWatch();
+
+async function restoreExternalFolders() {
+  for (const folder of [...state.externalFolders]) await loadExternalTree(folder.path);
+  renderFileList();
+}
 
 function formatRelative(ms) {
   const diff = Date.now() - ms;
@@ -895,6 +1007,7 @@ async function initApp() {
     }
   } catch (_) {}
   await refreshFiles();
+  restoreExternalFolders();
   setupEditorEvents();
   setupToolbar();
   setupZoom();
@@ -1000,6 +1113,11 @@ function loadPreferences() {
           .filter((f) => f && typeof f.path === 'string' && f.path.trim())
           .map((f) => ({ path: f.path, name: f.name || f.path.split(/[\\/]/).pop(), kind: f.kind || 'markdown' }));
       }
+      if (Array.isArray(p.externalFolders)) {
+        state.externalFolders = p.externalFolders
+          .filter((f) => f && typeof f.path === 'string' && f.path.trim())
+          .map((f) => ({ path: f.path, name: f.name || f.path.split(/[\\/]/).filter(Boolean).pop() || f.path }));
+      }
       if (Array.isArray(p.aiProviders)) state.aiProviders = p.aiProviders.filter((pp) => pp && typeof pp === 'object' && pp.id && pp.name && pp.command);
       if (p.commentsByFile && typeof p.commentsByFile === 'object') state.commentsByFile = p.commentsByFile;
       if (p.translationsByFile && typeof p.translationsByFile === 'object') state.translationsByFile = p.translationsByFile;
@@ -1072,6 +1190,7 @@ function savePreferences() {
       aiDockH: state.aiDockH,
       aiPrompts: state.aiPrompts,
       externalFiles: state.externalFiles,
+      externalFolders: state.externalFolders,
       commentsByFile: state.commentsByFile,
       translationsByFile: state.translationsByFile,
       passageAnswers: state.passageAnswers,
@@ -1356,7 +1475,9 @@ function renderFileList() {
   const query = state.searchQuery.trim().toLowerCase();
   const extFiles = (state.externalFiles || [])
     .filter((f) => !searching || (f.name || '').toLowerCase().includes(query));
-  if (extFiles.length) {
+  const extFolders = (state.externalFolders || [])
+    .filter((f) => !searching || (f.name || '').toLowerCase().includes(query));
+  if (extFiles.length || extFolders.length) {
     const open = searching ? true : state.externalOpen !== false;
     const extHead = document.createElement('button');
     extHead.type = 'button';
@@ -1367,15 +1488,19 @@ function renderFileList() {
       ${iconChevron(open)}
       <span class="list-header-icon">${globeSvg}</span>
       <span>${t('Outside the vault')}</span>
-      <span class="list-count">${extFiles.length}</span>
+      <span class="list-count">${extFiles.length + extFolders.length}</span>
     `;
     extHead.addEventListener('click', () => {
       state.externalOpen = !(state.externalOpen !== false);
       renderFileList();
     });
     els.fileList.appendChild(extHead);
-    if (open) for (const f of extFiles) els.fileList.appendChild(buildExternalItem(f));
+    if (open) {
+      for (const f of extFolders) els.fileList.appendChild(buildExternalFolder(f, searching));
+      for (const f of extFiles) els.fileList.appendChild(buildExternalItem(f));
+    }
   }
+  syncExternalWatch();
 
   // Archive section (hidden while searching, collapsed by default)
   if (!searching && state.archivedFiles.length) {
@@ -1753,7 +1878,7 @@ function externalFolderName(abs) {
 
 function externalEntry(path) {
   const abs = isExternalPath(path) ? externalAbsOf(path) : path;
-  return (state.externalFiles || []).find((f) => f.path === abs) || null;
+  return (state.externalFiles || []).find((f) => f.path === abs) || externalEntryOfTree(abs);
 }
 
 // every read/write of the open document goes through these two
@@ -1828,6 +1953,117 @@ function updateDocumentChrome() {
     els.breadcrumbBadge.textContent = label;
     els.breadcrumbBadge.classList.toggle('hidden', !label);
   }
+}
+
+// A folder opened from outside: its files are listed in place as a tree.
+function buildExternalFolder(folder, forcedOpen) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'folder-node';
+  const tree = externalTrees.get(folder.path);
+  const open = forcedOpen || externalFolderOpen.has(folder.path);
+  const row = document.createElement('div');
+  row.className = 'folder-item external-folder';
+  row.dataset.extDir = folder.path;
+  row.title = folder.path;
+  row.innerHTML = `
+    ${iconChevron(open)}
+    <span class="folder-item-icon">${iconFolder()}</span>
+    <span class="folder-item-name">${escapeHtml(folder.name)}</span>
+    ${tree ? `<span class="folder-count">${tree.entries.filter((e) => !e.dir).length}</span>` : ''}
+    <div class="file-item-actions">
+      <button class="ext-remove" title="${t('Remove from list')}">${tabCloseSvg}</button>
+    </div>
+  `;
+  row.addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    if (externalFolderOpen.has(folder.path)) externalFolderOpen.delete(folder.path);
+    else externalFolderOpen.add(folder.path);
+    renderFileList();
+  });
+  attachExternalMenu(row, folder.path);
+  row.querySelector('.ext-remove').addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeExternalFolder(folder.path);
+  });
+  wrapper.appendChild(row);
+  if (open && tree) {
+    const children = document.createElement('div');
+    children.className = 'folder-children';
+    buildExternalChildren(children, folder.path, tree, '', 1);
+    wrapper.appendChild(children);
+  }
+  return wrapper;
+}
+
+function buildExternalChildren(container, rootPath, tree, parentRel, depth) {
+  const direct = tree.entries.filter((e) => {
+    const at = e.rel.lastIndexOf('/');
+    return (at === -1 ? '' : e.rel.slice(0, at)) === parentRel;
+  });
+  const dirs = direct.filter((e) => e.dir).sort((a, b) => a.name.localeCompare(b.name));
+  const files = direct.filter((e) => !e.dir).sort((a, b) => a.name.localeCompare(b.name));
+  for (const dir of dirs) {
+    const abs = rootPath + '/' + dir.rel;
+    const key = abs;
+    const open = externalFolderOpen.has(key);
+    const row = document.createElement('div');
+    row.className = 'folder-item external-folder';
+    row.dataset.extDir = abs;
+    row.title = abs;
+    row.style.paddingInlineStart = (10 + depth * 14) + 'px';
+    row.innerHTML = `
+      ${iconChevron(open)}
+      <span class="folder-item-icon">${iconFolder()}</span>
+      <span class="folder-item-name">${escapeHtml(dir.name)}</span>
+    `;
+    row.addEventListener('click', () => {
+      if (externalFolderOpen.has(key)) externalFolderOpen.delete(key);
+      else externalFolderOpen.add(key);
+      renderFileList();
+    });
+    attachExternalMenu(row, abs);
+    const node = document.createElement('div');
+    node.className = 'folder-node';
+    node.appendChild(row);
+    if (open) {
+      const kids = document.createElement('div');
+      kids.className = 'folder-children';
+      buildExternalChildren(kids, rootPath, tree, dir.rel, depth + 1);
+      node.appendChild(kids);
+    }
+    container.appendChild(node);
+  }
+  for (const file of files) {
+    const key = externalKeyOf(file.path);
+    const item = document.createElement('div');
+    item.className = 'file-item external-item' + (state.currentFile === key ? ' active' : '');
+    item.dataset.ext = file.path;
+    item.title = file.path;
+    item.style.paddingInlineStart = (10 + depth * 14) + 'px';
+    const badge = /\.docx$/i.test(file.name) ? 'DOCX' : /\.html?$/i.test(file.name) ? 'HTML' : 'MD';
+    item.innerHTML = `
+      <span class="file-item-icon external">${docIcon}</span>
+      <div class="file-item-body">
+        <span class="file-item-title-row">
+          <span class="file-item-name">${escapeHtml(file.name.replace(/\.(?:md|markdown|html?|docx|txt)$/i, ''))}</span>
+          <span class="file-type-badge">${badge}</span>
+        </span>
+      </div>
+    `;
+    item.addEventListener('click', () => selectFile(key, { source: 'external' }));
+    attachExternalMenu(item, file.path);
+    container.appendChild(item);
+  }
+}
+
+function attachExternalMenu(el, abs) {
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    state.contextTarget = externalKeyOf(abs);
+    state.contextIsFolder = false;
+    state.contextIsRoot = false;
+    showContextMenu(e.clientX, e.clientY);
+  });
 }
 
 // A row for a document that lives outside the vault: the folder it came from
@@ -2453,6 +2689,13 @@ function setupEditorEvents() {
 
   // show the "Ask AI" trigger when the user finishes selecting text
   els.editor.addEventListener('mouseup', (e) => {
+    const point = { clientX: e.clientX, clientY: e.clientY };
+    // a plain click inside an old selection still reports it while the button
+    // goes up; the selection is read once the click has settled
+    setTimeout(() => showEditorSelectionMenu(point), 0);
+  });
+
+  function showEditorSelectionMenu(e) {
     let start = els.editor.selectionStart;
     let end = els.editor.selectionEnd;
     // placing a caret at the edge of a Latin word in an RTL line can land one
@@ -2468,14 +2711,29 @@ function setupEditorEvents() {
     const text = end > start ? els.editor.value.slice(start, end) : '';
     if (text.trim()) showAIFloat(e.clientX, e.clientY, { text, start, end });
     else hideAIFloat();
+  }
+
+  // a click anywhere else drops the selection, so its menu goes with it
+  document.addEventListener('mousedown', (e) => {
+    if (els.selFloat && !els.selFloat.contains(e.target)) hideAIFloat();
   });
 
   if (els.preview) {
-    els.preview.addEventListener('mouseup', (e) => {
+    els.preview.addEventListener('mouseup', (ev) => {
+      const at = { clientX: ev.clientX, clientY: ev.clientY };
+      setTimeout(() => showPreviewSelectionMenu(at), 0);
+    });
+  }
+
+  function showPreviewSelectionMenu(e) {
+    {
       const sel = window.getSelection();
       const text = sel ? sel.toString() : '';
       const node = sel && sel.anchorNode;
-      if (!text.trim() || !node || !els.previewContent.contains(node)) return;
+      if (!text.trim() || !node || !els.previewContent.contains(node) || sel.isCollapsed) {
+        hideAIFloat();
+        return;
+      }
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       const idx = els.editor.value.indexOf(text);
@@ -2501,7 +2759,7 @@ function setupEditorEvents() {
           previewAt,
         },
       );
-    });
+    }
   }
 
   setupLiveEditing();
@@ -3328,6 +3586,91 @@ function commitLiveBlock(options = {}) {
   preview.scrollTop = scrollTop + (newTop - oldTop);
 }
 
+// Backspace or Delete over text selected in the rendered note removes the same
+// text from the Markdown source. Each block the selection touches is matched
+// against its own source, so a selection that cannot be placed exactly is left
+// alone rather than guessed at.
+function deleteRenderedSelection() {
+  if (!liveEditingAvailable()) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  const root = els.previewContent;
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return false;
+  const interactive = 'a,button,input,textarea,select,.md-flashdeck,.diagram-body';
+  const origin = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  if (origin && origin.closest && origin.closest(interactive)) return false;
+
+  const wraps = Array.from(root.querySelectorAll('.live-block')).filter((wrap) => {
+    if (typeof range.intersectsNode === 'function' && !range.intersectsNode(wrap)) return false;
+    return true;
+  });
+  if (!wraps.length) return false;
+
+  const source = els.editor.value;
+  const pieces = [];
+  for (const wrap of wraps) {
+    const blockRange = liveBlockRangeOf(wrap);
+    if (!blockRange) return false;
+    const part = range.cloneRange();
+    if (part.compareBoundaryPoints(Range.START_TO_START, (() => { const r = document.createRange(); r.selectNodeContents(wrap); return r; })()) < 0) {
+      part.setStart(wrap, 0);
+    }
+    const whole = document.createRange();
+    whole.selectNodeContents(wrap);
+    if (part.compareBoundaryPoints(Range.END_TO_END, whole) > 0) part.setEnd(wrap, wrap.childNodes.length);
+    pieces.push({ wrap, blockRange, text: part.toString(), covers: whole.toString() === part.toString() });
+  }
+
+  let start;
+  let end;
+  const locate = (piece, last) => {
+    const body = source.slice(piece.blockRange.start, piece.blockRange.end);
+    const needle = piece.text;
+    if (!needle) return null;
+    const first = body.indexOf(needle);
+    if (first === -1) return null;
+    const lastAt = body.lastIndexOf(needle);
+    return { first: piece.blockRange.start + first, last: piece.blockRange.start + lastAt, length: needle.length, unique: first === lastAt };
+  };
+
+  if (pieces.length === 1) {
+    const only = pieces[0];
+    if (only.covers) {
+      start = only.blockRange.start;
+      end = only.blockRange.end;
+    } else {
+      const found = locate(only);
+      if (!found || !found.unique) {
+        toast(t('Click into the block to delete this selection'), 'info');
+        return true;
+      }
+      start = found.first;
+      end = found.first + found.length;
+    }
+  } else {
+    const head = pieces[0];
+    const tail = pieces[pieces.length - 1];
+    if (head.covers) start = head.blockRange.start;
+    else {
+      const found = locate(head);
+      if (!found) { toast(t('Click into the block to delete this selection'), 'info'); return true; }
+      start = found.last;
+    }
+    if (tail.covers) end = tail.blockRange.end;
+    else {
+      const found = locate(tail);
+      if (!found) { toast(t('Click into the block to delete this selection'), 'info'); return true; }
+      end = found.first + found.length;
+    }
+    if (end <= start) return false;
+  }
+  hideAIFloat();
+  sel.removeAllRanges();
+  replaceRange(start, end, '');
+  return true;
+}
+
 function setupLiveEditing() {
   const root = els.previewContent;
   if (!root) return;
@@ -3378,6 +3721,15 @@ function setupLiveEditing() {
     }
   });
 
+  // rendered text is not focusable, so the key arrives at the document
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || liveBlock) return;
+    const tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+    if (deleteRenderedSelection()) e.preventDefault();
+  });
+
   root.addEventListener('focusout', (e) => {
     if (!liveBlock || e.target !== liveBlock.textarea) return;
     const ta = e.target;
@@ -3420,11 +3772,15 @@ function setupLiveEditing() {
   root.addEventListener('mouseup', (e) => {
     const ta = liveBlock && liveBlock.textarea;
     if (!ta || e.target !== ta) return;
-    const text = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-    if (!text.trim()) return;
-    const start = liveBlock.start + liveBlock.leadingBreak.length + ta.selectionStart;
-    const end = liveBlock.start + liveBlock.leadingBreak.length + ta.selectionEnd;
-    showAIFloat(e.clientX, e.clientY, { text, start, end });
+    const point = { x: e.clientX, y: e.clientY };
+    setTimeout(() => {
+      if (!liveBlock || liveBlock.textarea !== ta) return;
+      const text = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+      if (!text.trim()) { hideAIFloat(); return; }
+      const start = liveBlock.start + liveBlock.leadingBreak.length + ta.selectionStart;
+      const end = liveBlock.start + liveBlock.leadingBreak.length + ta.selectionEnd;
+      showAIFloat(point.x, point.y, { text, start, end });
+    }, 0);
   });
 }
 
@@ -13288,6 +13644,7 @@ function showContextMenu(x, y) {
   // and anything with a path on disk can be shown in the file manager
   $('ctxReveal').classList.toggle('hidden', isRoot);
 
+  $('ctxSaveVault').classList.toggle('hidden', !isExternal);
   $('ctxArchive').classList.toggle('hidden', isRoot || isExternal);
   $('ctxRename').classList.toggle('hidden', isRoot || isExternal);
   $('ctxDelete').classList.toggle('hidden', isRoot || isExternal);
@@ -13360,6 +13717,36 @@ $('ctxReveal').addEventListener('click', () => {
   Promise.resolve(window.inkwell.revealItem(payload)).then((res) => {
     if (!res || !res.success) toast((res && res.error) || t('Could not open the folder'), 'error');
   }).catch(() => toast(t('Could not open the folder'), 'error'));
+});
+
+// Copies an outside file or folder into the vault, keeping the project's folder.
+$('ctxSaveVault').addEventListener('click', async () => {
+  const target = state.contextTarget;
+  hideContextMenu();
+  if (!target || !isExternalPath(target)) return;
+  const abs = externalAbsOf(target);
+  const payload = { path: abs, root: externalDirRoot.get(abs) || '' };
+  if (!payload.root) {
+    // a file inside an open folder belongs to that folder's tree
+    const owner = state.externalFolders.find((f) => abs.startsWith(f.path + '/'));
+    if (owner) payload.root = owner.path;
+  }
+  try {
+    const res = await window.inkwell.saveExternalToVault(payload);
+    if (res && res.canceled) return;
+    if (!res || !res.success) {
+      toast((res && res.error) || t('Could not save to the vault'), 'error');
+      return;
+    }
+    await refreshFiles();
+    if (res.path) expandAncestors(res.path);
+    renderFileList();
+    toast(res.copied
+      ? `Saved to the vault: ${res.path}${res.copied > 1 ? ` (${res.copied} files)` : ''}`
+      : 'Already in the vault', 'success');
+  } catch (_) {
+    toast(t('Could not save to the vault'), 'error');
+  }
 });
 
 $('ctxPin').addEventListener('click', () => {

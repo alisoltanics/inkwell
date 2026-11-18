@@ -28,6 +28,14 @@ contextBridge.exposeInMainWorld('inkwell', {
   openExternalFile: () => ipcRenderer.invoke('file:openExternal'),
   readExternal: (absPath) => ipcRenderer.invoke('file:readExternal', absPath),
   writeExternal: (absPath, content) => ipcRenderer.invoke('file:writeExternal', absPath, content),
+  listExternalDir: (absPath) => ipcRenderer.invoke('file:listExternalDir', absPath),
+  watchExternal: (payload) => ipcRenderer.invoke('external:watch', payload),
+  saveExternalToVault: (payload) => ipcRenderer.invoke('external:saveToVault', payload),
+  onExternalChanged: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('external:changed', handler);
+    return () => ipcRenderer.removeListener('external:changed', handler);
+  },
   // show a note or folder in the OS file manager
   revealItem: (payload) => ipcRenderer.invoke('shell:reveal', payload),
   // open a file with the program the system has for it (a PDF, an image)
