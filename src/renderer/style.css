@@ -7277,3 +7277,139 @@ html[dir="rtl"] .ans-pop-quote {
     padding: 8px 12px 10px;
     border-top: 1px solid var(--border);
 }
+
+/* ============ SIDEBAR REFINEMENT ============ */
+/* One calm surface: the accent is kept for the single thing that matters (the
+   open note and the primary action), everything else is neutral type on a quiet
+   ground. Declared last so it settles the earlier sidebar rules for every palette. */
+.sidebar { border-right-color: color-mix(in srgb, var(--border) 70%, transparent); }
+
+.sidebar-top { padding: 16px 14px 10px; gap: 14px; }
+.sidebar-brand { font-size: 14.5px; gap: 10px; }
+.brand-logo { width: 24px; height: 24px; border-radius: 7px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12); }
+
+/* primary action: solid, no glow; secondary actions: flat */
+.btn-new {
+    height: 32px;
+    font-weight: 600;
+    background: var(--accent);
+    box-shadow: none;
+    transition: background 0.15s, transform 0.12s, filter 0.12s;
+}
+.btn-new:hover { transform: none; filter: brightness(1.08); box-shadow: none; }
+.btn-new:active { transform: scale(0.98); }
+.btn-new-ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+.btn-new-ghost:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text); filter: none; }
+.btn-new-icon { flex: 0 0 32px; width: 32px; padding: 0; }
+
+/* search reads as a recessed field, and lights up only when used */
+.sidebar-search { margin: 0 14px 8px; }
+#searchInput {
+    height: 32px;
+    padding: 0 12px 0 34px;
+    background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+    border-color: transparent;
+    border-radius: 8px;
+}
+#searchInput:hover { border-color: var(--border); }
+#searchInput:focus { background: var(--bg-elevated); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+.file-list { padding: 4px 8px 14px; gap: 1px; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.file-list:hover { scrollbar-color: var(--border-strong) transparent; }
+
+/* section headers: sentence case, no tracked capitals, plain counts */
+.list-header,
+.list-header-toggle {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.list-header-toggle { margin-top: 4px; }
+.list-header-tg .list-header-icon svg,
+.list-header-toggle .list-header-icon svg { width: 14px; height: 14px; }
+.list-header-icon { height: 14px; }
+.list-count,
+.folder-count {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 11.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+.list-header-tg .list-count { background: transparent; }
+.folder-item.active .folder-count { border: 0; }
+.list-divider { margin: 6px 10px 2px; opacity: 0.6; }
+
+/* note rows */
+.file-item { gap: 10px; padding: 7px 10px; border-radius: 8px; }
+.file-item:hover { background: color-mix(in srgb, var(--bg-hover) 80%, transparent); }
+.file-item.active {
+    background: color-mix(in srgb, var(--accent) 11%, var(--bg-elevated));
+    box-shadow: none;
+}
+.file-item.active::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
+}
+html.rtl .file-item.active::before { border-radius: 3px 0 0 3px; }
+.file-item.active .file-item-name { color: var(--text); font-weight: 600; }
+.file-item.active .file-item-icon { color: var(--accent); }
+.file-item-name { font-size: 13px; }
+.file-item-meta { font-size: 11px; opacity: 0.85; }
+.file-item-icon { width: 16px; height: 16px; }
+
+/* the type badge is information, not decoration: neutral */
+.file-type-badge {
+    padding: 0 5px;
+    border-color: var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 9px;
+    font-weight: 600;
+}
+
+/* folders: neutral icon, the accent only marks the folder holding the open note */
+.folder-item { padding: 6px 10px; gap: 8px; border-radius: 8px; }
+.folder-item:hover { background: color-mix(in srgb, var(--bg-hover) 80%, transparent); }
+.folder-item-icon { color: var(--text-muted); }
+.folder-item:hover .folder-item-icon { color: var(--text-secondary); }
+.folder-item.active .folder-item-name { color: var(--text); font-weight: 600; }
+.folder-item.active::before { display: none; }
+.folder-children {
+    margin-inline-start: 17px;
+    padding-inline-start: 4px;
+    border-left: 0;
+    border-inline-start: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    gap: 1px;
+}
+.folder-item .chevron { opacity: 0.7; }
+
+/* row actions: fade in instead of popping */
+.file-item-actions button { width: 24px; height: 24px; border-radius: 6px; }
+.file-item:hover .file-item-actions,
+.folder-item:hover .file-item-actions { animation: sidebarActionsIn 0.12s ease-out; }
+@keyframes sidebarActionsIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* the section for files from outside gets a quiet identity of its own */
+.external-item .file-item-icon.external { color: var(--text-muted); }
+.external-folder .folder-item-icon { color: var(--text-muted); }
+
+/* footer: the vault location, readable but never loud */
+.sidebar-footer { padding: 9px 14px; border-top-color: color-mix(in srgb, var(--border) 70%, transparent); }
+.vault-info { font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .file-item:hover .file-item-actions,
+    .folder-item:hover .file-item-actions { animation: none; }
+}
